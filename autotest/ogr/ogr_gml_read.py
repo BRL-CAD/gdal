@@ -4040,15 +4040,6 @@ def test_ogr_gml_read_boundedby_only(tmp_path):
     def check():
         ds = gdal.OpenEx(tmp_path / "only_boundedby.gml", open_options=["USE_BBOX=YES"])
         lyr = ds.GetLayer(0)
-        assert lyr.GetGeomType() == ogr.wkbNone
-        ds = None
-
-    gdal.Unlink("data/gml/only_boundedby.gfs")
-    check_no_options()
-
-    def check():
-        ds = gdal.OpenEx("data/gml/only_boundedby.gml", open_options=["USE_BBOX=YES"])
-        lyr = ds.GetLayer(0)
         assert lyr.GetLayerDefn().GetGeomFieldCount() == 1
         assert lyr.GetGeomType() == ogr.wkbPolygon
         assert lyr.GetGeometryColumn() == "boundedBy"
@@ -4128,42 +4119,6 @@ def test_ogr_gml_read_bbox_and_several_geom_elements(tmp_path):
     # This time with .gfs
     assert os.path.exists(tmp_path / "bbox_and_several_geom_elements.gfs")
     check()
-
-
-###############################################################################
-# Test bug fix for https://github.com/OSGeo/gdal/pull/4397
-# where there are several layers with features with gml:boundedBy elements
-# and geometries in elements with different names
-
-
-def test_ogr_gml_read_bbox_and_several_geom_elements():
-
-    if not gdaltest.have_gml_reader:
-        pytest.skip()
-
-    def check():
-        ds = gdal.OpenEx(
-            "data/gml/bbox_and_several_geom_elements.gml", open_options=["USE_BBOX=YES"]
-        )
-        lyr = ds.GetLayer(0)
-        assert lyr.GetGeometryColumn() == "geom1"
-        assert lyr.GetGeomType() == ogr.wkbMultiPolygon
-        f = lyr.GetNextFeature()
-        assert f.GetGeometryRef().GetGeometryType() == ogr.wkbMultiPolygon
-        lyr = ds.GetLayer(1)
-        assert lyr.GetGeometryColumn() == "geom2"
-        assert lyr.GetGeomType() == ogr.wkbPoint
-        f = lyr.GetNextFeature()
-        assert f.GetGeometryRef().GetGeometryType() == ogr.wkbPoint
-        ds = None
-
-    gdal.Unlink("data/gml/bbox_and_several_geom_elements.gfs")
-    check()
-
-    # This time with .gfs
-    assert os.path.exists("data/gml/bbox_and_several_geom_elements.gfs")
-    check()
-    gdal.Unlink("data/gml/bbox_and_several_geom_elements.gfs")
 
 
 ###############################################################################

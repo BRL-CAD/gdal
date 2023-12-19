@@ -1804,34 +1804,6 @@ def test_ogr_parquet_arrow_stream_numpy():
     assert batches[0]["struct_field.a"][1] == 2
     assert batches[0]["struct_field.b"][0] == 2.5
 
-    assert numpy.array_equal(batches[0]["list_uint8"][0], numpy.array([]))
-    assert numpy.array_equal(batches[0]["list_uint8"][1], numpy.array([0]))
-    assert numpy.array_equal(batches[0]["list_uint8"][2], numpy.array([]))
-    assert numpy.array_equal(batches[1]["list_uint8"][0], numpy.array([0, 4, 5]))
-    assert numpy.array_equal(batches[1]["list_uint8"][1], numpy.array([0, 7, 8, 9]))
-
-    assert batches[0]["fixed_size_binary"][0] == b"\x00\x01"
-    assert batches[0]["fixed_size_binary"][1] == b"\x00\x00"
-    assert batches[0]["fixed_size_binary"][2] == b"\x01\x01"
-    assert batches[1]["fixed_size_binary"][0] == b"\x01\x00"
-    assert batches[1]["fixed_size_binary"][1] == b"\x00\x01"
-
-    assert numpy.array_equal(
-        batches[0]["fixed_size_list_uint8"][0], numpy.array([0, 1])
-    )
-    assert numpy.array_equal(
-        batches[0]["fixed_size_list_uint8"][1], numpy.array([2, 3])
-    )
-    assert numpy.array_equal(
-        batches[0]["fixed_size_list_uint8"][2], numpy.array([4, 5])
-    )
-    assert numpy.array_equal(
-        batches[1]["fixed_size_list_uint8"][0], numpy.array([6, 7])
-    )
-    assert numpy.array_equal(
-        batches[1]["fixed_size_list_uint8"][1], numpy.array([8, 9])
-    )
-
     ignored_fields = ["geometry"]
     lyr_defn = lyr.GetLayerDefn()
     for i in range(lyr_defn.GetFieldCount()):

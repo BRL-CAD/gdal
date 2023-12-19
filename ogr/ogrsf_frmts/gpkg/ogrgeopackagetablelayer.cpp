@@ -7735,7 +7735,6 @@ begin:
             {
                 psHelper->SetEmptyStringOrBinary(psArray, iFeat);
             }
-            CPLFree(pabyWkbToFree);
         }
 
         if (nWKBSize == 0)

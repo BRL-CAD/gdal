@@ -2713,7 +2713,7 @@ inline void OGRArrowLayer::ComputeConstraintsArrayIdx()
 /*                     ExploreExprNode()                               */
 /***********************************************************************/
 
-inline void OGRArrowLayer::ComputeConstraintsArrayIdx()
+inline void OGRArrowLayer::ExploreExprNode(const swq_expr_node *poNode)
 {
     const auto AddConstraint = [this](Constraint &constraint)
     { m_asAttributeFilterConstraints.emplace_back(constraint); };

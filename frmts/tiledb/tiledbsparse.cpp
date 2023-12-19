@@ -33,7 +33,6 @@
 #include "ogr_p.h"
 #include "ogr_recordbatch.h"
 #include "ogr_swq.h"
-#include "ogr_wkb.h"
 
 #include <algorithm>
 #include <limits>

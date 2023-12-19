@@ -701,10 +701,6 @@ def generate_test_parquet():
 
     feather.write_feather(table, HERE / "ogr/data/arrow/test.feather")
 
-    import pyarrow.feather as feather
-
-    feather.write_feather(table, HERE / "ogr/data/arrow/test.feather")
-
 
 def generate_all_geoms_parquet():
     import json
