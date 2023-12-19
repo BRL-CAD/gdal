@@ -197,7 +197,7 @@ def test_cog_creation_options():
 
     if "<Value>WEBP" in colist:
 
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert not gdal.GetDriverByName("COG").CreateCopy(
                 filename, src_ds, options=["COMPRESS=WEBP"]
             )
@@ -242,7 +242,7 @@ def test_cog_creation_options():
             assert filesize_lerc_zstd_level_1 > filesize_lerc_zstd
 
     src_ds = None
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         gdal.GetDriverByName("GTiff").Delete(filename)
 
 
@@ -293,6 +293,27 @@ def test_cog_creation_of_overviews():
     src_ds = None
     gdal.GetDriverByName("GTiff").Delete(filename)
     gdal.Unlink(directory)
+
+
+###############################################################################
+# Test creation from a single band + alpha dataset
+
+
+@pytest.mark.require_creation_option("COG", "JPEG")
+def test_cog_single_band_plus_alpha_jpeg_compression(tmp_vsimem):
+
+    filename = str(tmp_vsimem / "cog.tif")
+    src_ds = gdal.GetDriverByName("MEM").Create("", 1, 1, 2)
+    src_ds.GetRasterBand(2).SetColorInterpretation(gdal.GCI_AlphaBand)
+
+    ds = gdal.GetDriverByName("COG").CreateCopy(
+        filename,
+        src_ds,
+        options=["COMPRESS=JPEG"],
+    )
+
+    assert ds.RasterCount == 1
+    assert ds.GetRasterBand(1).GetMaskFlags() == gdal.GMF_PER_DATASET
 
 
 ###############################################################################
@@ -385,6 +406,43 @@ def test_cog_creation_of_overviews_with_mask():
     src_ds = None
     gdal.GetDriverByName("GTiff").Delete(filename)
     gdal.Unlink(directory)
+
+
+###############################################################################
+# Test MAX_Z_ERROR_OVERVIEW creation option
+
+
+@pytest.mark.require_creation_option("COG", "LERC")
+def test_cog_lerc_max_z_error_overview(tmp_vsimem):
+
+    fname = str(tmp_vsimem / "test_cog_lerc_max_z_error_overview.tif")
+
+    gdal.Translate(
+        fname,
+        "../gdrivers/data/utm.tif",
+        options="-of COG -co COMPRESS=LERC -outsize 256 256 -co BLOCKSIZE=128",
+    )
+    ds = gdal.Open(fname)
+    assert float(ds.GetMetadataItem("MAX_Z_ERROR", "_DEBUG_")) == 0
+    assert float(ds.GetMetadataItem("MAX_Z_ERROR_OVERVIEW", "_DEBUG_")) == 0.0
+    ref_cs_main = ds.GetRasterBand(1).Checksum()
+    ref_cs_ovr = ds.GetRasterBand(1).GetOverview(0).Checksum()
+    ds = None
+
+    gdal.Translate(
+        fname,
+        "../gdrivers/data/utm.tif",
+        options="-of COG -co COMPRESS=LERC -co MAX_Z_ERROR_OVERVIEW=1.5 -outsize 256 256 -co BLOCKSIZE=128",
+    )
+    ds = gdal.Open(fname)
+    assert float(ds.GetMetadataItem("MAX_Z_ERROR", "_DEBUG_")) == 0
+    assert float(ds.GetMetadataItem("MAX_Z_ERROR_OVERVIEW", "_DEBUG_")) == 1.5
+    got_cs_main = ds.GetRasterBand(1).Checksum()
+    got_cs_ovr = ds.GetRasterBand(1).GetOverview(0).Checksum()
+    ds = None
+
+    assert got_cs_main == ref_cs_main
+    assert got_cs_ovr != ref_cs_ovr
 
 
 ###############################################################################
@@ -749,6 +807,7 @@ def test_cog_overviews_co():
 # Test editing and invalidating a COG file
 
 
+@gdaltest.enable_exceptions()
 def test_cog_invalidation_by_data_change():
 
     filename = "/vsimem/cog.tif"
@@ -758,16 +817,24 @@ def test_cog_invalidation_by_data_change():
     )
     ds = None
 
-    ds = gdal.Open(filename, gdal.GA_Update)
+    with pytest.raises(
+        Exception,
+        match="IGNORE_COG_LAYOUT_BREAK",
+    ):
+        gdal.Open(filename, gdal.GA_Update)
+
+    ds = gdal.OpenEx(
+        filename, gdal.GA_Update, open_options=["IGNORE_COG_LAYOUT_BREAK=YES"]
+    )
     assert ds.GetMetadataItem("LAYOUT", "IMAGE_STRUCTURE") == "COG"
     src_ds = gdal.Open("data/byte.tif")
     data = src_ds.ReadRaster()
     ds.GetRasterBand(1).WriteRaster(0, 0, 20, 20, data)
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         assert ds.FlushCache() == gdal.CE_None
     ds = None
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ds = gdal.Open(filename)
     assert ds.GetMetadataItem("LAYOUT", "IMAGE_STRUCTURE") is None
     ds = None
@@ -777,7 +844,7 @@ def test_cog_invalidation_by_data_change():
     ):
         _check_cog(filename)
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         gdal.GetDriverByName("GTiff").Delete(filename)
 
 
@@ -794,16 +861,18 @@ def test_cog_invalidation_by_metadata_change():
     )
     ds = None
 
-    ds = gdal.Open(filename, gdal.GA_Update)
+    ds = gdal.OpenEx(
+        filename, gdal.GA_Update, open_options=["IGNORE_COG_LAYOUT_BREAK=YES"]
+    )
     ds.GetRasterBand(1).ComputeStatistics(False)
     ds = None
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ds = gdal.Open(filename)
     assert ds.GetMetadataItem("LAYOUT", "IMAGE_STRUCTURE") is None
     ds = None
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         gdal.GetDriverByName("GTiff").Delete(filename)
 
 
@@ -1308,7 +1377,7 @@ def test_cog_zoom_level():
     filename = "/vsimem/test_cog_zoom_level.tif"
     src_ds = gdal.Open("data/byte.tif")
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         assert (
             gdal.GetDriverByName("COG").CreateCopy(
                 filename,
@@ -1414,7 +1483,7 @@ def test_cog_invalid_warp_resampling():
     filename = "/vsimem/test_cog_invalid_warp_resampling.tif"
     src_ds = gdal.Open("data/byte.tif")
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         assert (
             gdal.GetDriverByName("COG").CreateCopy(
                 filename,
@@ -1470,7 +1539,7 @@ def test_cog_float32_color_table():
     src_ds.GetRasterBand(1).SetColorTable(ct)
     filename = "/vsimem/test_cog_float32_color_table.tif"
     # Silence warning about color table not being copied
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ds = gdal.GetDriverByName("COG").CreateCopy(filename, src_ds)  # segfault
     assert ds
     assert ds.GetRasterBand(1).GetColorTable() is None
@@ -1606,7 +1675,7 @@ def test_cog_overview_count(options, expected_count):
 
     tmpfilename = "/vsimem/test_cog_overview_count.tif"
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         gdal.Translate(
             tmpfilename,
             "../gdrivers/data/small_world.tif",
@@ -1723,3 +1792,133 @@ def test_cog_NBITS():
     ds = None
 
     gdal.Unlink(filename)
+
+
+###############################################################################
+def test_cog_copy_mdd():
+
+    src_ds = gdal.GetDriverByName("MEM").Create("", 1, 1)
+    src_ds.SetMetadataItem("FOO", "BAR")
+    src_ds.SetMetadataItem("BAR", "BAZ", "OTHER_DOMAIN")
+    src_ds.SetMetadataItem("should_not", "be_copied", "IMAGE_STRUCTURE")
+
+    filename = "/vsimem/test_tiff_write_copy_mdd.tif"
+
+    gdal.GetDriverByName("COG").CreateCopy(filename, src_ds)
+    ds = gdal.Open(filename)
+    assert set(ds.GetMetadataDomainList()) == set(
+        ["", "IMAGE_STRUCTURE", "DERIVED_SUBDATASETS"]
+    )
+    assert ds.GetMetadata_Dict() == {"FOO": "BAR"}
+    assert ds.GetMetadata_Dict("OTHER_DOMAIN") == {}
+    assert ds.GetMetadata_Dict("IMAGE_STRUCTURE") == {
+        "COMPRESSION": "LZW",
+        "INTERLEAVE": "BAND",
+        "LAYOUT": "COG",
+    }
+    ds = None
+
+    gdal.GetDriverByName("COG").CreateCopy(
+        filename, src_ds, options=["COPY_SRC_MDD=NO"]
+    )
+    ds = gdal.Open(filename)
+    assert ds.GetMetadata_Dict() == {}
+    assert ds.GetMetadata_Dict("OTHER_DOMAIN") == {}
+    ds = None
+
+    gdal.GetDriverByName("COG").CreateCopy(
+        filename, src_ds, options=["COPY_SRC_MDD=YES"]
+    )
+    ds = gdal.Open(filename)
+    assert set(ds.GetMetadataDomainList()) == set(
+        ["", "IMAGE_STRUCTURE", "DERIVED_SUBDATASETS", "OTHER_DOMAIN"]
+    )
+    assert ds.GetMetadata_Dict() == {"FOO": "BAR"}
+    assert ds.GetMetadata_Dict("OTHER_DOMAIN") == {"BAR": "BAZ"}
+    assert ds.GetMetadata_Dict("IMAGE_STRUCTURE") == {
+        "COMPRESSION": "LZW",
+        "INTERLEAVE": "BAND",
+        "LAYOUT": "COG",
+    }
+    ds = None
+
+    gdal.GetDriverByName("COG").CreateCopy(
+        filename, src_ds, options=["SRC_MDD=OTHER_DOMAIN"]
+    )
+    ds = gdal.Open(filename)
+    assert ds.GetMetadata_Dict() == {}
+    assert ds.GetMetadata_Dict("OTHER_DOMAIN") == {"BAR": "BAZ"}
+    ds = None
+
+    gdal.GetDriverByName("COG").CreateCopy(
+        filename, src_ds, options=["SRC_MDD=", "SRC_MDD=OTHER_DOMAIN"]
+    )
+    ds = gdal.Open(filename)
+    assert ds.GetMetadata_Dict() == {"FOO": "BAR"}
+    assert ds.GetMetadata_Dict("OTHER_DOMAIN") == {"BAR": "BAZ"}
+    ds = None
+
+    gdal.Unlink(filename)
+
+
+###############################################################################
+@pytest.mark.parametrize(
+    "co,nbands,src_has_stats,expected_val",
+    [
+        ([], 1, False, None),
+        ([], 1, True, "10"),
+        (["STATISTICS=YES"], 1, False, "10"),
+        (["STATISTICS=YES"], 1, True, "10"),
+        (["STATISTICS=NO"], 1, False, None),
+        (["STATISTICS=NO"], 1, True, None),
+        (["TARGET_SRS=EPSG:32631"], 1, False, None),
+        (["TARGET_SRS=EPSG:32631"], 1, True, "10"),
+        (["TARGET_SRS=EPSG:32631", "STATISTICS=YES"], 1, False, "10"),
+        (["TARGET_SRS=EPSG:32631", "STATISTICS=YES"], 1, True, "10"),
+        (["TARGET_SRS=EPSG:32631", "STATISTICS=NO"], 1, False, None),
+        (["TARGET_SRS=EPSG:32631", "STATISTICS=NO"], 1, True, None),
+        (["COMPRESS=JPEG"], 4, False, None),
+        (["COMPRESS=JPEG"], 4, True, "10"),
+        (["COMPRESS=JPEG", "STATISTICS=YES"], 4, False, "10"),
+        (["COMPRESS=JPEG", "STATISTICS=NO"], 4, True, None),
+    ],
+)
+def test_cog_stats(tmp_vsimem, nbands, co, src_has_stats, expected_val):
+
+    if "COMPRESS=JPEG" in co and "JPEG" not in gdal.GetDriverByName(
+        "COG"
+    ).GetMetadataItem(gdal.DMD_CREATIONOPTIONLIST):
+        pytest.skip("JPEG not available")
+    src_filename = str(tmp_vsimem / "src.tif")
+    src_ds = gdal.GetDriverByName("GTiff").Create(src_filename, 1, 1, nbands)
+    if nbands == 4:
+        src_ds.GetRasterBand(4).SetColorInterpretation(gdal.GCI_AlphaBand)
+        src_ds.GetRasterBand(1).Fill(10)
+        src_ds.GetRasterBand(2).Fill(10)
+        src_ds.GetRasterBand(3).Fill(10)
+        src_ds.GetRasterBand(4).Fill(255)
+    else:
+        src_ds.GetRasterBand(1).Fill(10)
+    src_ds.SetGeoTransform([2, 1, 0, 49, 0, -1])
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    src_ds.SetSpatialRef(srs)
+    if src_has_stats:
+        src_ds.GetRasterBand(1).ComputeStatistics(False)
+    src_ds = None
+    filename = str(tmp_vsimem / "out.tif")
+    src_ds = gdal.Open(src_filename)
+    if co == ["STATISTICS=YES"]:
+        gdal.Translate(filename, src_ds, options="-of COG -stats")
+    else:
+        gdal.GetDriverByName("COG").CreateCopy(filename, src_ds, options=co)
+    src_ds = None
+    assert gdal.VSIStatL(src_filename + ".aux.xml") is None
+    ds = gdal.Open(filename)
+    if nbands == 4:
+        assert ds.RasterCount == 3
+        assert ds.GetRasterBand(1).GetMaskFlags() == gdal.GMF_PER_DATASET
+    assert ds.GetRasterBand(1).GetMetadataItem("STATISTICS_MINIMUM") == expected_val
+    if expected_val and ds.RasterCount == 2:
+        assert ds.GetRasterBand(2).GetMetadataItem("STATISTICS_MINIMUM") == "255"
+    ds = None

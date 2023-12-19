@@ -452,103 +452,199 @@ TEST_F(test_ogr, style_manager)
 TEST_F(test_ogr, OGRParseDate)
 {
     OGRField sField;
-    ASSERT_EQ(OGRParseDate("2017/11/31 12:34:56", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.Year, 2017);
-    ASSERT_EQ(sField.Date.Month, 11);
-    ASSERT_EQ(sField.Date.Day, 31);
-    ASSERT_EQ(sField.Date.Hour, 12);
-    ASSERT_EQ(sField.Date.Minute, 34);
-    ASSERT_EQ(sField.Date.Second, 56.0f);
-    ASSERT_EQ(sField.Date.TZFlag, 0);
+    EXPECT_EQ(OGRParseDate("2017/11/31 12:34:56", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Year, 2017);
+    EXPECT_EQ(sField.Date.Month, 11);
+    EXPECT_EQ(sField.Date.Day, 31);
+    EXPECT_EQ(sField.Date.Hour, 12);
+    EXPECT_EQ(sField.Date.Minute, 34);
+    EXPECT_EQ(sField.Date.Second, 56.0f);
+    EXPECT_EQ(sField.Date.TZFlag, 0);
 
-    ASSERT_EQ(OGRParseDate("2017/11/31 12:34:56+00", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.TZFlag, 100);
+    EXPECT_EQ(OGRParseDate("2017/11/31 12:34:56+00", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.TZFlag, 100);
 
-    ASSERT_EQ(OGRParseDate("2017/11/31 12:34:56+12:00", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.TZFlag, 100 + 12 * 4);
+    EXPECT_EQ(OGRParseDate("2017/11/31 12:34:56+12:00", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.TZFlag, 100 + 12 * 4);
 
-    ASSERT_EQ(OGRParseDate("2017/11/31 12:34:56+1200", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.TZFlag, 100 + 12 * 4);
+    EXPECT_EQ(OGRParseDate("2017/11/31 12:34:56+1200", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.TZFlag, 100 + 12 * 4);
 
-    ASSERT_EQ(OGRParseDate("2017/11/31 12:34:56+815", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.TZFlag, 100 + 8 * 4 + 1);
+    EXPECT_EQ(OGRParseDate("2017/11/31 12:34:56+815", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.TZFlag, 100 + 8 * 4 + 1);
 
-    ASSERT_EQ(OGRParseDate("2017/11/31 12:34:56-12:00", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.TZFlag, 100 - 12 * 4);
+    EXPECT_EQ(OGRParseDate("2017/11/31 12:34:56-12:00", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.TZFlag, 100 - 12 * 4);
 
-    ASSERT_EQ(OGRParseDate(" 2017/11/31 12:34:56", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.Year, 2017);
+    EXPECT_EQ(OGRParseDate(" 2017/11/31 12:34:56", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Year, 2017);
 
-    ASSERT_EQ(OGRParseDate("2017/11/31 12:34:56.789", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.Second, 56.789f);
+    EXPECT_EQ(OGRParseDate("2017/11/31 12:34:56.789", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Second, 56.789f);
 
     // Leap second
-    ASSERT_EQ(OGRParseDate("2017/11/31 12:34:60", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.Second, 60.0f);
+    EXPECT_EQ(OGRParseDate("2017/11/31 12:34:60", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Second, 60.0f);
 
-    ASSERT_EQ(OGRParseDate("2017-11-31T12:34:56", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.Year, 2017);
-    ASSERT_EQ(sField.Date.Month, 11);
-    ASSERT_EQ(sField.Date.Day, 31);
-    ASSERT_EQ(sField.Date.Hour, 12);
-    ASSERT_EQ(sField.Date.Minute, 34);
-    ASSERT_EQ(sField.Date.Second, 56.0f);
-    ASSERT_EQ(sField.Date.TZFlag, 0);
+    EXPECT_EQ(OGRParseDate("2017-11-31T12:34:56", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Year, 2017);
+    EXPECT_EQ(sField.Date.Month, 11);
+    EXPECT_EQ(sField.Date.Day, 31);
+    EXPECT_EQ(sField.Date.Hour, 12);
+    EXPECT_EQ(sField.Date.Minute, 34);
+    EXPECT_EQ(sField.Date.Second, 56.0f);
+    EXPECT_EQ(sField.Date.TZFlag, 0);
 
-    ASSERT_EQ(OGRParseDate("2017-11-31T12:34:56Z", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.Second, 56.0f);
-    ASSERT_EQ(sField.Date.TZFlag, 100);
+    EXPECT_EQ(OGRParseDate("2017-11-31T12:34:56Z", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Second, 56.0f);
+    EXPECT_EQ(sField.Date.TZFlag, 100);
 
-    ASSERT_EQ(OGRParseDate("2017-11-31T12:34:56.789Z", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.Second, 56.789f);
-    ASSERT_EQ(sField.Date.TZFlag, 100);
+    EXPECT_EQ(OGRParseDate("2017-11-31T12:34:56.789Z", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Second, 56.789f);
+    EXPECT_EQ(sField.Date.TZFlag, 100);
 
-    ASSERT_EQ(OGRParseDate("2017-11-31", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.Year, 2017);
-    ASSERT_EQ(sField.Date.Month, 11);
-    ASSERT_EQ(sField.Date.Day, 31);
-    ASSERT_EQ(sField.Date.Hour, 0);
-    ASSERT_EQ(sField.Date.Minute, 0);
-    ASSERT_EQ(sField.Date.Second, 0.0f);
-    ASSERT_EQ(sField.Date.TZFlag, 0);
+    EXPECT_EQ(OGRParseDate("2017-11-31", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Year, 2017);
+    EXPECT_EQ(sField.Date.Month, 11);
+    EXPECT_EQ(sField.Date.Day, 31);
+    EXPECT_EQ(sField.Date.Hour, 0);
+    EXPECT_EQ(sField.Date.Minute, 0);
+    EXPECT_EQ(sField.Date.Second, 0.0f);
+    EXPECT_EQ(sField.Date.TZFlag, 0);
 
-    ASSERT_EQ(OGRParseDate("2017-11-31Z", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.Year, 2017);
-    ASSERT_EQ(sField.Date.Month, 11);
-    ASSERT_EQ(sField.Date.Day, 31);
-    ASSERT_EQ(sField.Date.Hour, 0);
-    ASSERT_EQ(sField.Date.Minute, 0);
-    ASSERT_EQ(sField.Date.Second, 0.0f);
-    ASSERT_EQ(sField.Date.TZFlag, 0);
+    EXPECT_EQ(OGRParseDate("2017-11-31Z", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Year, 2017);
+    EXPECT_EQ(sField.Date.Month, 11);
+    EXPECT_EQ(sField.Date.Day, 31);
+    EXPECT_EQ(sField.Date.Hour, 0);
+    EXPECT_EQ(sField.Date.Minute, 0);
+    EXPECT_EQ(sField.Date.Second, 0.0f);
+    EXPECT_EQ(sField.Date.TZFlag, 0);
 
-    ASSERT_EQ(OGRParseDate("12:34", &sField, 0), TRUE);
-    ASSERT_EQ(sField.Date.Year, 0);
-    ASSERT_EQ(sField.Date.Month, 0);
-    ASSERT_EQ(sField.Date.Day, 0);
-    ASSERT_EQ(sField.Date.Hour, 12);
-    ASSERT_EQ(sField.Date.Minute, 34);
-    ASSERT_EQ(sField.Date.Second, 0.0f);
-    ASSERT_EQ(sField.Date.TZFlag, 0);
+    EXPECT_EQ(OGRParseDate("12:34", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Year, 0);
+    EXPECT_EQ(sField.Date.Month, 0);
+    EXPECT_EQ(sField.Date.Day, 0);
+    EXPECT_EQ(sField.Date.Hour, 12);
+    EXPECT_EQ(sField.Date.Minute, 34);
+    EXPECT_EQ(sField.Date.Second, 0.0f);
+    EXPECT_EQ(sField.Date.TZFlag, 0);
 
-    ASSERT_EQ(OGRParseDate("12:34:56", &sField, 0), TRUE);
-    ASSERT_EQ(OGRParseDate("12:34:56.789", &sField, 0), TRUE);
+    EXPECT_EQ(OGRParseDate("12:34:56", &sField, 0), TRUE);
+    EXPECT_EQ(OGRParseDate("12:34:56.789", &sField, 0), TRUE);
 
-    ASSERT_TRUE(!OGRParseDate("2017", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("12:", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-a-31T12:34:56", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-00-31T12:34:56", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-13-31T12:34:56", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-01-00T12:34:56", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-01-aT12:34:56", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-01-32T12:34:56", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("a:34:56", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-01-01Ta:34:56", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-01-01T25:34:56", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-01-01T00:a:00", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-01-01T00: 34:56", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-01-01T00:61:00", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-01-01T00:00:61", &sField, 0));
-    ASSERT_TRUE(!OGRParseDate("2017-01-01T00:00:a", &sField, 0));
+    EXPECT_EQ(OGRParseDate("T12:34:56", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Year, 0);
+    EXPECT_EQ(sField.Date.Month, 0);
+    EXPECT_EQ(sField.Date.Day, 0);
+    EXPECT_EQ(sField.Date.Hour, 12);
+    EXPECT_EQ(sField.Date.Minute, 34);
+    EXPECT_EQ(sField.Date.Second, 56.0f);
+    EXPECT_EQ(sField.Date.TZFlag, 0);
+
+    EXPECT_EQ(OGRParseDate("T123456", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Year, 0);
+    EXPECT_EQ(sField.Date.Month, 0);
+    EXPECT_EQ(sField.Date.Day, 0);
+    EXPECT_EQ(sField.Date.Hour, 12);
+    EXPECT_EQ(sField.Date.Minute, 34);
+    EXPECT_EQ(sField.Date.Second, 56.0f);
+    EXPECT_EQ(sField.Date.TZFlag, 0);
+
+    EXPECT_EQ(OGRParseDate("T123456.789", &sField, 0), TRUE);
+    EXPECT_EQ(sField.Date.Year, 0);
+    EXPECT_EQ(sField.Date.Month, 0);
+    EXPECT_EQ(sField.Date.Day, 0);
+    EXPECT_EQ(sField.Date.Hour, 12);
+    EXPECT_EQ(sField.Date.Minute, 34);
+    EXPECT_EQ(sField.Date.Second, 56.789f);
+    EXPECT_EQ(sField.Date.TZFlag, 0);
+
+    CPLPushErrorHandler(CPLQuietErrorHandler);
+    EXPECT_TRUE(!OGRParseDate("123456-01-01", &sField, 0));
+    CPLPopErrorHandler();
+    EXPECT_TRUE(!OGRParseDate("2017", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017x-01-01", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-1-01", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-1", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-01x", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("12:", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("12:3", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("1:23", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("12:34:5", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("1a:34", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-a-31T12:34:56", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-00-31T12:34:56", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-13-31T12:34:56", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-00T12:34:56", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-aT12:34:56", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-32T12:34:56", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("a:34:56", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-01Ta:34:56", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-01T25:34:56", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-01T00:a:00", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-01T00: 34:56", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-01T00:61:00", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-01T00:00:61", &sField, 0));
+    EXPECT_TRUE(!OGRParseDate("2017-01-01T00:00:a", &sField, 0));
+
+    // Test OGRPARSEDATE_OPTION_LAX
+    EXPECT_EQ(OGRParseDate("2017-1-9", &sField, OGRPARSEDATE_OPTION_LAX), TRUE);
+    EXPECT_EQ(sField.Date.Year, 2017);
+    EXPECT_EQ(sField.Date.Month, 1);
+    EXPECT_EQ(sField.Date.Day, 9);
+
+    EXPECT_EQ(OGRParseDate("2017-1-31", &sField, OGRPARSEDATE_OPTION_LAX),
+              TRUE);
+    EXPECT_EQ(sField.Date.Year, 2017);
+    EXPECT_EQ(sField.Date.Month, 1);
+    EXPECT_EQ(sField.Date.Day, 31);
+
+    EXPECT_EQ(OGRParseDate("2017-1-31T1:2:3", &sField, OGRPARSEDATE_OPTION_LAX),
+              TRUE);
+    EXPECT_EQ(sField.Date.Year, 2017);
+    EXPECT_EQ(sField.Date.Month, 1);
+    EXPECT_EQ(sField.Date.Day, 31);
+    EXPECT_EQ(sField.Date.Hour, 1);
+    EXPECT_EQ(sField.Date.Minute, 2);
+    EXPECT_EQ(sField.Date.Second, 3.0f);
+    EXPECT_EQ(sField.Date.TZFlag, 0);
+
+    EXPECT_EQ(OGRParseDate("2017-1-31T1:3", &sField, OGRPARSEDATE_OPTION_LAX),
+              TRUE);
+    EXPECT_EQ(sField.Date.Year, 2017);
+    EXPECT_EQ(sField.Date.Month, 1);
+    EXPECT_EQ(sField.Date.Day, 31);
+    EXPECT_EQ(sField.Date.Hour, 1);
+    EXPECT_EQ(sField.Date.Minute, 3);
+    EXPECT_EQ(sField.Date.Second, 0.0f);
+    EXPECT_EQ(sField.Date.TZFlag, 0);
+
+    EXPECT_EQ(OGRParseDate("1:3", &sField, OGRPARSEDATE_OPTION_LAX), TRUE);
+    EXPECT_EQ(sField.Date.Year, 0);
+    EXPECT_EQ(sField.Date.Month, 0);
+    EXPECT_EQ(sField.Date.Day, 0);
+    EXPECT_EQ(sField.Date.Hour, 1);
+    EXPECT_EQ(sField.Date.Minute, 3);
+    EXPECT_EQ(sField.Date.Second, 0.0f);
+    EXPECT_EQ(sField.Date.TZFlag, 0);
+
+    EXPECT_TRUE(!OGRParseDate("2017-a-01", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(!OGRParseDate("2017-0-01", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(!OGRParseDate("2017-1", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(!OGRParseDate("2017-1-", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(!OGRParseDate("2017-1-a", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(!OGRParseDate("2017-1-0", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(!OGRParseDate("2017-1-32", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(
+        !OGRParseDate("2017-1-1Ta:00:00", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(!OGRParseDate("2017-1-1T1", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(
+        !OGRParseDate("2017-1-1T00:a:00", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(!OGRParseDate("2017-1-1T1:", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(
+        !OGRParseDate("2017-1-1T00:00:a", &sField, OGRPARSEDATE_OPTION_LAX));
+    EXPECT_TRUE(!OGRParseDate("1a:3", &sField, OGRPARSEDATE_OPTION_LAX));
 }
 
 // Test OGRPolygon::IsPointOnSurface()
@@ -2358,10 +2454,562 @@ TEST_F(test_ogr, GDALDatasetSetQueryLoggerFunc)
     ASSERT_TRUE(insertEntry != queryLog.end());
     ASSERT_EQ(
         insertEntry->sql.find(
-            R"sql(INSERT INTO "poly" ( "geom", "AREA", "EAS_ID", "PRFEDEA") VALUES (NULL, NULL, '123', NULL))sql",
+            R"sql(INSERT INTO "poly" ( "geom", "AREA", "EAS_ID", "PRFEDEA") VALUES (NULL, NULL, 123, NULL))sql",
             0),
         0);
 #endif
+}
+
+TEST_F(test_ogr, OGRParseDateTimeYYYYMMDDTHHMMZ)
+{
+    {
+        char szInput[] = "2023-07-11T17:27Z";
+        OGRField sField;
+        EXPECT_EQ(
+            OGRParseDateTimeYYYYMMDDTHHMMZ(szInput, strlen(szInput), &sField),
+            true);
+        EXPECT_EQ(sField.Date.Year, 2023);
+        EXPECT_EQ(sField.Date.Month, 7);
+        EXPECT_EQ(sField.Date.Day, 11);
+        EXPECT_EQ(sField.Date.Hour, 17);
+        EXPECT_EQ(sField.Date.Minute, 27);
+        EXPECT_EQ(sField.Date.Second, 0.0f);
+        EXPECT_EQ(sField.Date.TZFlag, 100);
+    }
+    {
+        char szInput[] = "2023-07-11T17:27";
+        OGRField sField;
+        EXPECT_EQ(
+            OGRParseDateTimeYYYYMMDDTHHMMZ(szInput, strlen(szInput), &sField),
+            true);
+        EXPECT_EQ(sField.Date.Year, 2023);
+        EXPECT_EQ(sField.Date.Month, 7);
+        EXPECT_EQ(sField.Date.Day, 11);
+        EXPECT_EQ(sField.Date.Hour, 17);
+        EXPECT_EQ(sField.Date.Minute, 27);
+        EXPECT_EQ(sField.Date.Second, 0.0f);
+        EXPECT_EQ(sField.Date.TZFlag, 0);
+    }
+    {
+        // Invalid
+        char szInput[] = "2023-07-11T17:2";
+        OGRField sField;
+        // coverity[overrun-buffer-val]
+        EXPECT_EQ(
+            OGRParseDateTimeYYYYMMDDTHHMMZ(szInput, strlen(szInput), &sField),
+            false);
+    }
+    {
+        // Invalid
+        char szInput[] = "2023-07-11T17:99";
+        OGRField sField;
+        EXPECT_EQ(
+            OGRParseDateTimeYYYYMMDDTHHMMZ(szInput, strlen(szInput), &sField),
+            false);
+    }
+}
+
+TEST_F(test_ogr, OGRParseDateTimeYYYYMMDDTHHMMSSZ)
+{
+    {
+        char szInput[] = "2023-07-11T17:27:34Z";
+        OGRField sField;
+        EXPECT_EQ(
+            OGRParseDateTimeYYYYMMDDTHHMMSSZ(szInput, strlen(szInput), &sField),
+            true);
+        EXPECT_EQ(sField.Date.Year, 2023);
+        EXPECT_EQ(sField.Date.Month, 7);
+        EXPECT_EQ(sField.Date.Day, 11);
+        EXPECT_EQ(sField.Date.Hour, 17);
+        EXPECT_EQ(sField.Date.Minute, 27);
+        EXPECT_EQ(sField.Date.Second, 34.0f);
+        EXPECT_EQ(sField.Date.TZFlag, 100);
+    }
+    {
+        char szInput[] = "2023-07-11T17:27:34";
+        OGRField sField;
+        EXPECT_EQ(
+            OGRParseDateTimeYYYYMMDDTHHMMSSZ(szInput, strlen(szInput), &sField),
+            true);
+        EXPECT_EQ(sField.Date.Year, 2023);
+        EXPECT_EQ(sField.Date.Month, 7);
+        EXPECT_EQ(sField.Date.Day, 11);
+        EXPECT_EQ(sField.Date.Hour, 17);
+        EXPECT_EQ(sField.Date.Minute, 27);
+        EXPECT_EQ(sField.Date.Second, 34.0f);
+        EXPECT_EQ(sField.Date.TZFlag, 0);
+    }
+    {
+        // Invalid
+        char szInput[] = "2023-07-11T17:27:3";
+        OGRField sField;
+        // coverity[overrun-buffer-val]
+        EXPECT_EQ(
+            OGRParseDateTimeYYYYMMDDTHHMMSSZ(szInput, strlen(szInput), &sField),
+            false);
+    }
+    {
+        // Invalid
+        char szInput[] = "2023-07-11T17:27:99";
+        OGRField sField;
+        EXPECT_EQ(
+            OGRParseDateTimeYYYYMMDDTHHMMSSZ(szInput, strlen(szInput), &sField),
+            false);
+    }
+}
+
+TEST_F(test_ogr, OGRParseDateTimeYYYYMMDDTHHMMSSsssZ)
+{
+    {
+        char szInput[] = "2023-07-11T17:27:34.123Z";
+        OGRField sField;
+        EXPECT_EQ(OGRParseDateTimeYYYYMMDDTHHMMSSsssZ(szInput, strlen(szInput),
+                                                      &sField),
+                  true);
+        EXPECT_EQ(sField.Date.Year, 2023);
+        EXPECT_EQ(sField.Date.Month, 7);
+        EXPECT_EQ(sField.Date.Day, 11);
+        EXPECT_EQ(sField.Date.Hour, 17);
+        EXPECT_EQ(sField.Date.Minute, 27);
+        EXPECT_EQ(sField.Date.Second, 34.123f);
+        EXPECT_EQ(sField.Date.TZFlag, 100);
+    }
+    {
+        char szInput[] = "2023-07-11T17:27:34.123";
+        OGRField sField;
+        EXPECT_EQ(OGRParseDateTimeYYYYMMDDTHHMMSSsssZ(szInput, strlen(szInput),
+                                                      &sField),
+                  true);
+        EXPECT_EQ(sField.Date.Year, 2023);
+        EXPECT_EQ(sField.Date.Month, 7);
+        EXPECT_EQ(sField.Date.Day, 11);
+        EXPECT_EQ(sField.Date.Hour, 17);
+        EXPECT_EQ(sField.Date.Minute, 27);
+        EXPECT_EQ(sField.Date.Second, 34.123f);
+        EXPECT_EQ(sField.Date.TZFlag, 0);
+    }
+    {
+        // Invalid
+        char szInput[] = "2023-07-11T17:27:34.12";
+        OGRField sField;
+        // coverity[overrun-buffer-val]
+        EXPECT_EQ(OGRParseDateTimeYYYYMMDDTHHMMSSsssZ(szInput, strlen(szInput),
+                                                      &sField),
+                  false);
+    }
+    {
+        // Invalid
+        char szInput[] = "2023-07-11T17:27:99.123";
+        OGRField sField;
+        EXPECT_EQ(OGRParseDateTimeYYYYMMDDTHHMMSSsssZ(szInput, strlen(szInput),
+                                                      &sField),
+                  false);
+    }
+}
+
+TEST_F(test_ogr, OGRGetISO8601DateTime)
+{
+    OGRField sField;
+    sField.Date.Year = 2023;
+    sField.Date.Month = 7;
+    sField.Date.Day = 11;
+    sField.Date.Hour = 17;
+    sField.Date.Minute = 27;
+    sField.Date.Second = 34.567f;
+    sField.Date.TZFlag = 100;
+    {
+        char szResult[OGR_SIZEOF_ISO8601_DATETIME_BUFFER];
+        OGRISO8601Format sFormat;
+        sFormat.ePrecision = OGRISO8601Precision::AUTO;
+        OGRGetISO8601DateTime(&sField, sFormat, szResult);
+        EXPECT_STREQ(szResult, "2023-07-11T17:27:34.567Z");
+    }
+    {
+        char szResult[OGR_SIZEOF_ISO8601_DATETIME_BUFFER];
+        OGRISO8601Format sFormat;
+        sFormat.ePrecision = OGRISO8601Precision::MILLISECOND;
+        OGRGetISO8601DateTime(&sField, sFormat, szResult);
+        EXPECT_STREQ(szResult, "2023-07-11T17:27:34.567Z");
+    }
+    {
+        char szResult[OGR_SIZEOF_ISO8601_DATETIME_BUFFER];
+        OGRISO8601Format sFormat;
+        sFormat.ePrecision = OGRISO8601Precision::SECOND;
+        OGRGetISO8601DateTime(&sField, sFormat, szResult);
+        EXPECT_STREQ(szResult, "2023-07-11T17:27:35Z");
+    }
+    {
+        char szResult[OGR_SIZEOF_ISO8601_DATETIME_BUFFER];
+        OGRISO8601Format sFormat;
+        sFormat.ePrecision = OGRISO8601Precision::MINUTE;
+        OGRGetISO8601DateTime(&sField, sFormat, szResult);
+        EXPECT_STREQ(szResult, "2023-07-11T17:27Z");
+    }
+    sField.Date.Second = 34.0f;
+    {
+        char szResult[OGR_SIZEOF_ISO8601_DATETIME_BUFFER];
+        OGRISO8601Format sFormat;
+        sFormat.ePrecision = OGRISO8601Precision::AUTO;
+        OGRGetISO8601DateTime(&sField, sFormat, szResult);
+        EXPECT_STREQ(szResult, "2023-07-11T17:27:34Z");
+    }
+}
+
+// Test calling importFromWkb() multiple times on the same geometry object
+TEST_F(test_ogr, importFromWkbReuse)
+{
+    {
+        OGRPoint oPoint;
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oPoint.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x01\x00\x00\x00"                // Point
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"    // 1.0
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"),  // 2.0
+                          21, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 21);
+            EXPECT_EQ(oPoint.getX(), 1.0);
+            EXPECT_EQ(oPoint.getY(), 2.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oPoint.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x01\x00\x00\x00"              // Point
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"  // 2.0
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"  // 1.0
+                              ),
+                          21, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 21);
+            EXPECT_EQ(oPoint.getX(), 2.0);
+            EXPECT_EQ(oPoint.getY(), 1.0);
+        }
+    }
+
+    {
+        OGRLineString oLS;
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oLS.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x02\x00\x00\x00"              // LineString
+                              "\x01\x00\x00\x00"                  // 1 point
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"  // 1.0
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"),  // 2.0
+                          25, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 25);
+            ASSERT_EQ(oLS.getNumPoints(), 1);
+            EXPECT_EQ(oLS.getX(0), 1.0);
+            EXPECT_EQ(oLS.getY(0), 2.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oLS.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x02\x00\x00\x00"              // LineString
+                              "\x02\x00\x00\x00"                  // 2 points
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"  // 1.0
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"  // 2.0
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"  // 2.0
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"),  // 1.0
+                          41, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 41);
+            ASSERT_EQ(oLS.getNumPoints(), 2);
+            EXPECT_EQ(oLS.getX(0), 1.0);
+            EXPECT_EQ(oLS.getY(0), 2.0);
+            EXPECT_EQ(oLS.getX(1), 2.0);
+            EXPECT_EQ(oLS.getY(1), 1.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oLS.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x02\x00\x00\x00"              // LineString
+                              "\x01\x00\x00\x00"                  // 1 point
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"  // 2.0
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"),  // 1.0
+                          25, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 25);
+            ASSERT_EQ(oLS.getNumPoints(), 1);
+            EXPECT_EQ(oLS.getX(0), 2.0);
+            EXPECT_EQ(oLS.getY(0), 1.0);
+        }
+    }
+
+    {
+        OGRPolygon oPoly;
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oPoly.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x03\x00\x00\x00"                // Polygon
+                              "\x01\x00\x00\x00"                    // 1 ring
+                              "\x01\x00\x00\x00"                    // 1 point
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"    // 1.0
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"),  // 2.0
+                          29, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 29);
+            ASSERT_TRUE(oPoly.getExteriorRing() != nullptr);
+            ASSERT_EQ(oPoly.getNumInteriorRings(), 0);
+            auto poLS = oPoly.getExteriorRing();
+            ASSERT_EQ(poLS->getNumPoints(), 1);
+            EXPECT_EQ(poLS->getX(0), 1.0);
+            EXPECT_EQ(poLS->getY(0), 2.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oPoly.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x03\x00\x00\x00"                // Polygon
+                              "\x01\x00\x00\x00"                    // 1 ring
+                              "\x01\x00\x00\x00"                    // 1 point
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"    // 2.0
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"),  // 1.0
+                          29, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 29);
+            ASSERT_TRUE(oPoly.getExteriorRing() != nullptr);
+            ASSERT_EQ(oPoly.getNumInteriorRings(), 0);
+            auto poLS = oPoly.getExteriorRing();
+            ASSERT_EQ(poLS->getNumPoints(), 1);
+            EXPECT_EQ(poLS->getX(0), 2.0);
+            EXPECT_EQ(poLS->getY(0), 1.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oPoly.importFromWkb(reinterpret_cast<const GByte *>(
+                                              "\x01\x03\x00\x00\x00"  // Polygon
+                                              "\x00\x00\x00\x00"),    // 0 ring
+                                          9, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 9);
+            ASSERT_TRUE(oPoly.getExteriorRing() == nullptr);
+            ASSERT_EQ(oPoly.getNumInteriorRings(), 0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oPoly.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x03\x00\x00\x00"                // Polygon
+                              "\x01\x00\x00\x00"                    // 1 ring
+                              "\x01\x00\x00\x00"                    // 1 point
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"    // 1.0
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"),  // 2.0
+                          29, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 29);
+            ASSERT_TRUE(oPoly.getExteriorRing() != nullptr);
+            ASSERT_EQ(oPoly.getNumInteriorRings(), 0);
+            auto poLS = oPoly.getExteriorRing();
+            ASSERT_EQ(poLS->getNumPoints(), 1);
+            EXPECT_EQ(poLS->getX(0), 1.0);
+            EXPECT_EQ(poLS->getY(0), 2.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oPoly.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x03\x00\x00\x00"                // Polygon
+                              "\x01\x00\x00\x00"                    // 1 ring
+                              "\x01\x00\x00\x00"                    // 1 point
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"    // 2.0
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"),  // 1.0
+                          static_cast<size_t>(-1), wkbVariantIso,
+                          nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 29);
+            ASSERT_TRUE(oPoly.getExteriorRing() != nullptr);
+            ASSERT_EQ(oPoly.getNumInteriorRings(), 0);
+            auto poLS = oPoly.getExteriorRing();
+            ASSERT_EQ(poLS->getNumPoints(), 1);
+            EXPECT_EQ(poLS->getX(0), 2.0);
+            EXPECT_EQ(poLS->getY(0), 1.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            // Truncated WKB
+            EXPECT_NE(oPoly.importFromWkb(reinterpret_cast<const GByte *>(
+                                              "\x01\x03\x00\x00\x00"  // Polygon
+                                              "\x01\x00\x00\x00"      // 1 ring
+                                              "\x01\x00\x00\x00"),    // 1 point
+                                          13, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            ASSERT_TRUE(oPoly.getExteriorRing() == nullptr);
+            ASSERT_EQ(oPoly.getNumInteriorRings(), 0);
+        }
+    }
+
+    {
+        OGRMultiLineString oMLS;
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oMLS.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x05\x00\x00\x00"  // MultiLineString
+                              "\x01\x00\x00\x00"      // 1-part
+                              "\x01\x02\x00\x00\x00"  // LineString
+                              "\x01\x00\x00\x00"      // 1 point
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"    // 1.0
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"),  // 2.0
+                          34, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 34);
+            ASSERT_EQ(oMLS.getNumGeometries(), 1);
+            auto poLS = oMLS.getGeometryRef(0);
+            ASSERT_EQ(poLS->getNumPoints(), 1);
+            EXPECT_EQ(poLS->getX(0), 1.0);
+            EXPECT_EQ(poLS->getY(0), 2.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oMLS.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x05\x00\x00\x00"  // MultiLineString
+                              "\x01\x00\x00\x00"      // 1-part
+                              "\x01\x02\x00\x00\x00"  // LineString
+                              "\x01\x00\x00\x00"      // 1 point
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"    // 2.0
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"),  // 1.0
+                          34, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 34);
+            ASSERT_EQ(oMLS.getNumGeometries(), 1);
+            auto poLS = oMLS.getGeometryRef(0);
+            ASSERT_EQ(poLS->getNumPoints(), 1);
+            EXPECT_EQ(poLS->getX(0), 2.0);
+            EXPECT_EQ(poLS->getY(0), 1.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oMLS.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x05\x00\x00\x00"  // MultiLineString
+                              "\x01\x00\x00\x00"      // 1-part
+                              "\x01\x02\x00\x00\x00"  // LineString
+                              "\x01\x00\x00\x00"      // 1 point
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"    // 1.0
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"),  // 2.0
+                          static_cast<size_t>(-1), wkbVariantIso,
+                          nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 34);
+            ASSERT_EQ(oMLS.getNumGeometries(), 1);
+            auto poLS = oMLS.getGeometryRef(0);
+            ASSERT_EQ(poLS->getNumPoints(), 1);
+            EXPECT_EQ(poLS->getX(0), 1.0);
+            EXPECT_EQ(poLS->getY(0), 2.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            // Truncated WKB
+            EXPECT_NE(oMLS.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x05\x00\x00\x00"  // MultiLineString
+                              "\x01\x00\x00\x00"      // 1-part
+                              "\x01\x02\x00\x00\x00"  // LineString
+                              "\x01\x00\x00\x00"      // 1 point
+                              ),
+                          18, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            ASSERT_EQ(oMLS.getNumGeometries(), 0);
+        }
+    }
+
+    {
+        OGRMultiPolygon oMP;
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oMP.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x06\x00\x00\x00"  // MultiPolygon
+                              "\x01\x00\x00\x00"      // 1-part
+                              "\x01\x03\x00\x00\x00"  // Polygon
+                              "\x01\x00\x00\x00"      // 1 ring
+                              "\x01\x00\x00\x00"      // 1 point
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"    // 1.0
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"),  // 2.0
+                          38, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 38);
+            ASSERT_EQ(oMP.getNumGeometries(), 1);
+            auto poPoly = oMP.getGeometryRef(0);
+            ASSERT_TRUE(poPoly->getExteriorRing() != nullptr);
+            ASSERT_EQ(poPoly->getNumInteriorRings(), 0);
+            auto poLS = poPoly->getExteriorRing();
+            ASSERT_EQ(poLS->getNumPoints(), 1);
+            EXPECT_EQ(poLS->getX(0), 1.0);
+            EXPECT_EQ(poLS->getY(0), 2.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oMP.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x06\x00\x00\x00"  // MultiPolygon
+                              "\x01\x00\x00\x00"      // 1-part
+                              "\x01\x03\x00\x00\x00"  // Polygon
+                              "\x01\x00\x00\x00"      // 1 ring
+                              "\x01\x00\x00\x00"      // 1 point
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"    // 2.0
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"),  // 1.0
+                          38, wkbVariantIso, nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 38);
+            ASSERT_EQ(oMP.getNumGeometries(), 1);
+            auto poPoly = oMP.getGeometryRef(0);
+            ASSERT_TRUE(poPoly->getExteriorRing() != nullptr);
+            ASSERT_EQ(poPoly->getNumInteriorRings(), 0);
+            auto poLS = poPoly->getExteriorRing();
+            ASSERT_EQ(poLS->getNumPoints(), 1);
+            EXPECT_EQ(poLS->getX(0), 2.0);
+            EXPECT_EQ(poLS->getY(0), 1.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            EXPECT_EQ(oMP.importFromWkb(
+                          reinterpret_cast<const GByte *>(
+                              "\x01\x06\x00\x00\x00"  // MultiPolygon
+                              "\x01\x00\x00\x00"      // 1-part
+                              "\x01\x03\x00\x00\x00"  // Polygon
+                              "\x01\x00\x00\x00"      // 1 ring
+                              "\x01\x00\x00\x00"      // 1 point
+                              "\x00\x00\x00\x00\x00\x00\xf0\x3f"    // 1.0
+                              "\x00\x00\x00\x00\x00\x00\x00\x40"),  // 2.0
+                          static_cast<size_t>(-1), wkbVariantIso,
+                          nBytesConsumed),
+                      OGRERR_NONE);
+            EXPECT_EQ(nBytesConsumed, 38);
+            ASSERT_EQ(oMP.getNumGeometries(), 1);
+            auto poPoly = oMP.getGeometryRef(0);
+            ASSERT_TRUE(poPoly->getExteriorRing() != nullptr);
+            ASSERT_EQ(poPoly->getNumInteriorRings(), 0);
+            auto poLS = poPoly->getExteriorRing();
+            ASSERT_EQ(poLS->getNumPoints(), 1);
+            EXPECT_EQ(poLS->getX(0), 1.0);
+            EXPECT_EQ(poLS->getY(0), 2.0);
+        }
+        {
+            size_t nBytesConsumed = 0;
+            // Truncated WKB
+            EXPECT_NE(
+                oMP.importFromWkb(reinterpret_cast<const GByte *>(
+                                      "\x01\x06\x00\x00\x00"  // MultiPolygon
+                                      "\x01\x00\x00\x00"      // 1-part
+                                      "\x01\x03\x00\x00\x00"  // Polygon
+                                      "\x01\x00\x00\x00"      // 1 ring
+                                      "\x01\x00\x00\x00"      // 1 point
+                                      ),
+                                  22, wkbVariantIso, nBytesConsumed),
+                OGRERR_NONE);
+            ASSERT_EQ(oMP.getNumGeometries(), 0);
+        }
+    }
 }
 
 }  // namespace

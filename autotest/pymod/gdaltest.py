@@ -31,6 +31,7 @@
 
 import contextlib
 import io
+import json
 import math
 import os
 import os.path
@@ -48,20 +49,7 @@ from threading import Thread
 
 import pytest
 
-from osgeo import gdal, osr
-
-cur_name = "default"
-
-success_counter = 0
-failure_counter = 0
-expected_failure_counter = 0
-blow_counter = 0
-skip_counter = 0
-failure_summary = []
-
-reason = None
-start_time = None
-end_time = None
+from osgeo import gdal, ogr, osr
 
 jp2kak_drv = None
 jpeg2000_drv = None
@@ -75,49 +63,6 @@ jp2ecw_drv_unregistered = False
 jp2mrsid_drv_unregistered = False
 jp2openjpeg_drv_unregistered = False
 jp2lura_drv_unregistered = False
-
-# Process commandline arguments for stuff like --debug, --locale, --config
-
-argv = gdal.GeneralCmdLineProcessor(sys.argv)
-
-###############################################################################
-
-
-def git_status():
-
-    out, _ = runexternal_out_and_err("git status --porcelain .")
-    return out
-
-
-###############################################################################
-
-
-def get_lineno_2framesback(frames):
-    try:
-        import inspect
-
-        frame = inspect.currentframe()
-        while frames > 0:
-            frame = frame.f_back
-            frames = frames - 1
-
-        return frame.f_lineno
-    except ImportError:
-        return -1
-
-
-###############################################################################
-
-
-def post_reason(msg, frames=2):
-    lineno = get_lineno_2framesback(frames)
-    global reason
-
-    if lineno >= 0:
-        reason = "line %d: %s" % (lineno, msg)
-    else:
-        reason = msg
-
 
 ###############################################################################
 
@@ -164,6 +109,10 @@ class GDALTest(object):
         self.driver = None
         self.drivername = drivername
         self.filename = filename
+
+        if isinstance(self.filename, os.PathLike):
+            self.filename = str(self.filename)
+
         self.filename_absolute = filename_absolute
         self.band = band
         self.chksum = chksum
@@ -607,6 +556,7 @@ class GDALTest(object):
         out_bands=1,
         check_minmax=1,
         dest_open_options=None,
+        delete_output_file=True,
     ):
         self.testDriver()
 
@@ -695,7 +645,7 @@ class GDALTest(object):
         assert new_ds.FlushCache() == gdal.CE_None
         new_ds = None
 
-        if gdal.GetConfigOption("CPL_DEBUG", "OFF") != "ON":
+        if delete_output_file and gdal.GetConfigOption("CPL_DEBUG", "OFF") != "ON":
             self.driver.Delete(new_filename)
 
     def testSetGeoTransform(self):
@@ -935,7 +885,7 @@ class GDALTest(object):
             self.driver.Delete(new_filename)
 
     def testSetNoDataValueAndDelete(self):
-        return self.testSetNoDataValue(delete=True)
+        self.testSetNoDataValue(delete=True)
 
     def testSetDescription(self):
         self.testDriver()
@@ -1056,12 +1006,12 @@ def equal_srs_from_wkt(expected_wkt, got_wkt, verbose=True):
     got_srs.ImportFromWkt(got_wkt)
 
     if got_srs.IsSame(expected_srs):
-        return 1
+        return True
     if verbose:
         print("Expected:\n%s" % expected_wkt)
         print("Got:     \n%s" % got_wkt)
-        post_reason("SRS differs from expected.")
-    return 0
+        print("SRS differs from expected.")
+    return False
 
 
 ###############################################################################
@@ -1069,7 +1019,8 @@ def equal_srs_from_wkt(expected_wkt, got_wkt, verbose=True):
 # equivalent or not.
 
 
-def rpcs_equal(md1, md2):
+def check_rpcs_equal(md1, md2):
+    __tracebackhide__ = True
 
     simple_fields = [
         "LINE_OFF",
@@ -1092,47 +1043,23 @@ def rpcs_equal(md1, md2):
 
     for sf in simple_fields:
 
-        try:
-            if not approx_equal(float(md1[sf]), float(md2[sf])):
-                post_reason("%s values differ." % sf)
-                print(md1[sf])
-                print(md2[sf])
-                return 0
-        except Exception:
-            post_reason("%s value missing or corrupt." % sf)
-            print(md1)
-            print(md2)
-            return 0
+        assert sf in md1
+        assert sf in md2
+        assert approx_equal(float(md1[sf]), float(md2[sf]))
 
     for cf in coef_fields:
 
-        try:
-            list1 = md1[cf].split()
-            list2 = md2[cf].split()
+        list1 = md1[cf].split()
+        list2 = md2[cf].split()
 
-        except Exception:
-            post_reason("%s value missing or corrupt." % cf)
-            print(md1[cf])
-            print(md2[cf])
-            return 0
+        assert len(list1) == 20, "%s value list length wrong(1)" % cf
 
-        if len(list1) != 20:
-            post_reason("%s value list length wrong(1)" % cf)
-            print(list1)
-            return 0
-
-        if len(list2) != 20:
-            post_reason("%s value list length wrong(2)" % cf)
-            print(list2)
-            return 0
+        assert len(list2) == 20, "%s value list length wrong(2)" % cf
 
         for i in range(20):
-            if not approx_equal(float(list1[i]), float(list2[i])):
-                post_reason("%s[%d] values differ." % (cf, i))
-                print(list1[i], list2[i])
-                return 0
-
-    return 1
+            assert approx_equal(
+                float(list1[i]), float(list2[i])
+            ), "%s[%d] values differ." % (cf, i)
 
 
 ###############################################################################
@@ -1140,15 +1067,9 @@ def rpcs_equal(md1, md2):
 #
 
 
-def geotransform_equals(gt1, gt2, gt_epsilon):
-    for i in range(6):
-        if gt1[i] != pytest.approx(gt2[i], abs=gt_epsilon):
-            print("")
-            print("gt1 = ", gt1)
-            print("gt2 = ", gt2)
-            post_reason("Geotransform differs.")
-            return False
-    return True
+def check_geotransform(gt1, gt2, gt_epsilon):
+    __tracebackhide__ = True
+    assert gt1 == pytest.approx(gt2, abs=gt_epsilon), "Geotransform differs."
 
 
 ###############################################################################
@@ -1173,84 +1094,80 @@ def download_file(
     elif filename.startswith(base_dir + "/"):
         filename = filename[len(base_dir + "/") :]
 
-    try:
-        os.stat(base_dir + "/" + filename)
+    if os.path.exists(os.path.join(base_dir, filename)):
         return True
-    except OSError:
-        if force_download or download_test_data():
-            val = None
-            start_time = time.time()
-            try:
-                handle = gdalurlopen(url)
-                if handle is None:
-                    return False
-                if download_size == -1:
-                    try:
-                        handle_info = handle.info()
-                        download_size = int(handle_info["content-length"])
-                        print(
-                            "Downloading %s (length = %d bytes)..."
-                            % (url, download_size)
-                        )
-                    except Exception:
-                        print("Downloading %s..." % (url))
-                else:
-                    print("Downloading %d bytes from %s..." % (download_size, url))
-            except Exception:
-                return False
 
-            if download_size >= 0:
-                sys.stdout.write("Progress: ")
-            nLastTick = -1
-            val = "".encode("ascii")
-            while len(val) < download_size or download_size < 0:
-                chunk_size = 1024
-                if download_size >= 0 and len(val) + chunk_size > download_size:
-                    chunk_size = download_size - len(val)
-                try:
-                    chunk = handle.read(chunk_size)
-                except Exception:
-                    print("Did not get expected data length.")
-                    return False
-                if len(chunk) < chunk_size:
-                    if download_size < 0:
-                        break
-                    print("Did not get expected data length.")
-                    return False
-                val = val + chunk
-                if download_size >= 0:
-                    nThisTick = int(40 * len(val) / download_size)
-                    while nThisTick > nLastTick:
-                        nLastTick = nLastTick + 1
-                        if nLastTick % 4 == 0:
-                            sys.stdout.write("%d" % int((nLastTick / 4) * 10))
-                        else:
-                            sys.stdout.write(".")
-                    nLastTick = nThisTick
-                    if nThisTick == 40:
-                        sys.stdout.write(" - done.\n")
+    if not (force_download or download_test_data()):
+        return False
 
-                current_time = time.time()
-                if (
-                    max_download_duration is not None
-                    and current_time - start_time > max_download_duration
-                ):
-                    print("Download aborted due to timeout.")
-                    return False
-
-            try:
-                os.stat(base_dir)
-            except OSError:
-                os.mkdir(base_dir)
-
-            try:
-                open(base_dir + "/" + filename, "wb").write(val)
-                return True
-            except IOError:
-                print("Cannot write %s" % (filename))
-                return False
-        else:
+    val = None
+    start_time = time.time()
+    try:
+        handle = gdalurlopen(url)
+        if handle is None:
             return False
+        if download_size == -1:
+            try:
+                handle_info = handle.info()
+                download_size = int(handle_info["content-length"])
+                print("Downloading %s (length = %d bytes)..." % (url, download_size))
+            except Exception:
+                print("Downloading %s..." % (url))
+        else:
+            print("Downloading %d bytes from %s..." % (download_size, url))
+    except Exception:
+        return False
+
+    if download_size >= 0:
+        sys.stdout.write("Progress: ")
+    nLastTick = -1
+    val = "".encode("ascii")
+    while len(val) < download_size or download_size < 0:
+        chunk_size = 1024
+        if download_size >= 0 and len(val) + chunk_size > download_size:
+            chunk_size = download_size - len(val)
+        try:
+            chunk = handle.read(chunk_size)
+        except Exception:
+            print("Did not get expected data length.")
+            return False
+        val = val + chunk
+        if len(chunk) < chunk_size:
+            if download_size < 0:
+                break
+            print("Did not get expected data length.")
+            return False
+        if download_size >= 0:
+            nThisTick = int(40 * len(val) / download_size)
+            while nThisTick > nLastTick:
+                nLastTick = nLastTick + 1
+                if nLastTick % 4 == 0:
+                    sys.stdout.write("%d" % int((nLastTick / 4) * 10))
+                else:
+                    sys.stdout.write(".")
+            nLastTick = nThisTick
+            if nThisTick == 40:
+                sys.stdout.write(" - done.\n")
+
+        current_time = time.time()
+        if (
+            max_download_duration is not None
+            and current_time - start_time > max_download_duration
+        ):
+            print("Download aborted due to timeout.")
+            return False
+
+    try:
+        os.stat(base_dir)
+    except OSError:
+        os.mkdir(base_dir)
+
+    try:
+        open(base_dir + "/" + filename, "wb").write(val)
+        return True
+    except IOError:
+        print("Cannot write %s" % (filename))
+        return False
 
 
 # Attempt to download file using `download_file`; skip test in case of failure
@@ -1433,26 +1350,25 @@ def reregister_all_jpeg2000_drivers():
 
 def filesystem_supports_sparse_files(path):
 
-    if skip_on_travis():
+    if gdal.GetConfigOption("TRAVIS", None):
         return False
 
     try:
-        (ret, err) = runexternal_out_and_err('stat -f -c "%T" ' + path)
+        (ret, err) = runexternal_out_and_err(f'stat -f -c "%T" {path}')
     except OSError:
         return False
 
     if err != "":
-        post_reason("Cannot determine if filesystem supports sparse files")
+        print("Cannot determine if filesystem supports sparse files")
         return False
 
-    if ret.find("fat32") != -1:
-        post_reason("File system does not support sparse files")
+    if "fat32" in ret:
+        print("File system does not support sparse files")
         return False
 
-    if (
-        ret.find("wslfs") != -1 or ret.find("0x53464846") != -1
-    ):  # wslfs for older stat versions
-        post_reason(
+    if "wslfs" in ret or "0x53464846" in ret:
+        # wslfs for older stat versions
+        print(
             "Windows Subsystem for Linux FS is at the time of "
             + "writing not known to support sparse files"
         )
@@ -1460,19 +1376,22 @@ def filesystem_supports_sparse_files(path):
 
     # Add here any missing filesystem supporting sparse files
     # See http://en.wikipedia.org/wiki/Comparison_of_file_systems
-    if (
-        ret.find("ext3") == -1
-        and ret.find("ext4") == -1
-        and ret.find("reiser") == -1
-        and ret.find("xfs") == -1
-        and ret.find("jfs") == -1
-        and ret.find("zfs") == -1
-        and ret.find("ntfs") == -1
-    ):
-        post_reason("Filesystem %s is not believed to support sparse files" % ret)
-        return False
+    filesystems_supporting_sparse_files = {
+        "ext3",
+        "ext4",
+        "reiser",
+        "xfs",
+        "jfs",
+        "zfs",
+        "ntfs",
+    }
 
-    return True
+    for fs in filesystems_supporting_sparse_files:
+        if fs in ret:
+            return True
+
+    print("Filesystem %s is not believed to support sparse files" % ret)
+    return False
 
 
 ###############################################################################
@@ -1569,11 +1488,10 @@ def support_symlink():
 
 
 def skip_on_travis():
+    __tracebackhide__ = True
     val = gdal.GetConfigOption("TRAVIS", None)
     if val is not None:
-        post_reason("Test skipped on Travis")
-        return True
-    return False
+        pytest.skip("Test skipped on Travis")
 
 
 ###############################################################################
@@ -1864,6 +1782,20 @@ def SetCacheMax(val):
 
 
 ###############################################################################
+# Temporarily enable exceptions for gdal, ogr and osr modules
+
+
+@contextlib.contextmanager
+def enable_exceptions():
+    from osgeo import ogr, osr
+
+    with gdal.ExceptionMgr(useExceptions=True), osr.ExceptionMgr(
+        useExceptions=True
+    ), ogr.ExceptionMgr(useExceptions=True):
+        yield
+
+
+###############################################################################
 # Temporarily disable exceptions for gdal, ogr and osr modules
 
 
@@ -1974,6 +1906,10 @@ def gdalurlopen(url, timeout=10):
         print(f"HTTP service for {url} is down (URL Error: {e.reason})")
         socket.setdefaulttimeout(old_timeout)
         return None
+    except socket.timeout:
+        print(f"HTTP service for {url} timed out")
+        socket.setdefaulttimeout(old_timeout)
+        return None
 
 
 def runexternal(
@@ -1984,7 +1920,10 @@ def runexternal(
     encoding="latin1",
 ):
     # pylint: disable=unused-argument
-    command = shlex.split(cmd)
+    if sys.platform == "win32":
+        command = cmd
+    else:
+        command = shlex.split(cmd)
     if strin is None:
         p = subprocess.Popen(command, stdout=subprocess.PIPE)
     else:
@@ -2021,7 +1960,10 @@ def _read_in_thread(f, q):
 
 def runexternal_out_and_err(cmd, check_memleak=True, encoding="ascii"):
     # pylint: disable=unused-argument
-    command = shlex.split(cmd)
+    if sys.platform == "win32":
+        command = cmd
+    else:
+        command = shlex.split(cmd)
     p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     if p.stdout is not None:
@@ -2050,3 +1992,100 @@ def runexternal_out_and_err(cmd, check_memleak=True, encoding="ascii"):
         ret_stderr = f"{ret_stderr}\nERROR ret code = {waitcode}"
 
     return (ret_stdout, ret_stderr)
+
+
+###############################################################################
+# Validate JSON according to a JSON schema
+#
+# "jsn" should be a string or a json object
+# "schema" should be a path to file containing a JSON schema. If the
+# file is not found relative to the current working directory or GDAL_DATA,
+# the test will fail.
+def validate_json(jsn, schema):
+    __tracebackhide__ = True
+
+    try:
+        import jsonschema
+    except ImportError:
+        pytest.skip("jsonschema module not available")
+
+    if not os.path.exists(schema):
+        gdal_data = gdal.GetConfigOption("GDAL_DATA")
+
+        if gdal_data and os.path.exists(os.path.join(gdal_data, schema)):
+            schema = os.path.join(gdal_data, schema)
+        else:
+            pytest.fail(f"Could not find schema {schema}")
+
+    if isinstance(jsn, str):
+        jsn = json.loads(jsn)
+
+    schema = json.loads(open(schema, "rb").read())
+
+    if sys.version_info >= (3, 8):
+        from importlib.metadata import version
+
+        jsonschema_version = version("jsonschema")
+    else:
+        from pkg_resources import get_distribution
+
+        jsonschema_version = get_distribution("jsonschema").version
+
+    def versiontuple(v):
+        return tuple(map(int, (v.split("."))))
+
+    # jsonschema 4.18 deprecates automatic resolution of "$ref" for security
+    # reason. Use a custom retrieve method.
+    # Cf https://python-jsonschema.readthedocs.io/en/latest/referencing/#automatically-retrieving-resources-over-http
+    if versiontuple(jsonschema_version) >= (4, 18):
+        from referencing import Registry, Resource
+
+        def retrieve_remote_file(uri: str):
+            if not uri.startswith("http://") and not uri.startswith("https://"):
+                raise Exception(f"Cannot retrieve {uri}")
+            os.makedirs("tmp/cache", exist_ok=True)
+            filename = "tmp/cache/" + os.path.basename(uri)
+            if not download_file(uri, filename=filename, force_download=True):
+                raise Exception(f"Cannot download {uri}")
+            response = open(filename, "rb").read()
+            return Resource.from_contents(json.loads(response))
+
+        registry = Registry(retrieve=retrieve_remote_file)
+        validator_cls = jsonschema.validators.validator_for(schema)
+        validator_cls(schema, registry=registry).validate(jsn)
+
+    else:
+        # jsonschema < 4.18
+        try:
+            jsonschema.validate(instance=jsn, schema=schema)
+        except jsonschema.exceptions.RefResolutionError:
+            pytest.skip("Failed to resolve remote reference in JSON schema")
+
+
+###############################################################################
+# Close and reopen a dataset
+
+
+def reopen(ds, update=False, open_options=None):
+
+    ds_loc = ds.GetDescription()
+    ds_drv = ds.GetDriver()
+
+    ds.Close()
+
+    if isinstance(ds, ogr.DataSource) and open_options is None:
+        return ogr.Open(ds_loc, update)
+
+    flags = 0
+    if update:
+        flags = gdal.OF_UPDATE
+
+    if open_options is None:
+        open_options = {}
+
+    return gdal.OpenEx(
+        ds_loc,
+        flags,
+        allowed_drivers=[ds_drv.GetDescription()],
+        open_options=open_options,
+    )

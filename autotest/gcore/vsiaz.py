@@ -28,6 +28,7 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
+import copy
 import sys
 
 import gdaltest
@@ -35,6 +36,8 @@ import pytest
 import webserver
 
 from osgeo import gdal
+
+from .vsis3 import general_s3_options
 
 pytestmark = pytest.mark.require_curl()
 
@@ -113,7 +116,7 @@ def test_vsiaz_fake_basic():
         "/vsiaz/az_fake_bucket/resource", ["START_DATE=20180213T123456"]
     )
     assert (
-        "azure/blob/myaccount/az_fake_bucket/resource?se=2018-02-13T13%3A34%3A56Z&sig=9Jc4yBFlSRZSSxf059OohN6pYRrjuHWJWSEuryczN%2FM%3D&sp=r&sr=c&st=2018-02-13T12%3A34%3A56Z&sv=2012-02-12"
+        "azure/blob/myaccount/az_fake_bucket/resource?se=2018-02-13T13%3A34%3A56Z&sig=j0cUaaHtf2SW2usSsiN79DYx%2Fo1vWwq4lLYZSC5%2Bv7I%3D&sp=r&spr=https&sr=b&st=2018-02-13T12%3A34%3A56Z&sv=2020-12-06"
         in signed_url
     )
 
@@ -517,7 +520,7 @@ def test_vsiaz_fake_write():
     # Simulate illegal read
     f = gdal.VSIFOpenL("/vsiaz/test_copy/file.tif", "wb")
     assert f is not None
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = gdal.VSIFReadL(1, 1, f)
     assert not ret
     gdal.VSIFCloseL(f)
@@ -525,7 +528,7 @@ def test_vsiaz_fake_write():
     # Simulate illegal seek
     f = gdal.VSIFOpenL("/vsiaz/test_copy/file.tif", "wb")
     assert f is not None
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = gdal.VSIFSeekL(f, 1, 0)
     assert ret != 0
     gdal.VSIFCloseL(f)
@@ -570,7 +573,7 @@ def test_vsiaz_fake_write():
         pytest.fail()
 
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             ret = gdal.VSIFCloseL(f)
         if ret == 0:
             gdal.VSIFCloseL(f)
@@ -713,7 +716,7 @@ def test_vsiaz_fake_write():
     handler.add("PUT", "/azure/blob/myaccount/test_copy/file.tif", custom_method=method)
 
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             ret = gdal.VSIFWriteL("0123456789abcdef", 1, 16, f)
         if ret != 0:
             gdal.VSIFCloseL(f)
@@ -729,7 +732,7 @@ def test_vsiaz_fake_write():
     handler.add("PUT", "/azure/blob/myaccount/test_copy/file.tif", 201)
     handler.add("PUT", "/azure/blob/myaccount/test_copy/file.tif?comp=appendblock", 403)
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             ret = gdal.VSIFWriteL("0123456789abcdef", 1, 16, f)
         if ret != 0:
             gdal.VSIFCloseL(f)
@@ -777,7 +780,7 @@ def test_vsiaz_write_blockblob_retry():
         handler.add(
             "PUT", "/azure/blob/myaccount/test_copy/file.bin", custom_method=method
         )
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             with webserver.install_http_handler(handler):
                 assert gdal.VSIFWriteL("foo", 1, 3, f) == 3
                 gdal.VSIFCloseL(f)
@@ -822,7 +825,7 @@ def test_vsiaz_write_appendblob_retry():
             "PUT", "/azure/blob/myaccount/test_copy/file.bin?comp=appendblock", 201
         )
 
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             with webserver.install_http_handler(handler):
                 assert gdal.VSIFWriteL("0123456789abcdef", 1, 16, f) == 16
                 gdal.VSIFCloseL(f)
@@ -870,7 +873,7 @@ def test_vsiaz_fake_unlink():
         {"Connection": "close"},
     )
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             ret = gdal.Unlink("/vsiaz/az_bucket_test_unlink/myfile")
     assert ret == -1
 
@@ -1442,7 +1445,7 @@ def test_vsiaz_opendir():
     assert entry.mtime == 1
 
     entry = gdal.GetNextDirEntry(d)
-    assert entry.name == "subdir/"
+    assert entry.name == "subdir"
     assert entry.mode == 16384
 
     entry = gdal.GetNextDirEntry(d)
@@ -2684,3 +2687,154 @@ def test_vsiaz_access_token():
             gdal.VSIFCloseL(f)
 
         assert data == "foo"
+
+
+###############################################################################
+# Test server-side copy from S3 to Azure
+
+
+def test_vsiaz_copy_from_vsis3():
+
+    if gdaltest.webserver_port == 0:
+        pytest.skip()
+
+    gdal.VSICurlClearCache()
+
+    options = copy.copy(general_s3_options)
+    options["AWS_S3_ENDPOINT"] = f"127.0.0.1:{gdaltest.webserver_port}"
+
+    with gdaltest.config_options(options, thread_local=False):
+        handler = webserver.SequentialHandler()
+        handler.add(
+            "GET",
+            "/s3_bucket/test.bin",
+            200,
+            {"Content-Length": "3"},
+            "foo",
+        )
+
+        if gdaltest.webserver_port == 8080:
+            expected_headers = {
+                "x-ms-copy-source": "http://127.0.0.1:%d/s3_bucket/test.bin?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AWS_ACCESS_KEY_ID%%2F20150101%%2Fus-east-1%%2Fs3%%2Faws4_request&X-Amz-Date=20150101T000000Z&X-Amz-Expires=3600&X-Amz-Signature=49294bd260338188b336ff2ed2c202e95d503439aca8fd9b2982c91992fa584d&X-Amz-SignedHeaders=host"
+                % gdaltest.webserver_port
+            }
+        elif gdaltest.webserver_port == 8081:
+            expected_headers = {
+                "x-ms-copy-source": "http://127.0.0.1:%d/s3_bucket/test.bin?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AWS_ACCESS_KEY_ID%%2F20150101%%2Fus-east-1%%2Fs3%%2Faws4_request&X-Amz-Date=20150101T000000Z&X-Amz-Expires=3600&X-Amz-Signature=20dfcb6bdd7a4e55fc58a171b7a25dcce55244f990e4d1e0361eed1bbb729a07&X-Amz-SignedHeaders=host"
+                % gdaltest.webserver_port
+            }
+        else:
+            expected_headers = {}
+
+        handler.add(
+            "PUT",
+            "/azure/blob/myaccount/az_container/test.bin",
+            202,
+            expected_headers=expected_headers,
+        )
+
+        with webserver.install_http_handler(handler):
+            assert (
+                gdal.CopyFile(
+                    "/vsis3/s3_bucket/test.bin", "/vsiaz/az_container/test.bin"
+                )
+                == 0
+            )
+
+
+###############################################################################
+# Test server-side copy from Azure to Azure, but with source and target being
+# in same bucket
+
+
+def test_vsiaz_copy_from_vsiaz_same_bucket():
+
+    if gdaltest.webserver_port == 0:
+        pytest.skip()
+
+    gdal.VSICurlClearCache()
+
+    handler = webserver.SequentialHandler()
+
+    def method(request):
+
+        request.protocol_version = "HTTP/1.1"
+        h = request.headers
+        if (
+            "x-ms-copy-source" not in h
+            or h["x-ms-copy-source"]
+            != f"http://127.0.0.1:{gdaltest.webserver_port}/azure/blob/myaccount/az_container/test.bin"
+        ):
+            sys.stderr.write("Bad headers: %s\n" % str(h))
+            request.send_response(403)
+            return
+        request.send_response(202)
+        request.send_header("Connection", "close")
+        request.end_headers()
+
+    handler.add(
+        "PUT",
+        "/azure/blob/myaccount/az_container/test2.bin",
+        custom_method=method,
+    )
+
+    with webserver.install_http_handler(handler):
+        assert (
+            gdal.CopyFile(
+                "/vsiaz/az_container/test.bin",
+                "/vsiaz/az_container/test2.bin",
+            )
+            == 0
+        )
+
+
+###############################################################################
+# Test server-side copy from Azure to Azure, but with source and target being
+# in different buckets
+
+
+def test_vsiaz_copy_from_vsiaz_different_storage_bucket():
+
+    if gdaltest.webserver_port == 0:
+        pytest.skip()
+
+    gdal.VSICurlClearCache()
+
+    handler = webserver.SequentialHandler()
+    handler.add(
+        "HEAD",
+        "/azure/blob/myaccount/az_source_container/test.bin",
+        200,
+        {"Content-Length": "3"},
+    )
+
+    def method(request):
+
+        request.protocol_version = "HTTP/1.1"
+        h = request.headers
+        if "x-ms-copy-source" not in h or (
+            not h["x-ms-copy-source"].startswith(
+                f"http://127.0.0.1:{gdaltest.webserver_port}/azure/blob/myaccount/az_source_container/test.bin?se="
+            )
+        ):
+            sys.stderr.write("Bad headers: %s\n" % str(h))
+            request.send_response(403)
+            return
+        request.send_response(202)
+        request.send_header("Connection", "close")
+        request.end_headers()
+
+    handler.add(
+        "PUT",
+        "/azure/blob/myaccount/az_target_container/test.bin",
+        custom_method=method,
+    )
+
+    with webserver.install_http_handler(handler):
+        assert (
+            gdal.CopyFile(
+                "/vsiaz/az_source_container/test.bin",
+                "/vsiaz/az_target_container/test.bin",
+            )
+            == 0
+        )

@@ -79,11 +79,13 @@ add_executable(
   test_gdal_gtiff.cpp
   test_gdal_pixelfn.cpp
   test_ogr.cpp
+  test_ogr_organize_polygons.cpp
   test_ogr_geometry_stealing.cpp
   test_ogr_lgpl.cpp
   test_ogr_geos.cpp
   test_ogr_shape.cpp
   test_ogr_swq.cpp
+  test_ogr_wkb.cpp
   test_osr.cpp
   test_osr_pci.cpp
   test_osr_ct.cpp

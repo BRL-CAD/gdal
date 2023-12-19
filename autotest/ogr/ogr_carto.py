@@ -43,11 +43,26 @@ pytestmark = pytest.mark.require_driver("Carto")
 #
 
 
-def test_ogr_carto_vsimem():
+@pytest.fixture()
+def vsimem_setup_and_cleanup():
 
     ogrtest.carto_api_key_ori = gdal.GetConfigOption("CARTO_API_KEY")
     gdal.SetConfigOption("CARTO_API_URL", "/vsimem/carto")
     gdal.SetConfigOption("CPL_CURL_ENABLE_VSIMEM", "YES")
+
+    yield
+
+    gdal.SetConfigOption("CARTO_API_URL", None)
+    gdal.SetConfigOption("CPL_CURL_ENABLE_VSIMEM", None)
+    gdal.SetConfigOption("CARTO_PAGE_SIZE", None)
+    gdal.SetConfigOption("CARTO_MAX_CHUNK_SIZE", None)
+    gdal.SetConfigOption("CARTO_API_KEY", ogrtest.carto_api_key_ori)
+
+    for f in gdal.ReadDir("/vsimem/"):
+        gdal.Unlink("/vsimem/" + f)
+
+
+def test_ogr_carto_vsimem(vsimem_setup_and_cleanup):
 
     gdal.FileFromMemBuffer(
         "/vsimem/carto&POSTFIELDS=q=SELECT postgis_version() LIMIT 500 OFFSET 0&api_key=foo",
@@ -422,7 +437,7 @@ Error""",
     lyr.ResetReading()
     f = lyr.GetNextFeature()
     assert f.GetFID() == 0
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         f = lyr.GetNextFeature()
     assert f is None
 
@@ -924,22 +939,6 @@ Error""",
 
 
 ###############################################################################
-#
-
-
-def test_ogr_carto_vsimem_cleanup():
-
-    gdal.SetConfigOption("CARTO_API_URL", None)
-    gdal.SetConfigOption("CPL_CURL_ENABLE_VSIMEM", None)
-    gdal.SetConfigOption("CARTO_PAGE_SIZE", None)
-    gdal.SetConfigOption("CARTO_MAX_CHUNK_SIZE", None)
-    gdal.SetConfigOption("CARTO_API_KEY", ogrtest.carto_api_key_ori)
-
-    for f in gdal.ReadDir("/vsimem/"):
-        gdal.Unlink("/vsimem/" + f)
-
-
-###############################################################################
 #  Run test_ogrsf
 
 
@@ -995,12 +994,12 @@ def ogr_carto_rw_1():
     lyr_name = "LAYER_" + a_uuid
 
     # No-op
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         lyr = ds.CreateLayer(lyr_name)
     ds.DeleteLayer(ds.GetLayerCount() - 1)
 
     # Deferred table creation
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         lyr = ds.CreateLayer(lyr_name)
     lyr.CreateField(ogr.FieldDefn("STRFIELD", ogr.OFTString))
     lyr.CreateField(ogr.FieldDefn("intfield", ogr.OFTInteger))

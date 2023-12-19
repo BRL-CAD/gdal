@@ -33,8 +33,11 @@ import os
 import shutil
 import struct
 import sys
+import tempfile
+from pathlib import Path
 
 import gdaltest
+import pytest
 
 from osgeo import gdal, osr
 
@@ -972,3 +975,106 @@ def test_vrtmisc_nodata_float32():
 
     gdal.Unlink(tif_filename)
     gdal.Unlink(vrt_filename)
+
+
+###############################################################################
+def test_vrt_write_copy_mdd():
+
+    src_filename = "/vsimem/test_vrt_write_copy_mdd.tif"
+    src_ds = gdal.GetDriverByName("GTiff").Create(src_filename, 1, 1)
+    src_ds.SetMetadataItem("FOO", "BAR")
+    src_ds.SetMetadataItem("BAR", "BAZ", "OTHER_DOMAIN")
+    src_ds.SetMetadataItem("should_not", "be_copied", "IMAGE_STRUCTURE")
+
+    filename = "/vsimem/test_vrt_write_copy_mdd.vrt"
+
+    gdal.GetDriverByName("VRT").CreateCopy(filename, src_ds)
+    ds = gdal.Open(filename)
+    assert set(ds.GetMetadataDomainList()) == set(
+        ["", "IMAGE_STRUCTURE", "DERIVED_SUBDATASETS"]
+    )
+    assert ds.GetMetadata_Dict() == {"FOO": "BAR"}
+    assert ds.GetMetadata_Dict("OTHER_DOMAIN") == {}
+    assert ds.GetMetadata_Dict("IMAGE_STRUCTURE") == {"INTERLEAVE": "BAND"}
+    ds = None
+
+    gdal.GetDriverByName("VRT").CreateCopy(
+        filename, src_ds, options=["COPY_SRC_MDD=NO"]
+    )
+    ds = gdal.Open(filename)
+    assert ds.GetMetadata_Dict() == {}
+    assert ds.GetMetadata_Dict("OTHER_DOMAIN") == {}
+    ds = None
+
+    gdal.GetDriverByName("VRT").CreateCopy(
+        filename, src_ds, options=["COPY_SRC_MDD=YES"]
+    )
+    ds = gdal.Open(filename)
+    assert set(ds.GetMetadataDomainList()) == set(
+        ["", "IMAGE_STRUCTURE", "DERIVED_SUBDATASETS", "OTHER_DOMAIN"]
+    )
+    assert ds.GetMetadata_Dict() == {"FOO": "BAR"}
+    assert ds.GetMetadata_Dict("OTHER_DOMAIN") == {"BAR": "BAZ"}
+    assert ds.GetMetadata_Dict("IMAGE_STRUCTURE") == {"INTERLEAVE": "BAND"}
+    ds = None
+
+    gdal.GetDriverByName("VRT").CreateCopy(
+        filename, src_ds, options=["SRC_MDD=OTHER_DOMAIN"]
+    )
+    ds = gdal.Open(filename)
+    assert ds.GetMetadata_Dict() == {}
+    assert ds.GetMetadata_Dict("OTHER_DOMAIN") == {"BAR": "BAZ"}
+    ds = None
+
+    gdal.GetDriverByName("VRT").CreateCopy(
+        filename, src_ds, options=["SRC_MDD=", "SRC_MDD=OTHER_DOMAIN"]
+    )
+    ds = gdal.Open(filename)
+    assert ds.GetMetadata_Dict() == {"FOO": "BAR"}
+    assert ds.GetMetadata_Dict("OTHER_DOMAIN") == {"BAR": "BAZ"}
+    ds = None
+
+    src_ds = None
+    gdal.Unlink(filename)
+    gdal.Unlink(src_filename)
+
+
+###############################################################################
+
+
+@pytest.mark.require_driver("netCDF")
+def test_vrt_read_netcdf():
+    """Test subdataset info API used by VRT driver to calculate relative path"""
+
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        nc_path = os.path.join(tmpdirname, "alldatatypes.nc")
+        vrt_path = os.path.join(tmpdirname, "test_vrt_read_netcdf.vrt")
+        vrt_copy_path = os.path.join(tmpdirname, "test_vrt_read_netcdf_copy.vrt")
+        shutil.copyfile(
+            Path(__file__).parent.parent / "gdrivers/data/netcdf/alldatatypes.nc",
+            nc_path,
+        )
+        subds_filename = f'NETCDF:"{nc_path}":ubyte_var'
+        buffer = f"""<VRTDataset rasterXSize="1" rasterYSize="1">
+  <VRTRasterBand dataType="Byte" band="1">
+    <NoDataValue>0</NoDataValue>
+    <ComplexSource>
+      <SourceFilename relativeToVRT="0">{subds_filename}</SourceFilename>
+      <SourceBand>1</SourceBand>
+      <SrcRect xOff="0" yOff="0" xSize="1" ySize="1" />
+      <DstRect xOff="0" yOff="0" xSize="1" ySize="1" />
+      <NODATA>1</NODATA>
+    </ComplexSource>
+  </VRTRasterBand>
+</VRTDataset>"""
+        with open(vrt_path, "w+") as f:
+            f.write(buffer)
+
+        ds = gdal.Open(vrt_path)
+        assert ds is not None
+        gdal.GetDriverByName("VRT").CreateCopy(vrt_copy_path, ds)
+
+        ds = None
+
+        with open(vrt_copy_path, "r") as xml:
+            assert 'NETCDF:"alldatatypes.nc":ubyte_var' in xml.read()

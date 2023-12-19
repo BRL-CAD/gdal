@@ -53,10 +53,6 @@ def module_disable_exceptions():
 
 @pytest.fixture(autouse=True, scope="module")
 def startup_and_cleanup():
-    try:
-        shutil.rmtree("tmp/test.gdb")
-    except OSError:
-        pass
 
     yield
 
@@ -66,28 +62,6 @@ def startup_and_cleanup():
     import locale
 
     locale.setlocale(locale.LC_ALL, "C")
-
-    try:
-        shutil.rmtree("tmp/test.gdb")
-    except OSError:
-        pass
-
-    try:
-        shutil.rmtree("tmp/test2.gdb")
-    except OSError:
-        pass
-    try:
-        shutil.rmtree("tmp/poly.gdb")
-    except OSError:
-        pass
-    try:
-        shutil.rmtree("tmp/test3005.gdb")
-    except OSError:
-        pass
-    try:
-        shutil.rmtree("tmp/roads_clip Drawing.gdb")
-    except OSError:
-        pass
 
 
 ###############################################################################
@@ -135,7 +109,7 @@ def fgdb_sdk_1_4_or_later(fgdb_drv):
     ds = fgdb_drv.CreateDataSource("tmp/ogr_fgdb_is_sdk_1_4_or_later.gdb")
     srs = osr.SpatialReference()
     srs.ImportFromProj4("+proj=tmerc +datum=WGS84 +no_defs")
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         lyr = ds.CreateLayer("test", srs=srs, geom_type=ogr.wkbPoint)
     if lyr is not None:
         fgdb_is_sdk_1_4 = True
@@ -163,14 +137,9 @@ def ogrsf_path():
 # Write and read back various geometry types
 
 
-def test_ogr_fgdb_1(fgdb_drv):
-
-    srs = osr.SpatialReference()
-    srs.SetFromUserInput("WGS84")
-
-    ds = fgdb_drv.CreateDataSource("tmp/test.gdb")
-
-    datalist = [
+@pytest.fixture()
+def test_gdb_datalist():
+    return [
         ["none", ogr.wkbNone, None],
         ["point", ogr.wkbPoint, "POINT (1 2)"],
         ["multipoint", ogr.wkbMultiPoint, "MULTIPOINT (1 2,3 4)"],
@@ -234,11 +203,19 @@ def test_ogr_fgdb_1(fgdb_drv):
         ["empty_polygon", ogr.wkbPolygon, "POLYGON EMPTY", None],
     ]
 
+
+@pytest.fixture()
+def test_gdb(fgdb_drv, tmp_path, test_gdb_datalist):
+    srs = osr.SpatialReference()
+    srs.SetFromUserInput("WGS84")
+
+    ds = fgdb_drv.CreateDataSource(tmp_path / "test.gdb")
+
     options = [
         "COLUMN_TYPES=smallint=esriFieldTypeSmallInteger,float=esriFieldTypeSingle,guid=esriFieldTypeGUID,xml=esriFieldTypeXML"
     ]
 
-    for data in datalist:
+    for data in test_gdb_datalist:
         if data[1] == ogr.wkbNone:
             lyr = ds.CreateLayer(data[0], geom_type=data[1], options=options)
         elif data[0] == "multipatch":
@@ -282,13 +259,23 @@ def test_ogr_fgdb_1(fgdb_drv):
             feat.SetField("adate", "2013/12/26 12:34:56")
             feat.SetField("guid", "{12345678-9abc-DEF0-1234-567890ABCDEF}")
             feat.SetField("xml", "<foo></foo>")
-            feat.SetFieldBinaryFromHexString("binary", "00FF7F")
-            feat.SetFieldBinaryFromHexString("binary2", "123456")
+            feat.SetField("binary", b"\x00\xFF\x7F")
+            feat.SetField("binary2", b"\x12\x34\x56")
             feat.SetField("smallint2", -32768)
             feat.SetField("float2", 1.5)
             lyr.CreateFeature(feat)
 
-    for data in datalist:
+    yield tmp_path / "test.gdb"
+
+
+def test_ogr_fgdb_1(test_gdb, test_gdb_datalist):
+
+    srs = osr.SpatialReference()
+    srs.SetFromUserInput("WGS84")
+
+    ds = ogr.Open(test_gdb)
+
+    for data in test_gdb_datalist:
         lyr = ds.GetLayerByName(data[0])
         if data[1] != ogr.wkbNone:
             assert (
@@ -303,13 +290,7 @@ def test_ogr_fgdb_1(fgdb_drv):
                 expected_wkt = data[3]
             except IndexError:
                 expected_wkt = data[2]
-            if expected_wkt is None:
-                if feat.GetGeometryRef() is not None:
-                    feat.DumpReadable()
-                    pytest.fail(data)
-            elif ogrtest.check_feature_geometry(feat, expected_wkt) != 0:
-                feat.DumpReadable()
-                pytest.fail(data)
+            ogrtest.check_feature_geometry(feat, expected_wkt)
 
         if (
             feat.GetField("id") != 1
@@ -356,9 +337,9 @@ def test_ogr_fgdb_1(fgdb_drv):
 # Test DeleteField()
 
 
-def test_ogr_fgdb_DeleteField():
+def test_ogr_fgdb_DeleteField(test_gdb):
 
-    ds = ogr.Open("tmp/test.gdb", update=1)
+    ds = ogr.Open(test_gdb, update=1)
     lyr = ds.GetLayerByIndex(0)
 
     assert (
@@ -402,7 +383,7 @@ def test_ogr_fgdb_DeleteField():
 
     # Needed since FileGDB v1.4, otherwise crash/error ...
     if True:  # pylint: disable=using-constant-test
-        ds = ogr.Open("tmp/test.gdb", update=1)
+        ds = ogr.Open(test_gdb, update=1)
         lyr = ds.GetLayerByIndex(0)
 
     fld_defn = ogr.FieldDefn("str2", ogr.OFTString)
@@ -433,7 +414,7 @@ def test_ogr_fgdb_DeleteField():
     feat = None
     ds = None
 
-    ds = ogr.Open("tmp/test.gdb")
+    ds = ogr.Open(test_gdb)
     lyr = ds.GetLayerByIndex(0)
     assert (
         lyr.GetLayerDefn()
@@ -451,9 +432,9 @@ def test_ogr_fgdb_DeleteField():
 # Run test_ogrsf
 
 
-def test_ogr_fgdb_2(ogrsf_path):
+def test_ogr_fgdb_2(ogrsf_path, test_gdb):
     ret = gdaltest.runexternal(
-        ogrsf_path + " -ro tmp/test.gdb --config OGR_SKIP OpenFileGDB"
+        ogrsf_path + f" -ro {test_gdb} --config OGR_SKIP OpenFileGDB"
     )
 
     assert ret.find("INFO") != -1 and ret.find("ERROR") == -1
@@ -463,24 +444,27 @@ def test_ogr_fgdb_2(ogrsf_path):
 # Run ogr2ogr
 
 
-def test_ogr_fgdb_3(openfilegdb_drv):
+@pytest.fixture()
+def poly_gdb(tmp_path):
 
     import test_cli_utilities
 
     if test_cli_utilities.get_ogr2ogr_path() is None:
         pytest.skip()
 
-    try:
-        shutil.rmtree("tmp/poly.gdb")
-    except OSError:
-        pass
-
     gdaltest.runexternal(
         test_cli_utilities.get_ogr2ogr_path()
-        + " -f filegdb tmp/poly.gdb data/poly.shp -nlt MULTIPOLYGON -a_srs None"
+        + f" -f filegdb {tmp_path}/poly.gdb data/poly.shp -nlt MULTIPOLYGON -a_srs None"
     )
 
-    ds = ogr.Open("tmp/poly.gdb")
+    return tmp_path / "poly.gdb"
+
+
+def test_ogr_fgdb_3(openfilegdb_drv, poly_gdb):
+
+    import test_cli_utilities
+
+    ds = ogr.Open(poly_gdb)
     assert not (ds is None or ds.GetLayerCount() == 0), "ogr2ogr failed"
     ds = None
 
@@ -493,9 +477,8 @@ def test_ogr_fgdb_3(openfilegdb_drv):
 
     ret = gdaltest.runexternal(
         test_cli_utilities.get_test_ogrsf_path()
-        + " tmp/poly.gdb --config DRIVER_WISHED FileGDB"
+        + f" {poly_gdb} --config DRIVER_WISHED FileGDB"
     )
-    # print ret
 
     assert ret.find("INFO") != -1 and ret.find("ERROR") == -1
 
@@ -504,14 +487,14 @@ def test_ogr_fgdb_3(openfilegdb_drv):
 # Test SQL support
 
 
-def test_ogr_fgdb_sql():
+def test_ogr_fgdb_sql(poly_gdb):
 
     import test_cli_utilities
 
     if test_cli_utilities.get_ogr2ogr_path() is None:
         pytest.skip()
 
-    ds = ogr.Open("tmp/poly.gdb")
+    ds = ogr.Open(poly_gdb)
 
     ds.ExecuteSQL("CREATE INDEX idx_poly_eas_id ON poly(EAS_ID)")
 
@@ -529,12 +512,12 @@ def test_ogr_fgdb_sql():
 # Test delete layer
 
 
-def test_ogr_fgdb_4():
+def test_ogr_fgdb_4(test_gdb):
 
     for j in range(2):
 
         # Create a layer
-        ds = ogr.Open("tmp/test.gdb", update=1)
+        ds = ogr.Open(test_gdb, update=1)
         srs = osr.SpatialReference()
         srs.SetFromUserInput("WGS84")
         lyr = ds.CreateLayer("layer_to_remove", geom_type=ogr.wkbPoint, srs=srs)
@@ -547,7 +530,7 @@ def test_ogr_fgdb_4():
 
         if j == 1:
             ds = None
-            ds = ogr.Open("tmp/test.gdb", update=1)
+            ds = ogr.Open(test_gdb, update=1)
 
         # Delete it
         for i in range(ds.GetLayerCount()):
@@ -566,91 +549,78 @@ def test_ogr_fgdb_4():
 # Test DeleteDataSource()
 
 
-def test_ogr_fgdb_5(fgdb_drv):
+def test_ogr_fgdb_5(fgdb_drv, poly_gdb):
 
-    assert fgdb_drv.DeleteDataSource("tmp/test.gdb") == 0, "DeleteDataSource() failed"
+    assert fgdb_drv.DeleteDataSource(poly_gdb) == 0, "DeleteDataSource() failed"
 
-    assert not os.path.exists("tmp/test.gdb")
+    assert not os.path.exists(poly_gdb)
 
 
 ###############################################################################
 # Test adding a layer to an existing feature dataset
 
 
-def test_ogr_fgdb_6(fgdb_drv):
+def test_ogr_fgdb_6(fgdb_drv, tmp_path):
 
     srs = osr.SpatialReference()
     srs.SetFromUserInput("WGS84")
 
-    ds = fgdb_drv.CreateDataSource("tmp/test.gdb")
-    ds.CreateLayer(
-        "layer1",
-        srs=srs,
-        geom_type=ogr.wkbPoint,
-        options=["FEATURE_DATASET=featuredataset"],
-    )
-    ds.CreateLayer(
-        "layer2",
-        srs=srs,
-        geom_type=ogr.wkbPoint,
-        options=["FEATURE_DATASET=featuredataset"],
-    )
-    ds = None
+    with fgdb_drv.CreateDataSource(tmp_path / "test.gdb") as ds:
+        ds.CreateLayer(
+            "layer1",
+            srs=srs,
+            geom_type=ogr.wkbPoint,
+            options=["FEATURE_DATASET=featuredataset"],
+        )
+        ds.CreateLayer(
+            "layer2",
+            srs=srs,
+            geom_type=ogr.wkbPoint,
+            options=["FEATURE_DATASET=featuredataset"],
+        )
 
-    ds = ogr.Open("tmp/test.gdb")
-    assert ds.GetLayerCount() == 2
-    ds = None
+    with ogr.Open(tmp_path / "test.gdb") as ds:
+        assert ds.GetLayerCount() == 2
 
 
 ###############################################################################
 # Test bulk loading (#4420)
 
 
-def test_ogr_fgdb_7(fgdb_drv):
-
-    try:
-        shutil.rmtree("tmp/test.gdb")
-    except OSError:
-        pass
+def test_ogr_fgdb_7(fgdb_drv, tmp_path):
 
     srs = osr.SpatialReference()
     srs.SetFromUserInput("WGS84")
 
-    ds = fgdb_drv.CreateDataSource("tmp/test.gdb")
-    lyr = ds.CreateLayer("test", srs=srs, geom_type=ogr.wkbPoint)
-    lyr.CreateField(ogr.FieldDefn("id", ogr.OFTInteger))
-    with gdal.config_option("FGDB_BULK_LOAD", "YES"):
-        for i in range(1000):
-            feat = ogr.Feature(lyr.GetLayerDefn())
-            feat.SetField(0, i)
-            geom = ogr.CreateGeometryFromWkt("POINT(0 1)")
-            feat.SetGeometry(geom)
-            lyr.CreateFeature(feat)
-            feat = None
+    with fgdb_drv.CreateDataSource(tmp_path / "test.gdb") as ds:
+        lyr = ds.CreateLayer("test", srs=srs, geom_type=ogr.wkbPoint)
+        lyr.CreateField(ogr.FieldDefn("id", ogr.OFTInteger))
+        with gdal.config_option("FGDB_BULK_LOAD", "YES"):
+            for i in range(1000):
+                feat = ogr.Feature(lyr.GetLayerDefn())
+                feat.SetField(0, i)
+                geom = ogr.CreateGeometryFromWkt("POINT(0 1)")
+                feat.SetGeometry(geom)
+                lyr.CreateFeature(feat)
+                feat = None
 
-        lyr.ResetReading()
-        feat = lyr.GetNextFeature()
-        assert feat.GetField(0) == 0
-        ds = None
+            lyr.ResetReading()
+            feat = lyr.GetNextFeature()
+            assert feat.GetField(0) == 0
 
 
 ###############################################################################
 # Test field name laundering (#4458)
 
 
-def test_ogr_fgdb_8(fgdb_drv):
-
-    try:
-        shutil.rmtree("tmp/test.gdb")
-    except OSError:
-        pass
+def test_ogr_fgdb_8(fgdb_drv, tmp_path):
 
     srs = osr.SpatialReference()
     srs.SetFromUserInput("WGS84")
 
-    ds = fgdb_drv.CreateDataSource("tmp/test.gdb")
+    ds = fgdb_drv.CreateDataSource(tmp_path / "test.gdb")
     lyr = ds.CreateLayer("test", srs=srs, geom_type=ogr.wkbPoint)
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         lyr.CreateField(ogr.FieldDefn("FROM", ogr.OFTInteger))  # reserved keyword
         lyr.CreateField(
             ogr.FieldDefn("1NUMBER", ogr.OFTInteger)
@@ -698,12 +668,7 @@ def test_ogr_fgdb_8(fgdb_drv):
 # Test layer name laundering (#4466)
 
 
-def test_ogr_fgdb_9(fgdb_drv):
-
-    try:
-        shutil.rmtree("tmp/test.gdb")
-    except OSError:
-        pass
+def test_ogr_fgdb_9(fgdb_drv, tmp_path):
 
     srs = osr.SpatialReference()
     srs.SetFromUserInput("WGS84")
@@ -720,8 +685,8 @@ def test_ogr_fgdb_9(fgdb_drv):
         _160char + "B",  # still too long
     ]
 
-    ds = fgdb_drv.CreateDataSource("tmp/test.gdb")
-    with gdaltest.error_handler():
+    ds = fgdb_drv.CreateDataSource(tmp_path / "test.gdb")
+    with gdal.quiet_errors():
         for in_name in in_names:
             lyr = ds.CreateLayer(in_name, srs=srs, geom_type=ogr.wkbPoint)
 
@@ -743,12 +708,7 @@ def test_ogr_fgdb_9(fgdb_drv):
 # Test SRS support
 
 
-def test_ogr_fgdb_10(fgdb_drv):
-
-    try:
-        shutil.rmtree("tmp/test.gdb")
-    except OSError:
-        pass
+def test_ogr_fgdb_10(fgdb_drv, tmp_path):
 
     srs_exact_4326 = osr.SpatialReference()
     srs_exact_4326.ImportFromEPSG(4326)
@@ -792,7 +752,7 @@ def test_ogr_fgdb_10(fgdb_drv):
     srs_exact_4233 = osr.SpatialReference()
     srs_exact_4233.ImportFromEPSG(4233)
 
-    ds = fgdb_drv.CreateDataSource("tmp/test.gdb")
+    ds = fgdb_drv.CreateDataSource(tmp_path / "test.gdb")
     lyr = ds.CreateLayer("srs_exact_4326", srs=srs_exact_4326, geom_type=ogr.wkbPoint)
     lyr = ds.CreateLayer("srs_approx_4326", srs=srs_approx_4326, geom_type=ogr.wkbPoint)
     lyr = ds.CreateLayer("srs_exact_2193", srs=srs_exact_2193, geom_type=ogr.wkbPoint)
@@ -801,24 +761,24 @@ def test_ogr_fgdb_10(fgdb_drv):
     lyr = ds.CreateLayer("srs_approx_4230", srs=srs_approx_4230, geom_type=ogr.wkbPoint)
 
     # will fail
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         lyr = ds.CreateLayer(
             "srs_approx_intl", srs=srs_approx_intl, geom_type=ogr.wkbPoint
         )
 
     # will fail: 4233 doesn't exist in DB
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         lyr = ds.CreateLayer(
             "srs_exact_4233", srs=srs_exact_4233, geom_type=ogr.wkbPoint
         )
 
     # will fail
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         lyr = ds.CreateLayer("srs_not_in_db", srs=srs_not_in_db, geom_type=ogr.wkbPoint)
 
     ds = None
 
-    ds = ogr.Open("tmp/test.gdb")
+    ds = ogr.Open(tmp_path / "test.gdb")
     lyr = ds.GetLayerByName("srs_exact_4326")
     assert lyr.GetSpatialRef().ExportToWkt().find("4326") != -1
     lyr = ds.GetLayerByName("srs_approx_4326")
@@ -836,18 +796,13 @@ def test_ogr_fgdb_10(fgdb_drv):
 # Test all data types
 
 
-def test_ogr_fgdb_11(fgdb_drv):
-
-    try:
-        shutil.rmtree("tmp/test.gdb")
-    except OSError:
-        pass
+def test_ogr_fgdb_11(fgdb_drv, tmp_path):
 
     f = open("data/filegdb/test_filegdb_field_types.xml", "rt")
     xml_def = f.read()
     f.close()
 
-    ds = fgdb_drv.CreateDataSource("tmp/test.gdb")
+    ds = fgdb_drv.CreateDataSource(tmp_path / "test.gdb")
     lyr = ds.CreateLayer(
         "test", geom_type=ogr.wkbNone, options=["XML_DEFINITION=%s" % xml_def]
     )
@@ -882,7 +837,7 @@ def test_ogr_fgdb_11(fgdb_drv):
 
     ds = None
 
-    ds = ogr.Open("tmp/test.gdb")
+    ds = ogr.Open(tmp_path / "test.gdb")
     lyr = ds.GetLayerByName("test")
     feat = lyr.GetNextFeature()
     if (
@@ -918,68 +873,65 @@ def test_ogr_fgdb_11(fgdb_drv):
 
 
 @gdaltest.disable_exceptions()
-def test_ogr_fgdb_12():
+def test_ogr_fgdb_12(tmp_path):
 
-    ds = ogr.Open("tmp/non_existing.gdb")
+    ds = ogr.Open(tmp_path / "non_existing.gdb")
     assert ds is None
 
-    gdal.Unlink("tmp/dummy.gdb")
-    try:
-        shutil.rmtree("tmp/dummy.gdb")
-    except OSError:
-        pass
 
-    f = open("tmp/dummy.gdb", "wb")
+@gdaltest.disable_exceptions()
+def test_ogr_fgdb_12_bis(tmp_path):
+
+    f = open(tmp_path / "dummy.gdb", "wb")
     f.close()
 
-    ds = ogr.Open("tmp/dummy.gdb")
+    ds = ogr.Open(tmp_path / "dummy.gdb")
     assert ds is None
 
-    os.unlink("tmp/dummy.gdb")
 
-    os.mkdir("tmp/dummy.gdb")
+@gdaltest.disable_exceptions()
+def test_ogr_fgdb_12_ter(tmp_path):
 
-    with gdaltest.error_handler():
-        ds = ogr.Open("tmp/dummy.gdb")
+    os.mkdir(tmp_path / "dummy.gdb")
+
+    with gdal.quiet_errors():
+        ds = ogr.Open(tmp_path / "dummy.gdb")
     assert ds is None
-
-    shutil.rmtree("tmp/dummy.gdb")
 
 
 ###############################################################################
 # Test failed CreateDataSource() and DeleteDataSource()
 
 
-def test_ogr_fgdb_13(fgdb_drv):
+def test_ogr_fgdb_13(fgdb_drv, tmp_path):
 
-    with gdaltest.error_handler():
-        ds = fgdb_drv.CreateDataSource("tmp/foo")
+    with gdal.quiet_errors():
+        ds = fgdb_drv.CreateDataSource(tmp_path / "foo")
     assert ds is None
 
-    f = open("tmp/dummy.gdb", "wb")
+
+def test_ogr_fgdb_13_bis(fgdb_drv, tmp_path):
+
+    f = open(tmp_path / "dummy.gdb", "wb")
     f.close()
 
-    with gdaltest.error_handler():
-        ds = fgdb_drv.CreateDataSource("tmp/dummy.gdb")
+    with gdal.quiet_errors():
+        ds = fgdb_drv.CreateDataSource(tmp_path / "dummy.gdb")
     assert ds is None
 
-    os.unlink("tmp/dummy.gdb")
 
-    try:
-        shutil.rmtree("/nonexistingdir")
-    except OSError:
-        pass
+def test_ogr_fgdb_13_ter(fgdb_drv, tmp_path):
 
     if sys.platform == "win32":
         name = "/nonexistingdrive:/nonexistingdir/dummy.gdb"
     else:
         name = "/proc/dummy.gdb"
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ds = fgdb_drv.CreateDataSource(name)
     assert ds is None
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = fgdb_drv.DeleteDataSource(name)
     assert ret != 0
 
@@ -988,12 +940,12 @@ def test_ogr_fgdb_13(fgdb_drv):
 # Test interleaved opening and closing of databases (#4270)
 
 
-def test_ogr_fgdb_14():
+def test_ogr_fgdb_14(poly_gdb):
 
     for _ in range(3):
-        ds1 = ogr.Open("tmp/test.gdb")
+        ds1 = ogr.Open(poly_gdb)
         assert ds1 is not None
-        ds2 = ogr.Open("tmp/test.gdb")
+        ds2 = ogr.Open(poly_gdb)
         assert ds2 is not None
         ds2 = None
         ds1 = None
@@ -1003,14 +955,10 @@ def test_ogr_fgdb_14():
 # Test opening a FGDB with both SRID and LatestSRID set (#5638)
 
 
-def test_ogr_fgdb_15():
+def test_ogr_fgdb_15(tmp_path):
 
-    try:
-        shutil.rmtree("tmp/test3005.gdb")
-    except OSError:
-        pass
-    gdaltest.unzip("tmp", "data/filegdb/test3005.gdb.zip")
-    ds = ogr.Open("tmp/test3005.gdb")
+    gdaltest.unzip(tmp_path, "data/filegdb/test3005.gdb.zip")
+    ds = ogr.Open(tmp_path / "test3005.gdb")
     lyr = ds.GetLayer(0)
     got_wkt = lyr.GetSpatialRef().ExportToWkt()
     sr = osr.SpatialReference()
@@ -1057,14 +1005,9 @@ def test_ogr_fgdb_16(openfilegdb_drv, fgdb_drv):
 # Test not nullable fields
 
 
-def test_ogr_fgdb_17(fgdb_drv):
+def test_ogr_fgdb_17(fgdb_drv, tmp_path):
 
-    try:
-        shutil.rmtree("tmp/test.gdb")
-    except OSError:
-        pass
-
-    ds = fgdb_drv.CreateDataSource("tmp/test.gdb")
+    ds = fgdb_drv.CreateDataSource(tmp_path / "test.gdb")
     sr = osr.SpatialReference()
     sr.ImportFromEPSG(4326)
     lyr = ds.CreateLayer(
@@ -1087,7 +1030,7 @@ def test_ogr_fgdb_17(fgdb_drv):
     # Error case: missing geometry
     f = ogr.Feature(lyr.GetLayerDefn())
     f.SetField("field_not_nullable", "not_null")
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = lyr.CreateFeature(f)
     assert ret != 0
     f = None
@@ -1095,14 +1038,14 @@ def test_ogr_fgdb_17(fgdb_drv):
     # Error case: missing non-nullable field
     f = ogr.Feature(lyr.GetLayerDefn())
     f.SetGeometryDirectly(ogr.CreateGeometryFromWkt("POINT(0 0)"))
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = lyr.CreateFeature(f)
     assert ret != 0
     f = None
 
     ds = None
 
-    ds = ogr.Open("tmp/test.gdb", update=1)
+    ds = ogr.Open(tmp_path / "test.gdb", update=1)
     lyr = ds.GetLayerByName("test")
     assert (
         lyr.GetLayerDefn()
@@ -1125,14 +1068,9 @@ def test_ogr_fgdb_17(fgdb_drv):
 # Test default values
 
 
-def test_ogr_fgdb_18(openfilegdb_drv, fgdb_drv):
+def test_ogr_fgdb_18(openfilegdb_drv, fgdb_drv, tmp_path):
 
-    try:
-        shutil.rmtree("tmp/test.gdb")
-    except OSError:
-        pass
-
-    ds = fgdb_drv.CreateDataSource("tmp/test.gdb")
+    ds = fgdb_drv.CreateDataSource(tmp_path / "test.gdb")
     lyr = ds.CreateLayer("test", geom_type=ogr.wkbNone)
 
     field_defn = ogr.FieldDefn("field_string", ogr.OFTString)
@@ -1166,16 +1104,14 @@ def test_ogr_fgdb_18(openfilegdb_drv, fgdb_drv):
 
     if openfilegdb_drv is not None:
         openfilegdb_drv.Register()
-    ret = ogr_fgdb_18_test_results(openfilegdb_drv)
+    ogr_fgdb_18_test_results(openfilegdb_drv, tmp_path / "test.gdb")
     if openfilegdb_drv is not None:
         openfilegdb_drv.Deregister()
 
-    return ret
 
+def ogr_fgdb_18_test_results(openfilegdb_drv, fname):
 
-def ogr_fgdb_18_test_results(openfilegdb_drv):
-
-    ds = ogr.Open("tmp/test.gdb", update=1)
+    ds = ogr.Open(fname, update=1)
     lyr = ds.GetLayerByName("test")
     assert (
         lyr.GetLayerDefn()
@@ -1250,7 +1186,7 @@ def ogr_fgdb_19_open_update(openfilegdb_drv, fgdb_drv, filename):
     return (bPerLayerCopyingForTransaction, ds)
 
 
-def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
+def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv, test_gdb):
 
     # FIXME likely due to too old FileGDB SDK on those targets
     # fails with ERROR 1: Failed to open Geodatabase (The system cannot find the file specified.)
@@ -1266,53 +1202,44 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
     ):
         pytest.skip()
 
-    try:
-        shutil.rmtree("tmp/test.gdb.ogrtmp")
-    except OSError:
-        pass
-    try:
-        shutil.rmtree("tmp/test.gdb.ogredited")
-    except OSError:
-        pass
-
     # Error case: try in read-only
-    ds = fgdb_drv.Open("tmp/test.gdb")
-    with gdaltest.error_handler():
+    ds = fgdb_drv.Open(test_gdb)
+    with gdal.quiet_errors():
         ret = ds.StartTransaction(force=True)
     assert ret != 0
     ds = None
 
     (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-        openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+        openfilegdb_drv, fgdb_drv, test_gdb
     )
 
     assert ds.TestCapability(ogr.ODsCEmulatedTransactions) == 1
 
     # Error case: try in non-forced mode
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = ds.StartTransaction(force=False)
     assert ret != 0
 
     # Error case: try StartTransaction() with a ExecuteSQL layer still active
     sql_lyr = ds.ExecuteSQL("SELECT * FROM test")
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = ds.StartTransaction(force=True)
     assert ret != 0
     ds.ReleaseResultSet(sql_lyr)
 
     # Error case: call CommitTransaction() while there is no transaction
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = ds.CommitTransaction()
     assert ret != 0
 
     # Error case: call RollbackTransaction() while there is no transaction
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = ds.RollbackTransaction()
     assert ret != 0
 
     # Error case: try StartTransaction() with another active connection
-    ds2 = fgdb_drv.Open("tmp/test.gdb", update=1)
-    with gdaltest.error_handler():
+    ds2 = fgdb_drv.Open(test_gdb, update=1)
+    with gdal.quiet_errors():
         ret = ds2.StartTransaction(force=True)
     assert ret != 0
     ds2 = None
@@ -1331,8 +1258,8 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
 
     assert ds.StartTransaction(force=True) == 0
 
-    assert os.path.exists("tmp/test.gdb.ogredited")
-    assert not os.path.exists("tmp/test.gdb.ogrtmp")
+    assert os.path.exists(f"{test_gdb}.ogredited")
+    assert not os.path.exists(f"{test_gdb}.ogrtmp")
 
     ret = lyr.CreateField(ogr.FieldDefn("foobar", ogr.OFTString))
     assert ret == 0
@@ -1340,15 +1267,15 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
     ret = lyr.DeleteField(lyr.GetLayerDefn().GetFieldIndex("foobar"))
     assert ret == 0
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = lyr.CreateGeomField(ogr.GeomFieldDefn("foobar", ogr.wkbPoint))
     assert ret != 0
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = lyr.ReorderFields([i for i in range(lyr.GetLayerDefn().GetFieldCount())])
     assert ret != 0
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = lyr.AlterFieldDefn(0, ogr.FieldDefn("foo", ogr.OFTString), 0)
     assert ret != 0
 
@@ -1369,20 +1296,20 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
     layer_created_before_transaction.CreateFeature(f)
 
     # Error case: call StartTransaction() while there is an active transaction
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = ds.StartTransaction(force=True)
     assert ret != 0
 
     # Error case: try CommitTransaction() with a ExecuteSQL layer still active
     sql_lyr = ds.ExecuteSQL("SELECT * FROM test")
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = ds.CommitTransaction()
     assert ret != 0
     ds.ReleaseResultSet(sql_lyr)
 
     # Error case: try RollbackTransaction() with a ExecuteSQL layer still active
     sql_lyr = ds.ExecuteSQL("SELECT * FROM test")
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = ds.RollbackTransaction()
     assert ret != 0
     ds.ReleaseResultSet(sql_lyr)
@@ -1390,10 +1317,10 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
     # Test that CommitTransaction() works
     assert ds.CommitTransaction() == 0
 
-    assert not os.path.exists("tmp/test.gdb.ogredited")
-    assert not os.path.exists("tmp/test.gdb.ogrtmp")
+    assert not os.path.exists(f"{test_gdb}.ogredited")
+    assert not os.path.exists(f"{test_gdb}.ogrtmp")
 
-    lst = gdal.ReadDir("tmp/test.gdb")
+    lst = gdal.ReadDir(test_gdb)
     for filename in lst:
         assert ".tmp" not in filename, lst
 
@@ -1436,8 +1363,8 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
 
     assert ds.RollbackTransaction() == 0
 
-    assert not os.path.exists("tmp/test.gdb.ogredited")
-    assert not os.path.exists("tmp/test.gdb.ogrtmp")
+    assert not os.path.exists(f"{test_gdb}.ogredited")
+    assert not os.path.exists(f"{test_gdb}.ogrtmp")
 
     assert lyr.GetFeatureCount() == old_count
 
@@ -1460,7 +1387,7 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
     assert ret != 0
 
     assert ds.GetLayerCount() == 0
-    shutil.rmtree("tmp/test.gdb.ogredited")
+    shutil.rmtree(f"{test_gdb}.ogredited")
 
     # Test method on ghost datasource and layer
     ds.GetName()
@@ -1527,7 +1454,7 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
         # Test an error case where we simulate a failure of destroying a
         # layer destroyed during transaction
         (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-            openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+            openfilegdb_drv, fgdb_drv, test_gdb
         )
 
         layer_tmp = ds.CreateLayer("layer_tmp", geom_type=ogr.wkbNone)
@@ -1543,16 +1470,16 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
 
         ds = None
 
-        shutil.rmtree("tmp/test.gdb.ogredited")
+        shutil.rmtree(f"{test_gdb}.ogredited")
 
-        lst = gdal.ReadDir("tmp/test.gdb")
+        lst = gdal.ReadDir(test_gdb)
         for filename in lst:
             assert ".tmp" not in filename, lst
 
         # Test an error case where we simulate a failure in renaming
         # a file in original directory
         (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-            openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+            openfilegdb_drv, fgdb_drv, test_gdb
         )
 
         for i in range(ds.GetLayerCount()):
@@ -1573,16 +1500,16 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
 
         ds = None
 
-        shutil.rmtree("tmp/test.gdb.ogredited")
+        shutil.rmtree(f"{test_gdb}.ogredited")
 
-        lst = gdal.ReadDir("tmp/test.gdb")
+        lst = gdal.ReadDir(test_gdb)
         for filename in lst:
             assert ".tmp" not in filename, lst
 
         # Test an error case where we simulate a failure in moving
         # a file into original directory
         (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-            openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+            openfilegdb_drv, fgdb_drv, test_gdb
         )
 
         assert ds.StartTransaction(force=True) == 0
@@ -1598,18 +1525,18 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
 
         ds = None
 
-        shutil.rmtree("tmp/test.gdb.ogredited")
+        shutil.rmtree(f"{test_gdb}.ogredited")
 
         # Remove left over .tmp files
-        lst = gdal.ReadDir("tmp/test.gdb")
+        lst = gdal.ReadDir(test_gdb)
         for filename in lst:
             if ".tmp" in filename:
-                os.remove("tmp/test.gdb/" + filename)
+                os.remove(f"{test_gdb}/{filename}")
 
         # Test not critical error in removing a temporary file
         for case in ("CASE4", "CASE5"):
             (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-                openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+                openfilegdb_drv, fgdb_drv, test_gdb
             )
 
             assert ds.StartTransaction(force=True) == 0
@@ -1626,20 +1553,20 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
             ds = None
 
             if case == "CASE4":
-                assert not os.path.exists("tmp/test.gdb.ogredited"), case
+                assert not os.path.exists(f"{test_gdb}.ogredited"), case
             else:
-                shutil.rmtree("tmp/test.gdb.ogredited")
+                shutil.rmtree(f"{test_gdb}.ogredited")
 
             # Remove left over .tmp files
-            lst = gdal.ReadDir("tmp/test.gdb")
+            lst = gdal.ReadDir(test_gdb)
             for filename in lst:
                 if ".tmp" in filename:
-                    os.remove("tmp/test.gdb/" + filename)
+                    os.remove(f"{test_gdb}/{filename}")
 
     else:
         # Test an error case where we simulate a failure of rename from .gdb to .gdb.ogrtmp during commit
         (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-            openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+            openfilegdb_drv, fgdb_drv, test_gdb
         )
         lyr = ds.GetLayer(0)
         lyr_defn = lyr.GetLayerDefn()
@@ -1654,7 +1581,7 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
 
         # Test an error case where we simulate a failure of rename from .gdb.ogredited to .gdb during commit
         (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-            openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+            openfilegdb_drv, fgdb_drv, test_gdb
         )
         lyr = ds.GetLayer(0)
         lyr_defn = lyr.GetLayerDefn()
@@ -1666,11 +1593,11 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
         assert ret != 0
 
         ds = None
-        os.rename("tmp/test.gdb.ogrtmp", "tmp/test.gdb")
+        os.rename(f"{test_gdb}.ogrtmp", test_gdb)
 
         # Test an error case where we simulate a failure of removing from .gdb.ogrtmp during commit
         (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-            openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+            openfilegdb_drv, fgdb_drv, test_gdb
         )
         lyr = ds.GetLayer(0)
         lyr_defn = lyr.GetLayerDefn()
@@ -1682,11 +1609,11 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
         assert ret == 0
 
         ds = None
-        shutil.rmtree("tmp/test.gdb.ogrtmp")
+        shutil.rmtree(f"{test_gdb}.ogrtmp")
 
     # Test an error case where we simulate a failure of reopening the committed DB
     (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-        openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+        openfilegdb_drv, fgdb_drv, test_gdb
     )
     lyr = ds.GetLayer(0)
     lyr_defn = lyr.GetLayerDefn()
@@ -1703,7 +1630,7 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
 
     # Test an error case where we simulate a failure of removing from .gdb.ogredited during rollback
     (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-        openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+        openfilegdb_drv, fgdb_drv, test_gdb
     )
     lyr = ds.GetLayer(0)
     lyr_defn = lyr.GetLayerDefn()
@@ -1715,11 +1642,11 @@ def test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv):
     assert ret != 0
 
     ds = None
-    shutil.rmtree("tmp/test.gdb.ogredited")
+    shutil.rmtree(f"{test_gdb}.ogredited")
 
     # Test an error case where we simulate a failure of reopening the rollbacked DB
     (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-        openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+        openfilegdb_drv, fgdb_drv, test_gdb
     )
     lyr = ds.GetLayer(0)
     lyr_defn = lyr.GetLayerDefn()
@@ -1755,22 +1682,21 @@ def test_ogr_fgdb_19bis(openfilegdb_drv, fgdb_drv):
         pytest.skip()
 
     (bPerLayerCopyingForTransaction, ds) = ogr_fgdb_19_open_update(
-        openfilegdb_drv, fgdb_drv, "tmp/test.gdb"
+        openfilegdb_drv, fgdb_drv, test_gdb
     )
     del ds
     if not bPerLayerCopyingForTransaction:
         pytest.skip()
 
     with gdal.config_option("FGDB_PER_LAYER_COPYING_TRANSACTION", "FALSE"):
-        ret = test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv)
-    return ret
+        test_ogr_fgdb_19(openfilegdb_drv, fgdb_drv)
 
 
 ###############################################################################
 # Test CreateFeature() with user defined FID
 
 
-def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
+def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv, tmp_path):
 
     if openfilegdb_drv is None:
         pytest.skip("No OpenFileGDB driver available")
@@ -1785,13 +1711,12 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
     ):
         pytest.skip()
 
-    if not os.path.exists("tmp/test.gdb"):
-        ds = fgdb_drv.CreateDataSource("tmp/test.gdb")
-        ds = None
+    ds = fgdb_drv.CreateDataSource(tmp_path / "test.gdb")
+    ds = None
 
     # We need the OpenFileGDB driver for CreateFeature() with user defined FID
     openfilegdb_drv.Register()
-    ds = fgdb_drv.Open("tmp/test.gdb", update=1)
+    ds = fgdb_drv.Open(tmp_path / "test.gdb", update=1)
     openfilegdb_drv.Deregister()
     fgdb_drv.Deregister()
     # Force OpenFileGDB first
@@ -1807,14 +1732,14 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
     lyr.CreateFeature(f)
     ds = None
 
-    ds = openfilegdb_drv.Open("tmp/test.gdb")
+    ds = openfilegdb_drv.Open(tmp_path / "test.gdb")
     lyr = ds.GetLayerByName("test_2147483647")
     f = lyr.GetNextFeature()
     assert f
     assert f.GetFID() == 2147483647
     ds = None
 
-    ds = fgdb_drv.Open("tmp/test.gdb", update=1)
+    ds = fgdb_drv.Open(tmp_path / "test.gdb", update=1)
     lyr = ds.GetLayerByName("test_2147483647")
     # GetNextFeature() is excruciatingly slow on such huge FID with the SDK driver
     f = lyr.GetFeature(2147483647)
@@ -1836,14 +1761,14 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
     )
 
     # Existing FID
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = lyr.CreateFeature(f)
     assert ret != 0
 
     for invalid_fid in [-2, 0, 9876543210]:
         f = ogr.Feature(lyr.GetLayerDefn())
         f.SetFID(invalid_fid)
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             ret = lyr.CreateFeature(f)
         assert ret != 0, invalid_fid
 
@@ -1865,8 +1790,8 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
     f.SetField("id", 4)
 
     # Cannot call CreateFeature() with a set FID when a dataset is opened more than once
-    ds2 = fgdb_drv.Open("tmp/test.gdb", update=1)
-    with gdaltest.error_handler():
+    ds2 = fgdb_drv.Open(tmp_path / "test.gdb", update=1)
+    with gdal.quiet_errors():
         ret = lyr.CreateFeature(f)
     assert ret != 0
     ds2 = None
@@ -1881,13 +1806,13 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
         pytest.fail(lyr.GetMetadataItem("4", "MAP_OGR_FID_TO_FGDB_FID"))
 
     #  Cannot open geodatabase at the moment since it is in 'FID hack mode'
-    with gdaltest.error_handler():
-        ds2 = fgdb_drv.Open("tmp/test.gdb", update=1)
+    with gdal.quiet_errors():
+        ds2 = fgdb_drv.Open(tmp_path / "test.gdb", update=1)
     assert ds2 is None
     ds2 = None
 
     # Existing FID, but only in OGR space
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = lyr.CreateFeature(f)
     assert ret != 0
 
@@ -2054,7 +1979,7 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
     f = ogr.Feature(lyr.GetLayerDefn())
     f.SetFID(3)
     f.SetField("id", 3)
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ret = lyr.CreateFeature(f)
     assert ret != 0
 
@@ -2090,7 +2015,7 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
     # Check consistency after re-opening
     gdal.ErrorReset()
     for update in [0, 1]:
-        ds = fgdb_drv.Open("tmp/test.gdb", update=update)
+        ds = fgdb_drv.Open(tmp_path / "test.gdb", update=update)
         lyr = ds.GetLayerByName("ogr_fgdb_20")
         assert lyr.GetFeatureCount() == 10
         lyr.ResetReading()
@@ -2137,7 +2062,7 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
                 assert f.GetFID() == fid
 
     # Insert new features
-    ds = fgdb_drv.Open("tmp/test.gdb", update=1)
+    ds = fgdb_drv.Open(tmp_path / "test.gdb", update=1)
     lyr = ds.GetLayerByName("ogr_fgdb_20")
     for (fid, fgdb_fid) in [
         (10000000, 2050),
@@ -2163,7 +2088,7 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
     # Insert a new intermediate FIDs
     for (fid, fgdb_fid) in [(1000000, 10000002), (1000001, 10000002)]:
 
-        ds = fgdb_drv.Open("tmp/test.gdb", update=1)
+        ds = fgdb_drv.Open(tmp_path / "test.gdb", update=1)
         lyr = ds.GetLayerByName("ogr_fgdb_20")
         f = ogr.Feature(lyr.GetLayerDefn())
         f.SetFID(fid)
@@ -2181,7 +2106,7 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
     # Check consistency after re-opening
     gdal.ErrorReset()
     for update in [0, 1]:
-        ds = fgdb_drv.Open("tmp/test.gdb", update=update)
+        ds = fgdb_drv.Open(tmp_path / "test.gdb", update=update)
         lyr = ds.GetLayerByName("ogr_fgdb_20")
         assert lyr.GetFeatureCount() == 16
         lyr.ResetReading()
@@ -2219,7 +2144,7 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
         except OSError:
             pass
 
-        ds = fgdb_drv.CreateDataSource("tmp/test2.gdb")
+        ds = fgdb_drv.CreateDataSource(tmp_path / "test2.gdb")
 
         lyr = ds.CreateLayer("foo", geom_type=ogr.wkbNone)
         lyr.CreateField(ogr.FieldDefn("id", ogr.OFTInteger))
@@ -2228,7 +2153,7 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
         f.SetField("id", 2)
         lyr.CreateFeature(f)
 
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             with gdal.config_option("FGDB_SIMUL_FAIL_REOPEN", case):
                 sql_lyr = ds.ExecuteSQL("SELECT * FROM foo")
         if case == "CASE3":
@@ -2261,7 +2186,7 @@ def test_ogr_fgdb_20(openfilegdb_drv, fgdb_drv):
 # Test M support
 
 
-def test_ogr_fgdb_21(fgdb_drv, fgdb_sdk_1_4_or_later):
+def test_ogr_fgdb_21(fgdb_drv, fgdb_sdk_1_4_or_later, tmp_path):
     # Fails on MULTIPOINT ZM
     if (
         gdaltest.is_travis_branch("ubuntu_2004")
@@ -2272,12 +2197,7 @@ def test_ogr_fgdb_21(fgdb_drv, fgdb_sdk_1_4_or_later):
     ):
         pytest.skip()
 
-    try:
-        shutil.rmtree("tmp/test.gdb")
-    except OSError:
-        pass
-
-    ds = fgdb_drv.CreateDataSource("tmp/test.gdb")
+    ds = fgdb_drv.CreateDataSource(tmp_path / "test.gdb")
 
     datalist = [
         ["pointm", ogr.wkbPointM, "POINT M (1 2 3)"],
@@ -2343,7 +2263,7 @@ def test_ogr_fgdb_21(fgdb_drv, fgdb_sdk_1_4_or_later):
         lyr.CreateFeature(feat)
 
     ds = None
-    ds = ogr.Open("tmp/test.gdb")
+    ds = ogr.Open(tmp_path / "test.gdb")
 
     for data in datalist:
         lyr = ds.GetLayerByName(data[0])
@@ -2363,13 +2283,8 @@ def test_ogr_fgdb_21(fgdb_drv, fgdb_sdk_1_4_or_later):
             expected_wkt = data[3]
         except IndexError:
             expected_wkt = data[2]
-        if expected_wkt is None:
-            if feat.GetGeometryRef() is not None:
-                feat.DumpReadable()
-                pytest.fail(data)
-        elif ogrtest.check_feature_geometry(feat, expected_wkt) != 0:
-            feat.DumpReadable()
-            pytest.fail(data)
+
+        ogrtest.check_feature_geometry(feat, expected_wkt)
 
 
 ###############################################################################
@@ -2385,18 +2300,14 @@ def test_ogr_fgdb_22():
     lyr_ref = ds_ref.GetLayer(0)
     for f in lyr:
         f_ref = lyr_ref.GetNextFeature()
-        if ogrtest.check_feature_geometry(f, f_ref.GetGeometryRef()) != 0:
-            print(f.GetGeometryRef().ExportToWkt())
-            pytest.fail(f_ref.GetGeometryRef().ExportToWkt())
+        ogrtest.check_feature_geometry(f, f_ref.GetGeometryRef())
 
     lyr = ds.GetLayerByName("polygon")
     ds_ref = ogr.Open("data/filegdb/curves_polygon.csv")
     lyr_ref = ds_ref.GetLayer(0)
     for f in lyr:
         f_ref = lyr_ref.GetNextFeature()
-        if ogrtest.check_feature_geometry(f, f_ref.GetGeometryRef()) != 0:
-            print(f.GetGeometryRef().ExportToWkt())
-            pytest.fail(f_ref.GetGeometryRef().ExportToWkt())
+        ogrtest.check_feature_geometry(f, f_ref.GetGeometryRef())
 
     ds = ogr.Open("data/filegdb/curve_circle_by_center.gdb")
     lyr = ds.GetLayer(0)
@@ -2404,9 +2315,7 @@ def test_ogr_fgdb_22():
     lyr_ref = ds_ref.GetLayer(0)
     for f in lyr:
         f_ref = lyr_ref.GetNextFeature()
-        if ogrtest.check_feature_geometry(f, f_ref.GetGeometryRef()) != 0:
-            print(f.GetGeometryRef().ExportToWkt())
-            pytest.fail(f_ref.GetGeometryRef().ExportToWkt())
+        ogrtest.check_feature_geometry(f, f_ref.GetGeometryRef())
 
 
 ###############################################################################
@@ -2437,9 +2346,7 @@ def test_ogr_fgdb_24():
     lyr_ref = ds_ref.GetLayer(0)
     for f in lyr:
         f_ref = lyr_ref.GetNextFeature()
-        if ogrtest.check_feature_geometry(f, f_ref.GetGeometryRef()) != 0:
-            print(f.GetGeometryRef().ExportToIsoWkt())
-            pytest.fail(f_ref.GetGeometryRef().ExportToIsoWkt())
+        ogrtest.check_feature_geometry(f, f_ref.GetGeometryRef())
 
     ds = ogr.Open("data/filegdb/filegdb_polygonzm_nan_m_with_curves.gdb")
     lyr = ds.GetLayer(0)
@@ -2447,9 +2354,7 @@ def test_ogr_fgdb_24():
     lyr_ref = ds_ref.GetLayer(0)
     for f in lyr:
         f_ref = lyr_ref.GetNextFeature()
-        if ogrtest.check_feature_geometry(f, f_ref.GetGeometryRef()) != 0:
-            print(f.GetGeometryRef().ExportToIsoWkt())
-            pytest.fail(f_ref.GetGeometryRef().ExportToIsoWkt())
+        ogrtest.check_feature_geometry(f, f_ref.GetGeometryRef())
 
 
 ###############################################################################
@@ -2483,15 +2388,11 @@ def test_ogr_fgdb_25():
 
 
 @pytest.mark.require_geos
-def test_ogr_fgdb_weird_winding_order(fgdb_sdk_1_4_or_later):
+def test_ogr_fgdb_weird_winding_order(fgdb_sdk_1_4_or_later, tmp_path):
 
-    try:
-        shutil.rmtree("tmp/roads_clip Drawing.gdb")
-    except OSError:
-        pass
-    gdaltest.unzip("tmp", "data/filegdb/weird_winding_order_fgdb.zip")
+    gdaltest.unzip(tmp_path, "data/filegdb/weird_winding_order_fgdb.zip")
 
-    ds = ogr.Open("tmp/roads_clip Drawing.gdb")
+    ds = ogr.Open(tmp_path / "roads_clip Drawing.gdb")
     lyr = ds.GetLayer(0)
     f = lyr.GetNextFeature()
     g = f.GetGeometryRef()
@@ -2517,17 +2418,12 @@ def test_ogr_fgdb_utc_datetime():
 # Test field alias
 
 
-def test_ogr_fgdb_alias(fgdb_drv):
-
-    try:
-        shutil.rmtree("tmp/alias.gdb")
-    except OSError:
-        pass
+def test_ogr_fgdb_alias(fgdb_drv, tmp_path):
 
     srs = osr.SpatialReference()
     srs.SetFromUserInput("WGS84")
 
-    ds = fgdb_drv.CreateDataSource("tmp/alias.gdb")
+    ds = fgdb_drv.CreateDataSource(tmp_path / "alias.gdb")
     lyr = ds.CreateLayer("test", srs=srs, geom_type=ogr.wkbPoint)
     fld_defn = ogr.FieldDefn("short_name", ogr.OFTInteger)
     fld_defn.SetAlternativeName("longer name")
@@ -2536,16 +2432,11 @@ def test_ogr_fgdb_alias(fgdb_drv):
     lyr.CreateField(fld_defn)
     ds = None
 
-    ds = ogr.Open("tmp/alias.gdb")
+    ds = ogr.Open(tmp_path / "alias.gdb")
     lyr = ds.GetLayer(0)
     lyr_defn = lyr.GetLayerDefn()
     assert lyr_defn.GetFieldDefn(0).GetAlternativeName() == "longer name"
     assert lyr_defn.GetFieldDefn(1).GetAlternativeName() == ""
-
-    try:
-        shutil.rmtree("tmp/alias.gdb")
-    except OSError:
-        pass
 
 
 ###############################################################################
@@ -2553,17 +2444,12 @@ def test_ogr_fgdb_alias(fgdb_drv):
 
 
 @pytest.mark.require_driver("OpenFileGDB")
-def test_ogr_fgdb_alias_with_ampersand(fgdb_drv, openfilegdb_drv):
-
-    try:
-        shutil.rmtree("tmp/alias.gdb")
-    except OSError:
-        pass
+def test_ogr_fgdb_alias_with_ampersand(fgdb_drv, openfilegdb_drv, tmp_path):
 
     srs = osr.SpatialReference()
     srs.SetFromUserInput("WGS84")
 
-    ds = fgdb_drv.CreateDataSource("tmp/alias.gdb")
+    ds = fgdb_drv.CreateDataSource(tmp_path / "alias.gdb")
     lyr = ds.CreateLayer("test", srs=srs, geom_type=ogr.wkbPoint)
     fld_defn = ogr.FieldDefn("short_name", ogr.OFTInteger)
     fld_defn.SetAlternativeName("longer & name")
@@ -2573,17 +2459,12 @@ def test_ogr_fgdb_alias_with_ampersand(fgdb_drv, openfilegdb_drv):
     ds = None
 
     openfilegdb_drv.Register()
-    ds = fgdb_drv.Open("tmp/alias.gdb")
+    ds = fgdb_drv.Open(tmp_path / "alias.gdb")
     openfilegdb_drv.Deregister()
     lyr = ds.GetLayer(0)
     lyr_defn = lyr.GetLayerDefn()
     assert lyr_defn.GetFieldDefn(0).GetAlternativeName() == "longer & name"
     assert lyr_defn.GetFieldDefn(1).GetAlternativeName() == ""
-
-    try:
-        shutil.rmtree("tmp/alias.gdb")
-    except OSError:
-        pass
 
 
 ###############################################################################
@@ -2598,7 +2479,7 @@ def _check_domains(ds):
         "SpeedLimit",
     }
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         assert ds.GetFieldDomain("i_dont_exist") is None
     lyr = ds.GetLayer(0)
     lyr_defn = lyr.GetLayerDefn()
@@ -2639,13 +2520,9 @@ def test_ogr_fgdb_read_domains():
 # Test writing field domains
 
 
-def test_ogr_fgdb_write_domains(fgdb_drv):
+def test_ogr_fgdb_write_domains(fgdb_drv, tmp_path):
 
-    out_dir = "tmp/test_ogr_fgdb_write_domains.gdb"
-    try:
-        shutil.rmtree(out_dir)
-    except OSError:
-        pass
+    out_dir = tmp_path / "test_ogr_fgdb_write_domains.gdb"
 
     ds = gdal.VectorTranslate(out_dir, "data/filegdb/Domains.gdb", options="-f FileGDB")
     _check_domains(ds)
@@ -2677,11 +2554,6 @@ def test_ogr_fgdb_write_domains(fgdb_drv):
     domain = ds.GetFieldDomain("SpeedLimit")
     assert domain.GetDescription() == "desc"
     ds = None
-
-    try:
-        shutil.rmtree(out_dir)
-    except OSError:
-        pass
 
 
 ###############################################################################
@@ -2723,7 +2595,7 @@ def test_ogr_fgdb_read_layer_hierarchy():
     assert fd1 is not None
     assert fd1.GetVectorLayerNames() == ["fd1_lyr1", "fd1_lyr2"]
     assert fd1.OpenVectorLayer("not_existing") is None
-    assert fd1.GetGroupNames() is None
+    assert len(fd1.GetGroupNames()) == 0
 
     fd1_lyr1 = fd1.OpenVectorLayer("fd1_lyr1")
     assert fd1_lyr1 is not None
@@ -2749,17 +2621,12 @@ def test_ogr_fgdb_read_layer_hierarchy():
 
 
 @pytest.mark.parametrize("options", [[], ["FEATURE_DATASET=fd1"]])
-def test_ogr_fgdb_rename_layer(fgdb_drv, options):
-
-    try:
-        shutil.rmtree("tmp/rename.gdb")
-    except OSError:
-        pass
+def test_ogr_fgdb_rename_layer(fgdb_drv, options, tmp_path):
 
     srs4326 = osr.SpatialReference()
     srs4326.ImportFromEPSG(4326)
 
-    ds = fgdb_drv.CreateDataSource("tmp/rename.gdb")
+    ds = fgdb_drv.CreateDataSource(tmp_path / "rename.gdb")
     ds.CreateLayer("other_layer", geom_type=ogr.wkbNone)
     lyr = ds.CreateLayer("foo", geom_type=ogr.wkbPoint, srs=srs4326, options=options)
     assert lyr.TestCapability(ogr.OLCRename) == 1
@@ -2771,10 +2638,10 @@ def test_ogr_fgdb_rename_layer(fgdb_drv, options):
     assert lyr.GetDescription() == "bar"
     assert lyr.GetLayerDefn().GetName() == "bar"
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         assert lyr.Rename("bar") != ogr.OGRERR_NONE
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         assert lyr.Rename("other_layer") != ogr.OGRERR_NONE
 
     # Second renaming
@@ -2788,7 +2655,7 @@ def test_ogr_fgdb_rename_layer(fgdb_drv, options):
 
     ds = None
 
-    ds = ogr.Open("tmp/rename.gdb")
+    ds = ogr.Open(tmp_path / "rename.gdb")
     lyr = ds.GetLayerByName("baz")
     assert lyr is not None, [
         ds.GetLayer(i).GetName() for i in range(ds.GetLayerCount())
@@ -2799,11 +2666,6 @@ def test_ogr_fgdb_rename_layer(fgdb_drv, options):
     assert f.GetGeometryRef() is not None
 
     ds = None
-
-    try:
-        shutil.rmtree("tmp/rename.gdb")
-    except OSError:
-        pass
 
 
 ###############################################################################
@@ -2865,9 +2727,11 @@ def test_ogr_filegdb_shape_length_shape_area_as_default_in_field_defn(fgdb_drv):
 # Test explicit CREATE_SHAPE_AREA_AND_LENGTH_FIELDS=YES option
 
 
-def test_ogr_filegdb_CREATE_SHAPE_AREA_AND_LENGTH_FIELDS_explicit(fgdb_drv):
+def test_ogr_filegdb_CREATE_SHAPE_AREA_AND_LENGTH_FIELDS_explicit(fgdb_drv, tmp_path):
 
-    dirname = "tmp/test_ogr_filegdb_CREATE_SHAPE_AREA_AND_LENGTH_FIELDS_explicit.gdb"
+    dirname = (
+        tmp_path / "test_ogr_filegdb_CREATE_SHAPE_AREA_AND_LENGTH_FIELDS_explicit.gdb"
+    )
     ds = fgdb_drv.CreateDataSource(dirname)
 
     srs = osr.SpatialReference()
@@ -2930,19 +2794,16 @@ def test_ogr_filegdb_CREATE_SHAPE_AREA_AND_LENGTH_FIELDS_explicit(fgdb_drv):
 
     ds = None
 
-    try:
-        shutil.rmtree(dirname)
-    except OSError:
-        pass
-
 
 ###############################################################################
 # Test explicit CREATE_SHAPE_AREA_AND_LENGTH_FIELDS=YES option
 
 
-def test_ogr_filegdb_CREATE_SHAPE_AREA_AND_LENGTH_FIELDS_implicit(fgdb_drv):
+def test_ogr_filegdb_CREATE_SHAPE_AREA_AND_LENGTH_FIELDS_implicit(fgdb_drv, tmp_path):
 
-    dirname = "tmp/test_ogr_filegdb_CREATE_SHAPE_AREA_AND_LENGTH_FIELDS_implicit.gdb"
+    dirname = (
+        tmp_path / "test_ogr_filegdb_CREATE_SHAPE_AREA_AND_LENGTH_FIELDS_implicit.gdb"
+    )
     gdal.VectorTranslate(
         dirname,
         "data/filegdb/filegdb_polygonzm_m_not_closing_with_curves.gdb",
@@ -2962,11 +2823,6 @@ def test_ogr_filegdb_CREATE_SHAPE_AREA_AND_LENGTH_FIELDS_implicit(fgdb_drv):
     )
 
     ds = None
-
-    try:
-        shutil.rmtree(dirname)
-    except OSError:
-        pass
 
 
 @pytest.mark.require_driver("OpenFileGDB")
@@ -3109,14 +2965,11 @@ def test_ogr_filegdb_read_relationships(openfilegdb_drv, fgdb_drv):
         (ogr.wkbMultiPoint, "POINT(0 0)"),
     ],
 )
-def test_ogr_filegdb_incompatible_geometry_types(fgdb_drv, layer_geom_type, wkt):
+def test_ogr_filegdb_incompatible_geometry_types(
+    fgdb_drv, tmp_path, layer_geom_type, wkt
+):
 
-    dirname = "tmp/test_ogr_filegdb_incompatible_geometry_types.gdb"
-
-    try:
-        shutil.rmtree(dirname)
-    except OSError:
-        pass
+    dirname = tmp_path / "test_ogr_filegdb_incompatible_geometry_types.gdb"
 
     ds = fgdb_drv.CreateDataSource(dirname)
 
@@ -3126,14 +2979,9 @@ def test_ogr_filegdb_incompatible_geometry_types(fgdb_drv, layer_geom_type, wkt)
     lyr = ds.CreateLayer("test", srs=srs, geom_type=layer_geom_type)
     f = ogr.Feature(lyr.GetLayerDefn())
     f.SetGeometryDirectly(ogr.CreateGeometryFromWkt(wkt))
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         assert lyr.CreateFeature(f) == ogr.OGRERR_FAILURE
     ds = None
-
-    try:
-        shutil.rmtree(dirname)
-    except OSError:
-        pass
 
 
 ###############################################################################

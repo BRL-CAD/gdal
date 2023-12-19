@@ -37,7 +37,18 @@ import pytest
 
 from osgeo import gdal
 
+pytestmark = [
+    pytest.mark.require_driver("ARG"),
+    pytest.mark.random_order(disabled=True),
+]
+
 # given fmt and nodata, encodes a value as bytes
+
+###############################################################################
+@pytest.fixture(autouse=True, scope="module")
+def module_disable_exceptions():
+    with gdaltest.config_option("GDAL_ENABLE_DEPRECATED_DRIVER_ARG", "YES"):
+        yield
 
 
 def pack(fmt, nodata, value):

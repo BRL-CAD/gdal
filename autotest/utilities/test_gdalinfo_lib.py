@@ -30,6 +30,9 @@
 ###############################################################################
 
 
+import pathlib
+
+import gdaltest
 import pytest
 
 from osgeo import gdal, osr
@@ -46,26 +49,16 @@ def test_gdalinfo_lib_1():
     assert ret.find("Driver: GTiff/GeoTIFF") != -1, "did not get expected string."
 
 
-###############################################################################
-# Validate json schema output
+def test_gdalinfo_lib_1_str():
+
+    ret = gdal.Info("../gcore/data/byte.tif")
+    assert ret.find("Driver: GTiff/GeoTIFF") != -1, "did not get expected string."
 
 
-def _validate_json_output(instance):
+def test_gdalinfo_lib_1_path():
 
-    try:
-        from jsonschema import validate
-    except ImportError:
-        pytest.skip("jsonschema module not available")
-
-    gdal_data = gdal.GetConfigOption("GDAL_DATA")
-    if gdal_data is None:
-        pytest.skip("GDAL_DATA not defined")
-
-    import json
-
-    schema = json.loads(open(gdal_data + "/gdalinfo_output.schema.json", "rb").read())
-
-    validate(instance=instance, schema=schema)
+    ret = gdal.Info(pathlib.Path("../gcore/data/byte.tif"))
+    assert ret.find("Driver: GTiff/GeoTIFF") != -1, "did not get expected string."
 
 
 ###############################################################################
@@ -79,7 +72,7 @@ def test_gdalinfo_lib_2():
     ret = gdal.Info(ds, format="json")
     assert ret["driverShortName"] == "GTiff", "wrong value for driverShortName."
 
-    _validate_json_output(ret)
+    gdaltest.validate_json(ret, "gdalinfo_output.schema.json")
 
 
 ###############################################################################
@@ -145,7 +138,7 @@ def test_gdalinfo_lib_5():
     assert "checksum" in band
     assert ret["coordinateSystem"]["dataAxisToSRSAxisMapping"] == [1, 2]
 
-    _validate_json_output(ret)
+    gdaltest.validate_json(ret, "gdalinfo_output.schema.json")
 
     ds = None
 

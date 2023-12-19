@@ -22,7 +22,8 @@ Building documentation
 ######################
 
 HTML documentation can be built by running ``make html`` in the ``doc`` subdirectory of the GDAL source repository.
- The generated files will be output to ``doc/build`` where they can be viewed using a web browser.
+The generated files will be output to ``doc/build`` where they can be viewed using a web browser.
+Doxygen content that is incorporated into the output is not automatically rebuilt but can be regenerated using ``make doxygen``.
 
 To visualize documentation changes while editing, it may be useful to install the |sphinx-autobuild| python package.
 Once installed, running ``sphinx-autobuild -b html source build`` from the ``doc`` subdirectory will build documentation
@@ -289,12 +290,53 @@ To reference a method or function::
   :cpp:func:`MyClass::MyMethod`
   :cpp:func:`MyFunction`
 
-Reference configuration options
--------------------------------
+.. _config_option_syntax:
 
-To reference a configuration option, such as **GDAL_CACHEMAX**, use::
+Define and reference configuration options
+------------------------------------------
 
-  :decl_configoption:`OPTION_NAME`
+To define a configuration option, use::
+
+   .. config:: OPTION_NAME
+      :choices: COMMA, SEPARATED, LIST
+      :default: DEFAULT_VALUE
+      :since: GDAL.MIN.VERSION
+
+      Narrative about the option.
+
+Similar syntax can be used to define opening options (``.. oo::``),
+creation options (``.. co::``), dataset creation options (``.. dsco::``), or layer creation options
+(``.. lco::``).
+
+To reference a configuration option, such as **GDAL_CACHEMAX**,
+use the syntax in the table below.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Option type
+     - Syntax
+   * - Configuration option
+     - ::
+
+       :config:`option_name`
+   * - Creation option
+     - ::
+
+       :co:`option_name`
+   * - Open option
+     - ::
+
+       :oo:`option_name`
+   * - Dataset creation option
+     - ::
+
+       :dsco:`option_name`
+   * - Layer creation option
+     - ::
+
+       :lco:`option_name`
+
 
 Reference commands
 ------------------

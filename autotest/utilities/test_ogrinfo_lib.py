@@ -27,9 +27,12 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
+import pathlib
+
+import gdaltest
 import pytest
 
-from osgeo import gdal
+from osgeo import gdal, ogr
 
 ###############################################################################
 # Simple test
@@ -40,6 +43,18 @@ def test_ogrinfo_lib_1():
     ds = gdal.OpenEx("../ogr/data/poly.shp")
 
     ret = gdal.VectorInfo(ds)
+    assert "ESRI Shapefile" in ret
+
+
+def test_ogrinfo_lib_1_str():
+
+    ret = gdal.VectorInfo("../ogr/data/poly.shp")
+    assert "ESRI Shapefile" in ret
+
+
+def test_ogrinfo_lib_1_path():
+
+    ret = gdal.VectorInfo(pathlib.Path("../ogr/data/poly.shp"))
     assert "ESRI Shapefile" in ret
 
 
@@ -589,33 +604,13 @@ def test_ogrinfo_lib_json_features():
     assert ret_json_features == ret_features_json
 
 
-###############################################################################
-# Validate json schema output
-
-
-def _validate_json_output(instance):
-
-    try:
-        from jsonschema import validate
-    except ImportError:
-        pytest.skip("jsonschema module not available")
-
-    gdal_data = gdal.GetConfigOption("GDAL_DATA")
-    if gdal_data is None:
-        pytest.skip("GDAL_DATA not defined")
-
-    import json
-
-    schema = json.loads(open(gdal_data + "/ogrinfo_output.schema.json", "rb").read())
-
-    validate(instance=instance, schema=schema)
-
-
 def test_ogrinfo_lib_json_validate():
 
     ds = gdal.OpenEx("../ogr/data/poly.shp")
 
-    _validate_json_output(gdal.VectorInfo(ds, format="json", dumpFeatures=True))
+    ret = gdal.VectorInfo(ds, format="json", dumpFeatures=True)
+
+    gdaltest.validate_json(ret, "ogrinfo_output.schema.json")
 
 
 ###############################################################################
@@ -667,7 +662,7 @@ def test_ogrinfo_lib_json_relationships():
     ds = gdal.OpenEx("../ogr/data/filegdb/relationships.gdb")
 
     ret = gdal.VectorInfo(ds, format="json")
-    _validate_json_output(ret)
+    gdaltest.validate_json(ret, "ogrinfo_output.schema.json")
 
     # print(ret["relationships"]["composite_many_to_many"])
     assert ret["relationships"]["composite_many_to_many"] == {
@@ -783,3 +778,104 @@ def test_ogrinfo_lib_json_geom_NO():
     assert ret["layers"][0]["features"] == [
         {"type": "Feature", "fid": 0, "properties": {"prop0": 42}, "geometry": None}
     ]
+
+
+###############################################################################
+# Test field domains
+
+
+@pytest.mark.require_driver("GPKG")
+def test_ogrinfo_lib_fielddomains():
+
+    ret = gdal.VectorInfo("../ogr/data/gpkg/domains.gpkg", format="json")
+    assert ret["domains"] == {
+        "enum_domain": {
+            "type": "coded",
+            "fieldType": "Integer",
+            "splitPolicy": "default value",
+            "mergePolicy": "default value",
+            "codedValues": {"1": "one", "2": None},
+        },
+        "glob_domain": {
+            "type": "glob",
+            "fieldType": "String",
+            "splitPolicy": "default value",
+            "mergePolicy": "default value",
+            "glob": "*",
+        },
+        "range_domain_int": {
+            "type": "range",
+            "fieldType": "Integer",
+            "splitPolicy": "default value",
+            "mergePolicy": "default value",
+            "minValue": 1,
+            "minValueIncluded": True,
+            "maxValue": 2,
+            "maxValueIncluded": False,
+        },
+        "range_domain_int64": {
+            "type": "range",
+            "fieldType": "Integer64",
+            "splitPolicy": "default value",
+            "mergePolicy": "default value",
+            "minValue": -1234567890123,
+            "minValueIncluded": False,
+            "maxValue": 1234567890123,
+            "maxValueIncluded": True,
+        },
+        "range_domain_real": {
+            "type": "range",
+            "fieldType": "Real",
+            "splitPolicy": "default value",
+            "mergePolicy": "default value",
+            "minValue": 1.5,
+            "minValueIncluded": True,
+            "maxValue": 2.5,
+            "maxValueIncluded": True,
+        },
+        "range_domain_real_inf": {
+            "type": "range",
+            "fieldType": "Real",
+            "splitPolicy": "default value",
+            "mergePolicy": "default value",
+        },
+    }
+
+
+###############################################################################
+# Test time zones
+
+
+def test_ogrinfo_lib_time_zones():
+
+    ds = gdal.GetDriverByName("Memory").Create("", 0, 0, 0, gdal.GDT_Unknown)
+    lyr = ds.CreateLayer("test")
+    fld_defn = ogr.FieldDefn("unknown", ogr.OFTDateTime)
+    fld_defn.SetTZFlag(ogr.TZFLAG_UNKNOWN)
+    lyr.CreateField(fld_defn)
+    fld_defn = ogr.FieldDefn("localtime", ogr.OFTDateTime)
+    fld_defn.SetTZFlag(ogr.TZFLAG_LOCALTIME)
+    lyr.CreateField(fld_defn)
+    fld_defn = ogr.FieldDefn("mixed", ogr.OFTDateTime)
+    fld_defn.SetTZFlag(ogr.TZFLAG_MIXED_TZ)
+    lyr.CreateField(fld_defn)
+    fld_defn = ogr.FieldDefn("utc", ogr.OFTDateTime)
+    fld_defn.SetTZFlag(ogr.TZFLAG_UTC)
+    lyr.CreateField(fld_defn)
+    fld_defn = ogr.FieldDefn("plus_one_hour", ogr.OFTDateTime)
+    fld_defn.SetTZFlag(ogr.TZFLAG_UTC + 4)
+    lyr.CreateField(fld_defn)
+    fld_defn = ogr.FieldDefn("minus_one_hour", ogr.OFTDateTime)
+    fld_defn.SetTZFlag(ogr.TZFLAG_UTC - 4)
+    lyr.CreateField(fld_defn)
+    ret = gdal.VectorInfo(ds, format="json")
+
+    gdaltest.validate_json(ret, "ogrinfo_output.schema.json")
+
+    fields = ret["layers"][0]["fields"]
+    assert "timezone" not in fields[0]
+    assert fields[1]["timezone"] == "localtime"
+    assert fields[2]["timezone"] == "mixed timezones"
+    assert fields[3]["timezone"] == "UTC"
+    assert fields[4]["timezone"] == "+01:00"
+    assert fields[5]["timezone"] == "-01:00"

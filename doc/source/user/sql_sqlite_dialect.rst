@@ -139,13 +139,26 @@ returns:
     PRFEDEA (String) = 35043411
     POLYGON ((479819.84375 4765180.5,479690.1875 4765259.5,[...],479819.84375 4765180.5))
 
-Feature id
-++++++++++
+Feature id (FID)
+++++++++++++++++
 
 The feature id is a special property of a feature and not treated
 as an attribute of the feature.  In some cases it is convenient to be able to
 utilize the feature id in queries and result sets as a regular field.  To do
-so use the name ``rowid``. The field wildcard expansions will not include
+so use the name ``rowid``.
+
+Starting with GDAL 3.8, if the layer has a named FID column
+(:cpp:func:`OGRLayer::GetFIDColumn` != ""), this name may also be used.
+
+The field wildcard expansions will not include the feature id, but it may be
+explicitly included using a syntax like:
+
+.. code-block::
+
+    SELECT ROWID, * FROM nation
+
+
+The field wildcard expansions will not include
 the feature id, but it may be explicitly included using a syntax like:
 
 .. code-block::
@@ -197,6 +210,15 @@ returns:
     OGRFeature(SELECT):2
     EAS_ID (Real) = 170
     area (Real) = 5268.8125
+
+Note that due to the loose typing mechanism of SQLite, if a geometry expression
+returns a NULL value for the first row, this will generally cause OGR not to
+recognize the column as a geometry column. It might be then useful to sort
+the results by making sure that non-null geometries are returned first:
+
+::
+
+   ogrinfo test.shp -sql "SELECT * FROM (SELECT ST_Buffer(geometry,5) AS geometry FROM test) ORDER BY geometry IS NULL ASC" -dialect sqlite
 
 OGR datasource SQL functions
 ++++++++++++++++++++++++++++

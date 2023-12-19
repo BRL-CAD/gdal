@@ -77,7 +77,7 @@ def test_netcdf_multidim_single_group():
     assert rg
     assert rg.GetName() == "/"
     assert rg.GetFullName() == "/"
-    assert rg.GetGroupNames() is None
+    assert len(rg.GetGroupNames()) == 0
     dims = rg.GetDimensions()
     assert len(dims) == 2
     assert dims[0].GetName() == "x"
@@ -116,7 +116,7 @@ def test_netcdf_multidim_single_group():
     got_data = struct.unpack("B" * 400, var.Read())
     assert got_data == ref_data
 
-    with gdaltest.error_handler():  # Write to read only
+    with gdal.quiet_errors():  # Write to read only
         assert not rg.CreateDimension("X", None, None, 2)
         assert not rg.CreateAttribute(
             "att_text", [], gdal.ExtendedDataType.CreateString()
@@ -149,7 +149,7 @@ def test_netcdf_multidim_multi_group():
     assert subgroup.GetName() == "group"
     assert subgroup.GetFullName() == "/group"
     assert rg.OpenGroup("foo") is None
-    assert subgroup.GetGroupNames() is None
+    assert len(subgroup.GetGroupNames()) == 0
     assert subgroup.GetMDArrayNames() == ["fmul"]
     assert subgroup.OpenGroup("foo") is None
 
@@ -552,7 +552,7 @@ def test_netcdf_multidim_attr_alldatatypes():
     assert map_attrs["attr_char"].GetDimensionCount() == 0
     assert map_attrs["attr_char"].Read() == "x"
     assert map_attrs["attr_char"].ReadAsStringArray() == ["x"]
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         assert not map_attrs["attr_char"].ReadAsRaw()
 
     assert (
@@ -617,7 +617,7 @@ def test_netcdf_multidim_attr_alldatatypes():
     assert len(map_attrs["attr_custom_type_2_elts"].ReadAsRaw()) == 8
 
     # Compound type contains a string
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         assert not map_attrs["attr_custom_with_string"].ReadAsRaw()
 
 
@@ -684,7 +684,7 @@ def test_netcdf_multidim_read_netcdf_4d():
 def test_netcdf_multidim_create_nc3():
 
     drv = gdal.GetDriverByName("netCDF")
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         assert not drv.CreateMultiDimensional("/i_do/not_exist.nc")
 
     def f():
@@ -696,7 +696,7 @@ def test_netcdf_multidim_create_nc3():
         assert not rg.GetDimensions()
 
         # not support on NC3
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert not rg.CreateGroup("subgroup")
 
         dim_x = rg.CreateDimension("X", None, None, 2)
@@ -708,12 +708,12 @@ def test_netcdf_multidim_create_nc3():
         assert dim_y_unlimited
         assert dim_y_unlimited.GetSize() == 123
 
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert not rg.CreateDimension(
                 "unlimited2", None, None, 123, ["UNLIMITED=YES"]
             )
 
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert not rg.CreateDimension("too_big", None, None, (1 << 31) - 1)
 
         var = rg.CreateMDArray(
@@ -768,7 +768,7 @@ def test_netcdf_multidim_create_nc3():
 
         att = rg.CreateAttribute("att_text", [], gdal.ExtendedDataType.CreateString())
         assert att
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert not att.Read()
         assert att.Write("f") == gdal.CE_None
         assert att.Write("foo") == gdal.CE_None
@@ -779,7 +779,7 @@ def test_netcdf_multidim_create_nc3():
         assert att.Read() == "foo"
 
         # netCDF 3 cannot support NC_STRING. Needs fixed size strings
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             var = rg.CreateMDArray(
                 "my_var_string_array", [dim_x], gdal.ExtendedDataType.CreateString()
             )
@@ -864,10 +864,10 @@ def test_netcdf_multidim_create_nc4():
         assert subgroup
         assert subgroup.GetName() == "subgroup"
 
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert not rg.CreateGroup("")
 
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert not rg.CreateGroup("subgroup")
 
         subgroup = rg.OpenGroup("subgroup")
@@ -930,7 +930,7 @@ def test_netcdf_multidim_create_nc4():
 
         # Try with random filter id. Just to test that FILTER is taken
         # into account
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             var = rg.CreateMDArray(
                 "my_var_x",
                 [dim_x],
@@ -959,7 +959,7 @@ def test_netcdf_multidim_create_nc4():
             dim_z_from_mem = mem_rg.CreateDimension(
                 "Z", None, None, dim_z.GetSize() + 1
             )
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 var = rg.CreateMDArray(
                     "my_var_x_y",
                     [dim_x_from_mem, dim_y_from_mem, dim_z_from_mem],
@@ -1091,7 +1091,7 @@ def test_netcdf_multidim_create_nc4():
         )
         assert att.Read() == "foo_of_var"
 
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert not rg.CreateAttribute(
                 "attr_too_many_dimensions", [2, 3], gdal.ExtendedDataType.CreateString()
             )
@@ -1132,7 +1132,7 @@ def test_netcdf_multidim_create_nc4():
                 "att_two_strings", [2], gdal.ExtendedDataType.CreateString()
             )
             assert att
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 assert att.Write(["not_enough_elements"]) != gdal.CE_None
             assert att.Write([1, 2]) == gdal.CE_None
             assert att.Read() == ["1", "2"]
@@ -1338,7 +1338,7 @@ def test_netcdf_multidim_create_nc4():
         assert var.GetDimensions()[1].GetType() == gdal.DIM_TYPE_HORIZONTAL_X
 
     create_georeferenced_projected("georeferenced_projected_with_dim_type", True)
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         create_georeferenced_projected(
             "georeferenced_projected_without_dim_type", False
         )
@@ -1390,7 +1390,7 @@ def test_netcdf_multidim_create_nc4():
         assert var.GetDimensions()[1].GetType() == gdal.DIM_TYPE_HORIZONTAL_X
 
     create_georeferenced_geographic("georeferenced_geographic_with_dim_type", True)
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         create_georeferenced_geographic(
             "georeferenced_geographic_without_dim_type", False
         )
@@ -1974,7 +1974,7 @@ def test_netcdf_multidim_advise_read():
     got_data = struct.unpack("B" * 20 * 20, transposed.Read())
     assert got_data == ref_data_transposed
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         assert var.AdviseRead(array_start_idx=[2, 3], count=[20, 5]) == gdal.CE_Failure
 
 
@@ -2018,7 +2018,7 @@ def test_netcdf_multidim_createcopy_array_options():
 
     src_ds = gdal.OpenEx("data/netcdf/byte_no_cf.nc", gdal.OF_MULTIDIM_RASTER)
     tmpfilename = "tmp/test_netcdf_multidim_createcopy_array_options.nc"
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         gdal.GetDriverByName("netCDF").CreateCopy(
             tmpfilename,
             src_ds,
@@ -2047,7 +2047,7 @@ def test_netcdf_multidim_createcopy_array_options_if_name_fullname():
     tmpfilename = (
         "tmp/test_netcdf_multidim_createcopy_array_options_if_name_fullname.nc"
     )
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         gdal.GetDriverByName("netCDF").CreateCopy(
             tmpfilename, src_ds, options=["ARRAY:IF(NAME=/Band1):COMPRESS=DEFLATE"]
         )
@@ -2070,7 +2070,7 @@ def test_netcdf_multidim_group_by_same_dimension():
         gdal.OF_MULTIDIM_RASTER,
     )
     rg = ds.GetRootGroup()
-    assert rg.GetMDArrayNames(["GROUP_BY=SAME_DIMENSION"]) is None
+    assert len(rg.GetMDArrayNames(["GROUP_BY=SAME_DIMENSION"])) == 0
     groups = rg.GetGroupNames(["GROUP_BY=SAME_DIMENSION"])
     assert set(groups) == set(["time_01", "time_20_c", "time_20_ku"])
     g = rg.OpenGroup("time_01", ["GROUP_BY=SAME_DIMENSION"])
@@ -2136,7 +2136,7 @@ def test_netcdf_multidim_cache():
         assert ar
         transpose = ar.Transpose([1, 0])
         assert transpose.Cache(["BLOCKSIZE=2,1"])
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             # Cannot cache twice the same array
             assert transpose.Cache() is False
 
@@ -2291,7 +2291,7 @@ def test_netcdf_multidim_open_userfaultfd():
             is not None
         )
     else:
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert (
                 gdal.OpenEx(
                     "/vsizip/tmp/test_netcdf_open_userfaultfd.zip/test.nc",
@@ -2671,7 +2671,7 @@ def test_netcdf_read_missing_value_text_non_numeric():
     )
     rg = ds.GetRootGroup()
     var = rg.OpenMDArray("Band1")
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         gdal.ErrorReset()
         assert var.GetNoDataValue() is None
         assert gdal.GetLastErrorMsg() != ""
@@ -2688,7 +2688,7 @@ def test_netcdf_read_missing_value_text_numeric_not_in_range():
     )
     rg = ds.GetRootGroup()
     var = rg.OpenMDArray("Band1")
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         gdal.ErrorReset()
         assert var.GetNoDataValue() is None
         assert gdal.GetLastErrorMsg() != ""
@@ -2761,7 +2761,7 @@ def test_netcdf_read_missing_value_of_different_type_not_in_range():
             var.GetAttribute("missing_value").GetDataType().GetNumericDataType()
             == gdal.GDT_Float64
         )
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             gdal.ErrorReset()
             assert var.GetNoDataValue() is None
             assert gdal.GetLastErrorMsg() != ""
@@ -2842,7 +2842,7 @@ def test_netcdf_multidim_update_missing_value_and_FillValue():
         rg = ds.GetRootGroup()
         var = rg.OpenMDArray("var")
         assert var.GetNoDataValue() == 1
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert var.SetNoDataValueDouble(2) != gdal.CE_None
 
     update()
@@ -2925,7 +2925,7 @@ def test_netcdf_multidim_resize_fill():
         rg = ds.GetRootGroup()
         var = rg.OpenMDArray("var")
 
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert var.Resize([4, 3]) == gdal.CE_Failure
 
     update_read_only()
@@ -2935,7 +2935,7 @@ def test_netcdf_multidim_resize_fill():
         rg = ds.GetRootGroup()
         var = rg.OpenMDArray("var")
 
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             # 0 size
             assert var.Resize([0, 3]) == gdal.CE_Failure
 
@@ -3057,7 +3057,7 @@ def test_netcdf_multidim_resize_dim_referenced_twice():
         )
         assert var.Write(struct.pack("h" * 4, 1, 2, 3, 4)) == gdal.CE_None
 
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             assert var.Resize([3, 4]) == gdal.CE_Failure
             assert var.Resize([4, 3]) == gdal.CE_Failure
 
@@ -3086,6 +3086,330 @@ def test_netcdf_multidim_resize_dim_referenced_twice():
     check()
 
     gdal.Unlink(filename)
+
+
+###############################################################################
+
+
+@gdaltest.enable_exceptions()
+def test_netcdf_multidim_rename_dim():
+
+    drv = gdal.GetDriverByName("netCDF")
+    filename = "tmp/test_netcdf_multidim_rename_dim.nc"
+
+    def test():
+        ds = drv.CreateMultiDimensional(filename)
+        rg = ds.GetRootGroup()
+        dim = rg.CreateDimension("dim", None, None, 2)
+        rg.CreateDimension("other_dim", None, None, 2)
+        var = rg.CreateMDArray(
+            "var", [dim], gdal.ExtendedDataType.Create(gdal.GDT_Int16)
+        )
+
+        # Empty name
+        with pytest.raises(Exception):
+            dim.Rename("")
+
+        # Existing name
+        with pytest.raises(Exception):
+            dim.Rename("other_dim")
+        assert dim.GetName() == "dim"
+        assert dim.GetFullName() == "/dim"
+
+        dim.Rename("dim_renamed")
+        assert dim.GetName() == "dim_renamed"
+        assert dim.GetFullName() == "/dim_renamed"
+
+        assert set(x.GetName() for x in rg.GetDimensions()) == {
+            "dim_renamed",
+            "other_dim",
+        }
+
+        assert [x.GetName() for x in var.GetDimensions()] == ["dim_renamed"]
+
+    def reopen():
+        ds = gdal.OpenEx(filename, gdal.OF_MULTIDIM_RASTER)
+        rg = ds.GetRootGroup()
+
+        assert set(x.GetName() for x in rg.GetDimensions()) == {
+            "dim_renamed",
+            "other_dim",
+        }
+
+        # Read-only
+        with pytest.raises(Exception):
+            rg.GetDimensions()[0].Rename("dim_renamed2")
+
+        assert set(x.GetName() for x in rg.GetDimensions()) == {
+            "dim_renamed",
+            "other_dim",
+        }
+
+    try:
+        test()
+        reopen()
+    finally:
+        gdal.Unlink(filename)
+
+
+###############################################################################
+
+
+@gdaltest.enable_exceptions()
+def test_netcdf_multidim_rename_group():
+
+    drv = gdal.GetDriverByName("netCDF")
+    filename = "tmp/test_netcdf_multidim_rename_group.nc"
+
+    def test():
+        ds = drv.CreateMultiDimensional(filename)
+        rg = ds.GetRootGroup()
+        group = rg.CreateGroup("group")
+        group_attr = group.CreateAttribute(
+            "group_attr", [], gdal.ExtendedDataType.Create(gdal.GDT_Byte)
+        )
+        rg.CreateGroup("other_group")
+        dim = group.CreateDimension(
+            "dim0", "unspecified type", "unspecified direction", 2
+        )
+        ar = group.CreateMDArray(
+            "ar", [dim], gdal.ExtendedDataType.Create(gdal.GDT_Byte)
+        )
+        attr = ar.CreateAttribute(
+            "attr", [], gdal.ExtendedDataType.Create(gdal.GDT_Byte)
+        )
+
+        subgroup = group.CreateGroup("subgroup")
+        subgroup_attr = subgroup.CreateAttribute(
+            "subgroup_attr", [], gdal.ExtendedDataType.Create(gdal.GDT_Byte)
+        )
+        subgroup_ar = subgroup.CreateMDArray(
+            "subgroup_ar", [dim], gdal.ExtendedDataType.Create(gdal.GDT_Byte)
+        )
+        subgroup_ar_attr = subgroup_ar.CreateAttribute(
+            "subgroup_ar_attr", [], gdal.ExtendedDataType.Create(gdal.GDT_Byte)
+        )
+
+        # Cannot rename root group
+        with pytest.raises(Exception):
+            rg.Rename("foo")
+
+        # Empty name
+        with pytest.raises(Exception):
+            group.Rename("")
+
+        # Existing name
+        with pytest.raises(Exception):
+            group.Rename("other_group")
+
+        # Rename group and test effects
+        group.Rename("group_renamed")
+        assert group.GetName() == "group_renamed"
+        assert group.GetFullName() == "/group_renamed"
+
+        assert set(rg.GetGroupNames()) == {"group_renamed", "other_group"}
+
+        assert dim.GetName() == "dim0"
+        assert dim.GetFullName() == "/group_renamed/dim0"
+
+        assert group_attr.GetName() == "group_attr"
+        assert group_attr.GetFullName() == "/group_renamed/group_attr"
+
+        assert ar.GetName() == "ar"
+        assert ar.GetFullName() == "/group_renamed/ar"
+
+        assert attr.GetName() == "attr"
+        assert attr.GetFullName() == "/group_renamed/ar/attr"
+
+        assert subgroup.GetName() == "subgroup"
+        assert subgroup.GetFullName() == "/group_renamed/subgroup"
+
+        assert subgroup_attr.GetName() == "subgroup_attr"
+        assert subgroup_attr.GetFullName() == "/group_renamed/subgroup/subgroup_attr"
+
+        assert subgroup_ar.GetName() == "subgroup_ar"
+        assert subgroup_ar.GetFullName() == "/group_renamed/subgroup/subgroup_ar"
+
+        assert subgroup_ar_attr.GetName() == "subgroup_ar_attr"
+        assert (
+            subgroup_ar_attr.GetFullName()
+            == "/group_renamed/subgroup/subgroup_ar/subgroup_ar_attr"
+        )
+
+    def reopen():
+        ds = gdal.OpenEx(filename, gdal.OF_MULTIDIM_RASTER)
+        rg = ds.GetRootGroup()
+
+        assert set(rg.GetGroupNames()) == {"group_renamed", "other_group"}
+
+        group = rg.OpenGroup("group_renamed")
+
+        # Read-only
+        with pytest.raises(Exception):
+            group.Rename("group_renamed2")
+
+        assert set(rg.GetGroupNames()) == {"group_renamed", "other_group"}
+
+    try:
+        test()
+        reopen()
+    finally:
+        gdal.Unlink(filename)
+
+
+###############################################################################
+
+
+@gdaltest.enable_exceptions()
+def test_netcdf_multidim_rename_array():
+
+    drv = gdal.GetDriverByName("netCDF")
+    filename = "tmp/test_netcdf_multidim_rename_array.nc"
+
+    def test():
+        ds = drv.CreateMultiDimensional(filename)
+        rg = ds.GetRootGroup()
+        subg = rg.CreateGroup("group")
+        dim = rg.CreateDimension("dim", None, None, 2)
+        ar = subg.CreateMDArray(
+            "ar", [dim], gdal.ExtendedDataType.Create(gdal.GDT_Byte)
+        )
+        subg.CreateMDArray(
+            "other_array", [dim], gdal.ExtendedDataType.Create(gdal.GDT_Byte)
+        )
+        attr = ar.CreateAttribute(
+            "attr", [], gdal.ExtendedDataType.Create(gdal.GDT_Byte)
+        )
+
+        # Empty name
+        with pytest.raises(Exception):
+            ar.Rename("")
+
+        # Existing name
+        with pytest.raises(Exception):
+            ar.Rename("other_array")
+
+        assert set(subg.GetMDArrayNames()) == {"ar", "other_array"}
+
+        # Rename array and test effects
+        ar.Rename("ar_renamed")
+        assert ar.GetName() == "ar_renamed"
+        assert ar.GetFullName() == "/group/ar_renamed"
+
+        assert attr.GetName() == "attr"
+        assert attr.GetFullName() == "/group/ar_renamed/attr"
+
+        assert set(subg.GetMDArrayNames()) == {"ar_renamed", "other_array"}
+
+    def reopen():
+        ds = gdal.OpenEx(filename, gdal.OF_MULTIDIM_RASTER)
+        rg = ds.GetRootGroup()
+        subg = rg.OpenGroup("group")
+
+        assert set(subg.GetMDArrayNames()) == {"ar_renamed", "other_array"}
+
+        # Read-only
+        with pytest.raises(Exception):
+            subg.OpenMDArray("ar_renamed").Rename("ar_renamed2")
+
+        assert set(subg.GetMDArrayNames()) == {"ar_renamed", "other_array"}
+
+    try:
+        test()
+        reopen()
+    finally:
+        gdal.Unlink(filename)
+
+
+###############################################################################
+
+
+@gdaltest.enable_exceptions()
+def test_netcdf_multidim_rename_attribute():
+
+    drv = gdal.GetDriverByName("netCDF")
+    filename = "tmp/test_netcdf_multidim_rename_attribute.nc"
+
+    def test():
+        ds = drv.CreateMultiDimensional(filename)
+        rg = ds.GetRootGroup()
+        rg = ds.GetRootGroup()
+        subg = rg.CreateGroup("group")
+        subg_attr = subg.CreateAttribute(
+            "subg_attr", [], gdal.ExtendedDataType.CreateString()
+        )
+        assert subg_attr.Write("foo") == gdal.CE_None
+        subg_other_attr = subg.CreateAttribute(
+            "subg_other_attr", [], gdal.ExtendedDataType.CreateString()
+        )
+        assert subg_other_attr.Write("foo") == gdal.CE_None
+        ar = subg.CreateMDArray("ar", [], gdal.ExtendedDataType.Create(gdal.GDT_Byte))
+        attr = ar.CreateAttribute("attr", [], gdal.ExtendedDataType.CreateString())
+        assert attr.Write("foo") == gdal.CE_None
+        other_attr = ar.CreateAttribute(
+            "other_attr", [], gdal.ExtendedDataType.CreateString()
+        )
+        assert other_attr.Write("foo") == gdal.CE_None
+
+        # Empty name
+        with pytest.raises(Exception):
+            attr.Rename("")
+
+        # Existing name
+        with pytest.raises(Exception):
+            attr.Rename("other_attr")
+
+        # Rename array attribute and test effects
+        attr.Rename("attr_renamed")
+        assert attr.GetName() == "attr_renamed"
+        assert attr.GetFullName() == "/group/ar/attr_renamed"
+        assert set(x.GetName() for x in ar.GetAttributes()) == {
+            "attr_renamed",
+            "other_attr",
+        }
+
+        # Existing name
+        with pytest.raises(Exception):
+            subg_attr.Rename("subg_other_attr")
+
+        # Rename group attribute and test effects
+        subg_attr.Rename("subg_attr_renamed")
+        assert subg_attr.GetName() == "subg_attr_renamed"
+        assert subg_attr.GetFullName() == "/group/_GLOBAL_/subg_attr_renamed"
+        assert set(x.GetName() for x in subg.GetAttributes()) == {
+            "subg_attr_renamed",
+            "subg_other_attr",
+        }
+
+    def reopen():
+        ds = gdal.OpenEx(filename, gdal.OF_MULTIDIM_RASTER)
+        rg = ds.GetRootGroup()
+        subg = rg.OpenGroup("group")
+        ar = subg.OpenMDArray("ar")
+
+        assert set(x.GetName() for x in ar.GetAttributes()) == {
+            "attr_renamed",
+            "other_attr",
+        }
+        assert set(x.GetName() for x in subg.GetAttributes()) == {
+            "subg_attr_renamed",
+            "subg_other_attr",
+        }
+
+        # Read-only
+        with pytest.raises(Exception):
+            ar.GetAttributes()[0].Rename("another_name")
+
+        assert set(x.GetName() for x in ar.GetAttributes()) == {
+            "attr_renamed",
+            "other_attr",
+        }
+
+    try:
+        test()
+        reopen()
+    finally:
+        gdal.Unlink(filename)
 
 
 ###############################################################################
@@ -3148,3 +3472,518 @@ def test_netcdf_multidim_copy_group_with_indexing_variable_after_regular_var():
     finally:
         if os.path.exists(outfilename):
             gdal.Unlink(outfilename)
+
+
+###############################################################################
+
+
+@gdaltest.enable_exceptions()
+def test_netcdf_multidim_delete_attribute():
+
+    drv = gdal.GetDriverByName("netCDF")
+    filename = "tmp/test_netcdf_multidim_delete_attribute.nc"
+
+    def test():
+        ds = drv.CreateMultiDimensional(filename)
+        rg = ds.GetRootGroup()
+        rg = ds.GetRootGroup()
+        subg = rg.CreateGroup("group")
+        subg_attr = subg.CreateAttribute(
+            "subg_attr", [], gdal.ExtendedDataType.CreateString()
+        )
+        assert subg_attr.Write("foo") == gdal.CE_None
+        subg_other_attr = subg.CreateAttribute(
+            "subg_other_attr", [], gdal.ExtendedDataType.CreateString()
+        )
+        assert subg_other_attr.Write("foo") == gdal.CE_None
+
+        ar = subg.CreateMDArray("ar", [], gdal.ExtendedDataType.Create(gdal.GDT_Byte))
+        attr = ar.CreateAttribute("attr", [], gdal.ExtendedDataType.CreateString())
+        assert attr.Write("foo") == gdal.CE_None
+        other_attr = ar.CreateAttribute(
+            "other_attr", [], gdal.ExtendedDataType.CreateString()
+        )
+        assert other_attr.Write("foo") == gdal.CE_None
+
+        with pytest.raises(Exception):
+            ar.DeleteAttribute("not_existing")
+
+        # Delete array attribute and test effects
+        ar.DeleteAttribute("attr")
+
+        assert set(x.GetName() for x in ar.GetAttributes()) == {"other_attr"}
+
+        with pytest.raises(Exception, match="has been deleted"):
+            attr.Rename("foo")
+
+        with pytest.raises(Exception):
+            subg.DeleteAttribute("not_existing")
+
+        # Delete group attribute and test effects
+        subg.DeleteAttribute("subg_attr")
+
+        assert set(x.GetName() for x in subg.GetAttributes()) == {"subg_other_attr"}
+
+        with pytest.raises(Exception, match="has been deleted"):
+            subg_attr.Rename("foo")
+
+    def reopen():
+        ds = gdal.OpenEx(filename, gdal.OF_MULTIDIM_RASTER)
+        rg = ds.GetRootGroup()
+        subg = rg.OpenGroup("group")
+        ar = subg.OpenMDArray("ar")
+
+        assert set(x.GetName() for x in ar.GetAttributes()) == {"other_attr"}
+        assert set(x.GetName() for x in subg.GetAttributes()) == {"subg_other_attr"}
+
+    try:
+        test()
+        reopen()
+    finally:
+        gdal.Unlink(filename)
+
+
+###############################################################################
+
+
+@gdaltest.enable_exceptions()
+def test_netcdf_multidim_compute_statistics_update_metadata():
+
+    filename = "tmp/test_netcdf_multidim_compute_statistics_update_metadata.nc"
+    shutil.copy("data/netcdf/byte_no_cf.nc", filename)
+
+    def test():
+        ds = gdal.OpenEx(filename, gdal.OF_MULTIDIM_RASTER | gdal.OF_UPDATE)
+        rg = ds.GetRootGroup()
+        ar = rg.OpenMDArray("Band1")
+        stats = ar.ComputeStatistics(options=["UPDATE_METADATA=YES"])
+        assert stats.min == 74
+        assert stats.max == 255
+
+    def reopen():
+        ds = gdal.OpenEx(filename, gdal.OF_MULTIDIM_RASTER)
+        rg = ds.GetRootGroup()
+        ar = rg.OpenMDArray("Band1")
+        stats = ar.GetStatistics()
+        assert stats.min == 74
+        assert stats.max == 255
+        attr = ar.GetAttribute("actual_range")
+        assert array.array("B", attr.Read()).tolist() == [74, 255]
+
+    try:
+        test()
+        reopen()
+    finally:
+        gdal.Unlink(filename)
+        gdal.Unlink(filename + ".aux.xml")
+
+
+def test_netcdf_multidim_getresampled_with_geoloc_EMIT_L2A():
+
+    ds = gdal.OpenEx("data/netcdf/fake_EMIT_L2A.nc", gdal.OF_MULTIDIM_RASTER)
+    rg = ds.GetRootGroup()
+
+    ar = rg.OpenMDArray("reflectance")
+    coordinate_vars = ar.GetCoordinateVariables()
+    assert len(coordinate_vars) == 2
+    assert coordinate_vars[0].GetName() == "lon"
+    assert coordinate_vars[1].GetName() == "lat"
+
+    resampled_ar = ar.GetResampled(
+        [None, None, ar.GetDimensions()[2]],
+        gdal.GRIORA_NearestNeighbour,
+        None,
+        ["EMIT_ORTHORECTIFICATION=NO"],
+    )
+    assert resampled_ar is not None
+    dims = resampled_ar.GetDimensions()
+    assert dims[0].GetName() == "dimY"
+    assert dims[0].GetSize() == 3
+    assert dims[1].GetName() == "dimX"
+    assert dims[1].GetSize() == 3
+    assert dims[2].GetName() == "bands"
+    assert dims[2].GetSize() == 2
+
+    resampled_ar = ar.GetResampled(
+        [None] * ar.GetDimensionCount(),
+        gdal.GRIORA_NearestNeighbour,
+        None,
+        ["EMIT_ORTHORECTIFICATION=NO"],
+    )
+    assert resampled_ar is not None
+    dims = resampled_ar.GetDimensions()
+    assert dims[0].GetName() == "dimY"
+    assert dims[0].GetSize() == 3
+    assert dims[1].GetName() == "dimX"
+    assert dims[1].GetSize() == 3
+    assert dims[2].GetName() == "bands"
+    assert dims[2].GetSize() == 2
+
+    resampled_ar_transposed = resampled_ar.Transpose([2, 0, 1])
+    dims = resampled_ar_transposed.GetDimensions()
+    assert dims[0].GetName() == "bands"
+    assert dims[0].GetSize() == 2
+    assert dims[1].GetName() == "dimY"
+    assert dims[1].GetSize() == 3
+    assert dims[2].GetName() == "dimX"
+    assert dims[2].GetSize() == 3
+
+    # By default, the classic netCDF driver would use bottom-up reordering,
+    # which slightly modifies the output of the geolocation interpolation,
+    # and would not make it possible to compare exactly with the GetResampled()
+    # result
+    with gdaltest.config_option("GDAL_NETCDF_BOTTOMUP", "NO"):
+        warped_ds = gdal.Warp(
+            "", 'NETCDF:"data/netcdf/fake_EMIT_L2A.nc":reflectance', format="MEM"
+        )
+    assert warped_ds.ReadRaster() == resampled_ar_transposed.Read()
+    xoff = 1
+    yoff = 2
+    xsize = 2
+    ysize = 1
+    band_count = 2
+    assert warped_ds.ReadRaster(
+        xoff, yoff, xsize, ysize
+    ) == resampled_ar_transposed.Read(
+        array_start_idx=[0, yoff, xoff], count=[band_count, ysize, xsize]
+    )
+    assert warped_ds.GetRasterBand(2).ReadRaster(
+        xoff, yoff, xsize, ysize
+    ) == resampled_ar_transposed.Read(
+        array_start_idx=[1, yoff, xoff], count=[1, ysize, xsize]
+    )
+
+    # Use glt_x and glt_y arrays
+    resampled_ar = ar.GetResampled(
+        [None, None, None], gdal.GRIORA_NearestNeighbour, None
+    )
+    assert resampled_ar is not None
+    dims = resampled_ar.GetDimensions()
+    assert dims[0].GetName() == "lat"
+    assert dims[0].GetSize() == 3
+    assert dims[1].GetName() == "lon"
+    assert dims[1].GetSize() == 3
+    assert dims[2].GetName() == "bands"
+    assert dims[2].GetSize() == 2
+    assert resampled_ar.GetDataType() == ar.GetDataType()
+    assert resampled_ar.GetBlockSize() == [3, 3, 2]
+    assert resampled_ar.GetSpatialRef().GetAuthorityCode(None) == "4326"
+    assert resampled_ar.GetNoDataValue() == ar.GetNoDataValue()
+    assert resampled_ar.GetUnit() == ar.GetUnit()
+    assert (
+        resampled_ar.GetAttribute("long_name").ReadAsString()
+        == ar.GetAttribute("long_name").ReadAsString()
+    )
+    assert struct.unpack("f" * (3 * 3 * 2), resampled_ar.Read()) == (
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        30.0,
+        -30.0,
+        40.0,
+        -40.0,
+        -9999.0,
+        -9999.0,
+        10.0,
+        -10.0,
+        20.0,
+        -20.0,
+    )
+    assert struct.unpack(
+        "d" * (3 * 3 * 2),
+        resampled_ar.Read(
+            buffer_datatype=gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+        ),
+    ) == (
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        30.0,
+        -30.0,
+        40.0,
+        -40.0,
+        -9999.0,
+        -9999.0,
+        10.0,
+        -10.0,
+        20.0,
+        -20.0,
+    )
+
+    resampled_ds = resampled_ar.AsClassicDataset(1, 0)
+    assert resampled_ds.GetGeoTransform() == pytest.approx(
+        rg.GetAttribute("geotransform").ReadAsDoubleArray()
+    )
+
+    assert (
+        struct.unpack(
+            "f", resampled_ar.Read(array_start_idx=[0, 0, 0], count=[1, 1, 1])
+        )[0]
+        == -9999
+    )
+    assert struct.unpack(
+        "f" * 4, resampled_ar.Read(array_start_idx=[0, 0, 0], count=[1, 2, 2])
+    ) == (-9999, -9999, -9999, -9999)
+    assert (
+        struct.unpack(
+            "f", resampled_ar.Read(array_start_idx=[2, 1, 1], count=[1, 1, 1])
+        )[0]
+        == -10
+    )
+
+    rg_subset = rg.SubsetDimensionFromSelection("/band_indexed_var=1")
+    ar = rg_subset.OpenMDArray("reflectance")
+    # Use glt_x and glt_y arrays
+    resampled_ar = ar.GetResampled(
+        [None, None, None], gdal.GRIORA_NearestNeighbour, None
+    )
+    assert resampled_ar is not None
+    dims = resampled_ar.GetDimensions()
+    assert dims[0].GetName() == "lat"
+    assert dims[0].GetSize() == 3
+    assert dims[1].GetName() == "lon"
+    assert dims[1].GetSize() == 3
+    assert dims[2].GetName() == "bands"
+    assert dims[2].GetSize() == 1
+    assert resampled_ar.GetDataType() == ar.GetDataType()
+    assert resampled_ar.GetSpatialRef().GetAuthorityCode(None) == "4326"
+    assert resampled_ar.GetNoDataValue() == ar.GetNoDataValue()
+    assert resampled_ar.GetUnit() == ar.GetUnit()
+    assert (
+        resampled_ar.GetAttribute("long_name").ReadAsString()
+        == ar.GetAttribute("long_name").ReadAsString()
+    )
+    assert struct.unpack("f" * (3 * 3), resampled_ar.Read()) == (
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        30.0,
+        40.0,
+        -9999.0,
+        10.0,
+        20.0,
+    )
+
+
+def test_netcdf_multidim_getresampled_with_geoloc_EMIT_L2B_MIN():
+
+    ds = gdal.OpenEx("data/netcdf/fake_EMIT_L2B_MIN.nc", gdal.OF_MULTIDIM_RASTER)
+    rg = ds.GetRootGroup()
+
+    ar = rg.OpenMDArray("some_var")
+    coordinate_vars = ar.GetCoordinateVariables()
+    assert len(coordinate_vars) == 2
+    assert coordinate_vars[0].GetName() == "lon"
+    assert coordinate_vars[1].GetName() == "lat"
+
+    resampled_ar = ar.GetResampled(
+        [None, None],
+        gdal.GRIORA_NearestNeighbour,
+        None,
+        ["EMIT_ORTHORECTIFICATION=NO"],
+    )
+    assert resampled_ar is not None
+    dims = resampled_ar.GetDimensions()
+    assert dims[0].GetName() == "dimY"
+    assert dims[0].GetSize() == 3
+    assert dims[1].GetName() == "dimX"
+    assert dims[1].GetSize() == 3
+
+    resampled_ar = ar.GetResampled(
+        [None] * ar.GetDimensionCount(),
+        gdal.GRIORA_NearestNeighbour,
+        None,
+        ["EMIT_ORTHORECTIFICATION=NO"],
+    )
+    assert resampled_ar is not None
+    dims = resampled_ar.GetDimensions()
+    assert dims[0].GetName() == "dimY"
+    assert dims[0].GetSize() == 3
+    assert dims[1].GetName() == "dimX"
+    assert dims[1].GetSize() == 3
+
+    # By default, the classic netCDF driver would use bottom-up reordering,
+    # which slightly modifies the output of the geolocation interpolation,
+    # and would not make it possible to compare exactly with the GetResampled()
+    # result
+    with gdaltest.config_option("GDAL_NETCDF_BOTTOMUP", "NO"):
+        warped_ds = gdal.Warp(
+            "", 'NETCDF:"data/netcdf/fake_EMIT_L2B_MIN.nc":some_var', format="MEM"
+        )
+    assert warped_ds.ReadRaster() == resampled_ar.Read()
+    xoff = 1
+    yoff = 2
+    xsize = 2
+    ysize = 1
+    assert warped_ds.ReadRaster(xoff, yoff, xsize, ysize) == resampled_ar.Read(
+        array_start_idx=[yoff, xoff], count=[ysize, xsize]
+    )
+
+    # Use glt_x and glt_y arrays
+    resampled_ar = ar.GetResampled([None, None], gdal.GRIORA_NearestNeighbour, None)
+    assert resampled_ar is not None
+    dims = resampled_ar.GetDimensions()
+    assert dims[0].GetName() == "lat"
+    assert dims[0].GetSize() == 3
+    assert dims[1].GetName() == "lon"
+    assert dims[1].GetSize() == 3
+    assert resampled_ar.GetDataType() == ar.GetDataType()
+    assert resampled_ar.GetBlockSize() == [3, 3]
+    assert resampled_ar.GetSpatialRef().GetAuthorityCode(None) == "4326"
+    assert resampled_ar.GetNoDataValue() == ar.GetNoDataValue()
+    assert resampled_ar.GetUnit() == ar.GetUnit()
+    assert (
+        resampled_ar.GetAttribute("long_name").ReadAsString()
+        == ar.GetAttribute("long_name").ReadAsString()
+    )
+    assert struct.unpack("f" * (3 * 3), resampled_ar.Read()) == (
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        30.0,
+        40.0,
+        -9999.0,
+        10.0,
+        20.0,
+    )
+    assert struct.unpack(
+        "d" * (3 * 3),
+        resampled_ar.Read(
+            buffer_datatype=gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+        ),
+    ) == (
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        -9999.0,
+        30.0,
+        40.0,
+        -9999.0,
+        10.0,
+        20.0,
+    )
+
+    resampled_ds = resampled_ar.AsClassicDataset(1, 0)
+    assert resampled_ds.GetGeoTransform() == pytest.approx(
+        rg.GetAttribute("geotransform").ReadAsDoubleArray()
+    )
+
+    assert (
+        struct.unpack("f", resampled_ar.Read(array_start_idx=[0, 0], count=[1, 1]))[0]
+        == -9999
+    )
+    assert struct.unpack(
+        "f" * 2, resampled_ar.Read(array_start_idx=[0, 0], count=[1, 2])
+    ) == (-9999, -9999)
+    assert (
+        struct.unpack("f", resampled_ar.Read(array_start_idx=[2, 1], count=[1, 1]))[0]
+        == 10
+    )
+
+
+###############################################################################
+
+
+@gdaltest.enable_exceptions()
+def test_netcdf_multidim_serialize_statistics_asclassicdataset(tmp_path):
+
+    filename = str(
+        tmp_path / "test_netcdf_multidim_serialize_statistics_asclassicdataset.nc"
+    )
+    shutil.copy("data/netcdf/byte.nc", filename)
+
+    def test():
+        ds = gdal.OpenEx(filename, gdal.OF_MULTIDIM_RASTER | gdal.OF_UPDATE)
+        rg = ds.GetRootGroup()
+        ar = rg.OpenMDArray("Band1")
+
+        view = ar.GetView("[0:10,...]")
+        classic_ds = view.AsClassicDataset(1, 0)
+        assert classic_ds.GetRasterBand(1).GetStatistics(False, False) == [
+            0.0,
+            0.0,
+            0.0,
+            -1.0,
+        ]
+        classic_ds.GetRasterBand(1).ComputeStatistics(False)
+
+        view = ar.GetView("[10:20,...]")
+        classic_ds = view.AsClassicDataset(1, 0)
+        classic_ds.GetRasterBand(1).ComputeStatistics(False)
+
+        rg_subset = rg.SubsetDimensionFromSelection("/x=440750")
+        ds = rg_subset.OpenMDArray("Band1").AsClassicDataset(1, 0)
+        ds.GetRasterBand(1).ComputeStatistics(False)
+
+    def test2():
+        ds = gdal.OpenEx(filename, gdal.OF_MULTIDIM_RASTER | gdal.OF_UPDATE)
+        rg = ds.GetRootGroup()
+        rg_subset = rg.SubsetDimensionFromSelection("/x=440750")
+        rg_subset.OpenMDArray("Band1").GetStatistics(False, force=True)
+
+    def reopen():
+
+        aux_xml = open(filename + ".aux.xml", "rb").read().decode("UTF-8")
+        assert (
+            '<DerivedDataset name="AsClassicDataset(1,0) view of Sliced view of /Band1 ([0:10,...])">'
+            in aux_xml
+        )
+        assert (
+            '<DerivedDataset name="AsClassicDataset(1,0) view of Sliced view of /Band1 ([0:10,...])">'
+            in aux_xml
+        )
+        assert (
+            '<DerivedDataset name="AsClassicDataset(1,0) view of /Band1 with context Selection /x=440750">'
+            in aux_xml
+        )
+        assert '<Array name="/Band1" context="Selection /x=440750">' in aux_xml
+
+        ds = gdal.OpenEx(filename, gdal.OF_MULTIDIM_RASTER)
+        rg = ds.GetRootGroup()
+        ar = rg.OpenMDArray("Band1")
+
+        view = ar.GetView("[0:10,...]")
+        classic_ds = view.AsClassicDataset(1, 0)
+        assert classic_ds.GetRasterBand(1).GetStatistics(False, False) == pytest.approx(
+            [74.0, 255.0, 126.82, 26.729713803182]
+        )
+
+        view = ar.GetView("[10:20,...]")
+        classic_ds = view.AsClassicDataset(1, 0)
+        assert classic_ds.GetRasterBand(1).GetStatistics(False, False) == pytest.approx(
+            [99.0, 206.0, 126.71, 18.356086184152]
+        )
+
+        classic_ds = ar.AsClassicDataset(1, 0)
+        assert classic_ds.GetRasterBand(1).GetStatistics(False, False) == [
+            0.0,
+            0.0,
+            0.0,
+            -1.0,
+        ]
+
+        rg_subset = rg.SubsetDimensionFromSelection("/x=440750")
+
+        assert rg_subset.OpenMDArray("Band1").GetStatistics(False, False).min == 107
+        assert rg_subset.OpenMDArray("Band1").GetStatistics(False, False).max == 197
+
+        ds = rg_subset.OpenMDArray("Band1").AsClassicDataset(1, 0)
+        assert ds.GetRasterBand(1).GetStatistics(False, False) == pytest.approx(
+            [107.0, 197.0, 149.7, 26.595300336714]
+        )
+
+    test()
+    test2()
+    reopen()

@@ -799,81 +799,161 @@ TEST_F(test_cpl, VSIMalloc)
     CPLPushErrorHandler(CPLQuietErrorHandler);
 
     // The following tests will fail because of overflows
-    CPLErrorReset();
-    ASSERT_TRUE(VSIMalloc2(~(size_t)0, ~(size_t)0) == nullptr);
-    ASSERT_TRUE(CPLGetLastErrorType() != CE_None);
 
-    CPLErrorReset();
-    ASSERT_TRUE(VSIMalloc3(1, ~(size_t)0, ~(size_t)0) == nullptr);
-    ASSERT_TRUE(CPLGetLastErrorType() != CE_None);
+    {
+        CPLErrorReset();
+        void *ptr = VSIMalloc2(~(size_t)0, ~(size_t)0);
+        EXPECT_EQ(ptr, nullptr);
+        VSIFree(ptr);
+        EXPECT_NE(CPLGetLastErrorType(), CE_None);
+    }
 
-    CPLErrorReset();
-    ASSERT_TRUE(VSIMalloc3(~(size_t)0, 1, ~(size_t)0) == nullptr);
-    ASSERT_TRUE(CPLGetLastErrorType() != CE_None);
+    {
+        CPLErrorReset();
+        void *ptr = VSIMalloc3(1, ~(size_t)0, ~(size_t)0);
+        EXPECT_EQ(ptr, nullptr);
+        VSIFree(ptr);
+        EXPECT_NE(CPLGetLastErrorType(), CE_None);
+    }
 
-    CPLErrorReset();
-    ASSERT_TRUE(VSIMalloc3(~(size_t)0, ~(size_t)0, 1) == nullptr);
-    ASSERT_TRUE(CPLGetLastErrorType() != CE_None);
+    {
+        CPLErrorReset();
+        void *ptr = VSIMalloc3(~(size_t)0, 1, ~(size_t)0);
+        EXPECT_EQ(ptr, nullptr);
+        VSIFree(ptr);
+        EXPECT_NE(CPLGetLastErrorType(), CE_None);
+    }
+
+    {
+        CPLErrorReset();
+        void *ptr = VSIMalloc3(~(size_t)0, ~(size_t)0, 1);
+        EXPECT_EQ(ptr, nullptr);
+        VSIFree(ptr);
+        EXPECT_NE(CPLGetLastErrorType(), CE_None);
+    }
 
     if (!CSLTestBoolean(CPLGetConfigOption("SKIP_MEM_INTENSIVE_TEST", "NO")))
     {
         // The following tests will fail because such allocations cannot succeed
 #if SIZEOF_VOIDP == 8
-        CPLErrorReset();
-        ASSERT_TRUE(VSIMalloc(~(size_t)0) == nullptr);
-        ASSERT_TRUE(CPLGetLastErrorType() == CE_None); /* no error reported */
+        {
+            CPLErrorReset();
+            void *ptr = VSIMalloc(~(size_t)0);
+            EXPECT_EQ(ptr, nullptr);
+            VSIFree(ptr);
+            EXPECT_EQ(CPLGetLastErrorType(), CE_None); /* no error reported */
+        }
 
-        CPLErrorReset();
-        ASSERT_TRUE(VSIMalloc2(~(size_t)0, 1) == nullptr);
-        ASSERT_TRUE(CPLGetLastErrorType() != CE_None);
+        {
+            CPLErrorReset();
+            void *ptr = VSIMalloc2(~(size_t)0, 1);
+            EXPECT_EQ(ptr, nullptr);
+            VSIFree(ptr);
+            EXPECT_NE(CPLGetLastErrorType(), CE_None);
+        }
 
-        CPLErrorReset();
-        ASSERT_TRUE(VSIMalloc3(~(size_t)0, 1, 1) == nullptr);
-        ASSERT_TRUE(CPLGetLastErrorType() != CE_None);
+        {
+            CPLErrorReset();
+            void *ptr = VSIMalloc3(~(size_t)0, 1, 1);
+            EXPECT_EQ(ptr, nullptr);
+            VSIFree(ptr);
+            EXPECT_NE(CPLGetLastErrorType(), CE_None);
+        }
 
-        CPLErrorReset();
-        ASSERT_TRUE(VSICalloc(~(size_t)0, 1) == nullptr);
-        ASSERT_TRUE(CPLGetLastErrorType() == CE_None); /* no error reported */
+        {
+            CPLErrorReset();
+            void *ptr = VSICalloc(~(size_t)0, 1);
+            EXPECT_EQ(ptr, nullptr);
+            VSIFree(ptr);
+            EXPECT_EQ(CPLGetLastErrorType(), CE_None); /* no error reported */
+        }
 
-        CPLErrorReset();
-        ASSERT_TRUE(VSIRealloc(nullptr, ~(size_t)0) == nullptr);
-        ASSERT_TRUE(CPLGetLastErrorType() == CE_None); /* no error reported */
+        {
+            CPLErrorReset();
+            void *ptr = VSIRealloc(nullptr, ~(size_t)0);
+            EXPECT_EQ(ptr, nullptr);
+            VSIFree(ptr);
+            EXPECT_EQ(CPLGetLastErrorType(), CE_None); /* no error reported */
+        }
 
-        CPLErrorReset();
-        ASSERT_TRUE(VSI_MALLOC_VERBOSE(~(size_t)0) == nullptr);
-        ASSERT_TRUE(CPLGetLastErrorType() != CE_None);
+        {
+            CPLErrorReset();
+            void *ptr = VSI_MALLOC_VERBOSE(~(size_t)0);
+            EXPECT_EQ(ptr, nullptr);
+            VSIFree(ptr);
+            EXPECT_NE(CPLGetLastErrorType(), CE_None);
+        }
 
-        CPLErrorReset();
-        ASSERT_TRUE(VSI_MALLOC2_VERBOSE(~(size_t)0, 1) == nullptr);
-        ASSERT_TRUE(CPLGetLastErrorType() != CE_None);
+        {
+            CPLErrorReset();
+            void *ptr = VSI_MALLOC2_VERBOSE(~(size_t)0, 1);
+            EXPECT_EQ(ptr, nullptr);
+            VSIFree(ptr);
+            EXPECT_NE(CPLGetLastErrorType(), CE_None);
+        }
 
-        CPLErrorReset();
-        ASSERT_TRUE(VSI_MALLOC3_VERBOSE(~(size_t)0, 1, 1) == nullptr);
-        ASSERT_TRUE(CPLGetLastErrorType() != CE_None);
+        {
+            CPLErrorReset();
+            void *ptr = VSI_MALLOC3_VERBOSE(~(size_t)0, 1, 1);
+            EXPECT_EQ(ptr, nullptr);
+            VSIFree(ptr);
+            EXPECT_NE(CPLGetLastErrorType(), CE_None);
+        }
 
-        CPLErrorReset();
-        ASSERT_TRUE(VSI_CALLOC_VERBOSE(~(size_t)0, 1) == nullptr);
-        ASSERT_TRUE(CPLGetLastErrorType() != CE_None);
+        {
+            CPLErrorReset();
+            void *ptr = VSI_CALLOC_VERBOSE(~(size_t)0, 1);
+            EXPECT_EQ(ptr, nullptr);
+            VSIFree(ptr);
+            EXPECT_NE(CPLGetLastErrorType(), CE_None);
+        }
 
-        CPLErrorReset();
-        ASSERT_TRUE(VSI_REALLOC_VERBOSE(nullptr, ~(size_t)0) == nullptr);
-        ASSERT_TRUE(CPLGetLastErrorType() != CE_None);
+        {
+            CPLErrorReset();
+            void *ptr = VSI_REALLOC_VERBOSE(nullptr, ~(size_t)0);
+            EXPECT_EQ(ptr, nullptr);
+            VSIFree(ptr);
+            EXPECT_NE(CPLGetLastErrorType(), CE_None);
+        }
 #endif
     }
 
     CPLPopErrorHandler();
 
     // The following allocs will return NULL because of 0 byte alloc
-    CPLErrorReset();
-    ASSERT_TRUE(VSIMalloc2(0, 1) == nullptr);
-    ASSERT_TRUE(CPLGetLastErrorType() == CE_None);
-    ASSERT_TRUE(VSIMalloc2(1, 0) == nullptr);
+    {
+        CPLErrorReset();
+        void *ptr = VSIMalloc2(0, 1);
+        EXPECT_EQ(ptr, nullptr);
+        VSIFree(ptr);
+        EXPECT_EQ(CPLGetLastErrorType(), CE_None);
+    }
 
-    CPLErrorReset();
-    ASSERT_TRUE(VSIMalloc3(0, 1, 1) == nullptr);
-    ASSERT_TRUE(CPLGetLastErrorType() == CE_None);
-    ASSERT_TRUE(VSIMalloc3(1, 0, 1) == nullptr);
-    ASSERT_TRUE(VSIMalloc3(1, 1, 0) == nullptr);
+    {
+        void *ptr = VSIMalloc2(1, 0);
+        EXPECT_EQ(ptr, nullptr);
+        VSIFree(ptr);
+    }
+
+    {
+        CPLErrorReset();
+        void *ptr = VSIMalloc3(0, 1, 1);
+        EXPECT_EQ(ptr, nullptr);
+        VSIFree(ptr);
+        EXPECT_EQ(CPLGetLastErrorType(), CE_None);
+    }
+
+    {
+        void *ptr = VSIMalloc3(1, 0, 1);
+        EXPECT_EQ(ptr, nullptr);
+        VSIFree(ptr);
+    }
+
+    {
+        void *ptr = VSIMalloc3(1, 1, 0);
+        EXPECT_EQ(ptr, nullptr);
+        VSIFree(ptr);
+    }
 }
 
 TEST_F(test_cpl, CPLFormFilename)
@@ -943,6 +1023,15 @@ TEST_F(test_cpl, CPLsscanf)
     ASSERT_EQ(CPLsscanf("1 2", "%lf %lf %lf", &a, &b, &c), 2);
     ASSERT_EQ(a, 1.0);
     ASSERT_EQ(b, 2.0);
+}
+
+TEST_F(test_cpl, CPLsnprintf)
+{
+    {
+        char buf[32];
+        EXPECT_EQ(CPLsnprintf(buf, sizeof(buf), "a%.*fb", 1, 2.12), 5);
+        EXPECT_STREQ(buf, "a2.1b");
+    }
 }
 
 TEST_F(test_cpl, CPLSetErrorHandler)
@@ -1576,8 +1665,16 @@ TEST_F(test_cpl, CPLCopyTree)
     CPLString osTmpPath(CPLGetDirname(CPLGenerateTempFilename(nullptr)));
     CPLString osSrcDir(CPLFormFilename(osTmpPath, "src_dir", nullptr));
     CPLString osNewDir(CPLFormFilename(osTmpPath, "new_dir", nullptr));
-    ASSERT_TRUE(VSIMkdir(osSrcDir, 0755) == 0);
     CPLString osSrcFile(CPLFormFilename(osSrcDir, "my.bin", nullptr));
+    CPLString osNewFile(CPLFormFilename(osNewDir, "my.bin", nullptr));
+
+    // Cleanup if previous test failed
+    VSIUnlink(osNewFile);
+    VSIRmdir(osNewDir);
+    VSIUnlink(osSrcFile);
+    VSIRmdir(osSrcDir);
+
+    ASSERT_TRUE(VSIMkdir(osSrcDir, 0755) == 0);
     VSILFILE *fp = VSIFOpenL(osSrcFile, "wb");
     ASSERT_TRUE(fp != nullptr);
     VSIFCloseL(fp);
@@ -1588,7 +1685,6 @@ TEST_F(test_cpl, CPLCopyTree)
 
     ASSERT_TRUE(CPLCopyTree(osNewDir, osSrcDir) == 0);
     VSIStatBufL sStat;
-    CPLString osNewFile(CPLFormFilename(osNewDir, "my.bin", nullptr));
     ASSERT_TRUE(VSIStatL(osNewFile, &sStat) == 0);
 
     CPLPushErrorHandler(CPLQuietErrorHandler);
@@ -2499,6 +2595,50 @@ TEST_F(test_cpl, CPLJSONDocument)
         CPLPopErrorHandler();
     }
     {
+        CPLJSONObject oObj(nullptr);
+        EXPECT_EQ(oObj.GetType(), CPLJSONObject::Type::Null);
+    }
+    {
+        CPLJSONObject oObj(true);
+        EXPECT_EQ(oObj.GetType(), CPLJSONObject::Type::Boolean);
+        EXPECT_EQ(oObj.ToBool(), true);
+    }
+    {
+        CPLJSONObject oObj(1);
+        EXPECT_EQ(oObj.GetType(), CPLJSONObject::Type::Integer);
+        EXPECT_EQ(oObj.ToInteger(), 1);
+    }
+    {
+        CPLJSONObject oObj(static_cast<int64_t>(123) * 1024 * 1024 * 1024);
+        EXPECT_EQ(oObj.GetType(), CPLJSONObject::Type::Long);
+        EXPECT_EQ(oObj.ToLong(),
+                  static_cast<int64_t>(123) * 1024 * 1024 * 1024);
+    }
+    {
+        CPLJSONObject oObj(static_cast<uint64_t>(123) * 1024 * 1024 * 1024);
+        // Might be a string with older libjson versions
+        if (oObj.GetType() == CPLJSONObject::Type::Long)
+        {
+            EXPECT_EQ(oObj.ToLong(),
+                      static_cast<int64_t>(123) * 1024 * 1024 * 1024);
+        }
+    }
+    {
+        CPLJSONObject oObj(1.5);
+        EXPECT_EQ(oObj.GetType(), CPLJSONObject::Type::Double);
+        EXPECT_EQ(oObj.ToDouble(), 1.5);
+    }
+    {
+        CPLJSONObject oObj("ab");
+        EXPECT_EQ(oObj.GetType(), CPLJSONObject::Type::String);
+        EXPECT_STREQ(oObj.ToString().c_str(), "ab");
+    }
+    {
+        CPLJSONObject oObj(std::string("ab"));
+        EXPECT_EQ(oObj.GetType(), CPLJSONObject::Type::String);
+        EXPECT_STREQ(oObj.ToString().c_str(), "ab");
+    }
+    {
         CPLJSONObject oObj;
         oObj.Add("string", std::string("my_string"));
         ASSERT_EQ(oObj.GetString("string"), std::string("my_string"));
@@ -2572,7 +2712,8 @@ TEST_F(test_cpl, CPLJSONDocument)
         oArray.Add(1);
         oArray.Add(GINT64_MAX);
         oArray.Add(true);
-        ASSERT_EQ(oArray.Size(), 7);
+        oArray.AddNull();
+        ASSERT_EQ(oArray.Size(), 8);
 
         int nCount = 0;
         for (const auto &obj : oArray)
@@ -2581,7 +2722,7 @@ TEST_F(test_cpl, CPLJSONDocument)
                       oArray[nCount].GetInternalHandle());
             nCount++;
         }
-        ASSERT_EQ(nCount, 7);
+        ASSERT_EQ(nCount, 8);
     }
     {
         CPLJSONDocument oDocument;
@@ -4193,8 +4334,8 @@ TEST_F(test_cpl, config_file_ignore_env_vars)
 {
     char szEnvVar[] = "SOME_ENV_VAR_FOR_TEST_CPL_61=FOO";
     putenv(szEnvVar);
-    ASSERT_TRUE(CPLGetConfigOption("SOME_ENV_VAR_FOR_TEST_CPL_61", nullptr) !=
-                nullptr);
+    ASSERT_STREQ(CPLGetConfigOption("SOME_ENV_VAR_FOR_TEST_CPL_61", nullptr),
+                 "FOO");
 
     VSILFILE *fp = VSIFOpenL("/vsimem/.gdal/gdalrc", "wb");
     VSIFPrintfL(fp, "[directives]\n");
@@ -4204,11 +4345,12 @@ TEST_F(test_cpl, config_file_ignore_env_vars)
     VSIFCloseL(fp);
 
     // Load configuration file
-    CPLLoadConfigOptionsFromFile("/vsimem/.gdal/gdalrc", false);
+    constexpr bool bOverrideEnvVars = false;
+    CPLLoadConfigOptionsFromFile("/vsimem/.gdal/gdalrc", bOverrideEnvVars);
 
     // Check that reading configuration option works
-    ASSERT_TRUE(
-        EQUAL(CPLGetConfigOption("CONFIG_OPTION_FOR_TEST_CPL_61", ""), "BAR"));
+    ASSERT_STREQ(CPLGetConfigOption("CONFIG_OPTION_FOR_TEST_CPL_61", ""),
+                 "BAR");
 
     // Check that environment variables are not read as configuration options
     ASSERT_TRUE(CPLGetConfigOption("SOME_ENV_VAR_FOR_TEST_CPL_61", nullptr) ==
@@ -4225,15 +4367,37 @@ TEST_F(test_cpl, config_file_ignore_env_vars)
     // Reload configuration file
     CPLLoadConfigOptionsFromFile("/vsimem/.gdal/gdalrc", false);
 
-    // Check that environment variables are read as configuration options
-    // and override configuration options
+    // Check that environment variables override configuration options defined
+    // in the file (config file was loaded with bOverrideEnvVars = false)
     ASSERT_TRUE(CPLGetConfigOption("SOME_ENV_VAR_FOR_TEST_CPL_61", nullptr) !=
                 nullptr);
-    ASSERT_EQ(
-        std::string(CPLGetConfigOption("SOME_ENV_VAR_FOR_TEST_CPL_61", "")),
-        std::string("FOO"));
+    ASSERT_STREQ(CPLGetConfigOption("SOME_ENV_VAR_FOR_TEST_CPL_61", ""), "FOO");
 
     VSIUnlink("/vsimem/.gdal/gdalrc");
+}
+
+// Test that explicitly defined configuration options override environment variables
+// with the same name
+TEST_F(test_cpl, test_config_overrides_environment)
+{
+    char szEnvVar[] = "TEST_CONFIG_OVERRIDES_ENVIRONMENT=123";
+    putenv(szEnvVar);
+
+    ASSERT_STREQ(
+        CPLGetConfigOption("TEST_CONFIG_OVERRIDES_ENVIRONMENT", nullptr),
+        "123");
+
+    CPLSetConfigOption("TEST_CONFIG_OVERRIDES_ENVIRONMENT", "456");
+
+    ASSERT_STREQ(
+        CPLGetConfigOption("TEST_CONFIG_OVERRIDES_ENVIRONMENT", nullptr),
+        "456");
+
+    CPLSetConfigOption("TEST_CONFIG_OVERRIDES_ENVIRONMENT", nullptr);
+
+    ASSERT_STREQ(
+        CPLGetConfigOption("TEST_CONFIG_OVERRIDES_ENVIRONMENT", nullptr),
+        "123");
 }
 
 // Test CPLWorkerThreadPool recursion
@@ -4647,6 +4811,69 @@ TEST_F(test_cpl, CPLSubscribeToSetConfigOption)
         CPLSetConfigOption("CPLSubscribeToSetConfigOption", nullptr);
         EXPECT_EQ(events.size(), 2U);
     }
+}
+
+TEST_F(test_cpl, VSIGetCanonicalFilename)
+{
+    std::string osTmp = CPLGenerateTempFilename(nullptr);
+    if (!CPLIsFilenameRelative(osTmp.c_str()))
+    {
+        // Get the canonical filename of the base temporary file
+        // to be able to test afterwards just the differences on the case
+        // of the extension
+        VSILFILE *fp = VSIFOpenL(osTmp.c_str(), "wb");
+        EXPECT_TRUE(fp != nullptr);
+        if (fp)
+        {
+            VSIFCloseL(fp);
+            char *pszRes = VSIGetCanonicalFilename(osTmp.c_str());
+            osTmp = pszRes;
+            CPLFree(pszRes);
+            VSIUnlink(osTmp.c_str());
+        }
+    }
+
+    std::string osLC = osTmp + ".tmp";
+    std::string osUC = osTmp + ".TMP";
+    // Create a file in lower case
+    VSILFILE *fp = VSIFOpenL(osLC.c_str(), "wb");
+    EXPECT_TRUE(fp != nullptr);
+    if (fp)
+    {
+        VSIFCloseL(fp);
+        VSIStatBufL sStat;
+        // And try to stat it in upper case
+        if (VSIStatL(osUC.c_str(), &sStat) == 0)
+        {
+            char *pszRes = VSIGetCanonicalFilename(osUC.c_str());
+            EXPECT_TRUE(pszRes);
+            if (pszRes)
+            {
+#if defined(_WIN32) || (defined(__MACH__) && defined(__APPLE__))
+                // On Windows or Mac, we should get the real canonical name,
+                // i.e. in lower case
+                EXPECT_STREQ(pszRes, osLC.c_str());
+#else
+                // On other operating systems, VSIGetCanonicalFilename()
+                // could not be implemented, so be laxer in the check
+                EXPECT_STREQ(CPLString(pszRes).tolower().c_str(),
+                             CPLString(osLC).tolower().c_str());
+#endif
+            }
+            CPLFree(pszRes);
+        }
+
+        {
+            char *pszRes = VSIGetCanonicalFilename(osLC.c_str());
+            EXPECT_TRUE(pszRes);
+            if (pszRes)
+            {
+                EXPECT_STREQ(pszRes, osLC.c_str());
+            }
+            CPLFree(pszRes);
+        }
+    }
+    VSIUnlink(osLC.c_str());
 }
 
 }  // namespace

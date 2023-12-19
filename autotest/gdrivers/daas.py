@@ -83,7 +83,7 @@ def startup_and_cleanup():
 
 def test_daas_missing_parameters():
 
-    with gdaltest.error_handler():
+    with gdal.quiet_errors():
         ds = gdal.Open("DAAS:")
         assert not ds
 
@@ -100,7 +100,7 @@ def test_daas_authentication_failure():
             "missing_GDAL_DAAS_API_KEY": "api_key",
         }
     ):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             ds = gdal.Open("DAAS:https://127.0.0.1:99999")
             assert not ds
 
@@ -111,7 +111,7 @@ def test_daas_authentication_failure():
             "GDAL_DAAS_API_KEY": "api_key",
         }
     ):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             ds = gdal.Open("DAAS:https://127.0.0.1:99999")
             assert not ds
 
@@ -132,7 +132,7 @@ def test_daas_authentication_failure():
                 "GDAL_DAAS_API_KEY": "api_key",
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.Open("DAAS:https://127.0.0.1:99999")
                 assert not ds
 
@@ -147,7 +147,7 @@ def test_daas_authentication_failure():
                 "GDAL_DAAS_API_KEY": "api_key",
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.Open("DAAS:https://127.0.0.1:99999")
                 assert not ds
 
@@ -162,7 +162,7 @@ def test_daas_authentication_failure():
                 "GDAL_DAAS_API_KEY": "api_key",
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.Open("DAAS:https://127.0.0.1:99999")
                 assert not ds
 
@@ -202,7 +202,7 @@ def test_daas_authentication():
                 "GDAL_DAAS_API_KEY": "api_key",
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 gdal.Open(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port
@@ -231,7 +231,7 @@ def test_daas_authentication():
                 "GDAL_DAAS_API_KEY": "api_key",
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 gdal.OpenEx(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port,
@@ -258,7 +258,7 @@ def test_daas_authentication():
                 "GDAL_DAAS_API_KEY": "api_key",
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 gdal.Open(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port
@@ -280,7 +280,7 @@ def test_daas_authentication():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 gdal.OpenEx(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port
@@ -304,7 +304,7 @@ def test_daas_getimagemetadata_failure():
                     % gdaltest.webserver_port,
                 }
             ):
-                with gdaltest.error_handler():
+                with gdal.quiet_errors():
                     ds = gdal.Open(
                         "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                         % gdaltest.webserver_port
@@ -322,7 +322,7 @@ def test_daas_getimagemetadata_failure():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.Open(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port
@@ -342,7 +342,7 @@ def test_daas_getimagemetadata_failure():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.Open(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port
@@ -360,7 +360,7 @@ def test_daas_getimagemetadata_failure():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.Open(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port
@@ -378,7 +378,7 @@ def test_daas_getimagemetadata_failure():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.Open(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port
@@ -905,7 +905,7 @@ def test_daas_getimagemetadata_http_retry():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.Open(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port
@@ -928,7 +928,7 @@ def test_daas_getimagemetadata_http_retry():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.Open(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port
@@ -947,7 +947,7 @@ def test_daas_getimagemetadata_http_retry():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.Open(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port
@@ -1012,7 +1012,7 @@ def test_daas_getbuffer_failure():
     handler.add("POST", "/getbuffer", 404)
     handler.add("POST", "/getbuffer", 404)
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             data = ds.GetRasterBand(1).ReadRaster()
     assert not data
 
@@ -1022,7 +1022,7 @@ def test_daas_getbuffer_failure():
     handler.add("POST", "/getbuffer", 404, {}, "my error message")
     handler.add("POST", "/getbuffer", 404)
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             data = ds.GetRasterBand(1).ReadRaster()
     assert not data
 
@@ -1032,7 +1032,7 @@ def test_daas_getbuffer_failure():
     handler.add("POST", "/getbuffer", 200, {}, "not multipart")
     handler.add("POST", "/getbuffer", 404)
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             data = ds.GetRasterBand(1).ReadRaster()
     assert not data
 
@@ -1057,7 +1057,7 @@ Content-Type: application/json
     )
     handler.add("POST", "/getbuffer", 404)
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             data = ds.GetRasterBand(1).ReadRaster()
     assert not data
 
@@ -1082,7 +1082,7 @@ ABCDEF
     )
     handler.add("POST", "/getbuffer", 404)
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             data = ds.GetRasterBand(1).ReadRaster()
     assert not data
 
@@ -1112,7 +1112,7 @@ Content-Type: application/json
     )
     handler.add("POST", "/getbuffer", 404)
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             data = ds.GetRasterBand(1).ReadRaster()
     assert not data
 
@@ -1142,7 +1142,7 @@ Content-Type: application/json
     )
     handler.add("POST", "/getbuffer", 404)
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             data = ds.GetRasterBand(1).ReadRaster()
     assert not data
 
@@ -1200,7 +1200,7 @@ Content-Type: application/json
     handler.add("POST", "/getbuffer", 404)
 
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             data = ds.GetRasterBand(1).ReadRaster()
     assert not data
 
@@ -1240,7 +1240,7 @@ Content-Type: application/json
     handler.add("POST", "/getbuffer", 404)
 
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             data = ds.GetRasterBand(1).ReadRaster()
     assert not data
 
@@ -1293,7 +1293,7 @@ def test_daas_getbuffer_pixel_encoding_failures():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.OpenEx(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port,
@@ -1313,7 +1313,7 @@ def test_daas_getbuffer_pixel_encoding_failures():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.OpenEx(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port,
@@ -1333,7 +1333,7 @@ def test_daas_getbuffer_pixel_encoding_failures():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.OpenEx(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port,
@@ -1387,7 +1387,7 @@ def test_daas_getbuffer_pixel_encoding_failures():
                 % gdaltest.webserver_port,
             }
         ):
-            with gdaltest.error_handler():
+            with gdal.quiet_errors():
                 ds = gdal.OpenEx(
                     "DAAS:http://127.0.0.1:%d/daas/sensors/products/foo/images/bar"
                     % gdaltest.webserver_port,
@@ -1520,11 +1520,26 @@ Content-Type: application/json
 ###############################################################################
 
 
-def _daas_getbuffer(pixel_encoding, drv_name, drv_options, mime_type):
+@pytest.mark.parametrize(
+    "pixel_encoding,drv_name,drv_options,mime_type",
+    [
+        (
+            "JPEG2000",
+            "JP2OPENJPEG",
+            ["QUALITY=100", "REVERSIBLE=YES", "RESOLUTIONS=1", "CODEC=JP2"],
+            "image/jp2",
+        ),
+        ("JPEG2000", "JP2KAK", ["QUALITY=100", "CODEC=JP2"], "image/jp2"),
+        ("JPEG", "JPEG", ["QUALITY=100"], "image/jpeg"),
+        ("PNG", "PNG", [], "image/png"),
+    ],
+    ids=("jpeg2000_jp2openjpeg", "jpeg2000_jp2kak", "jpeg", "png"),
+)
+def test_daas_getbuffer(tmp_vsimem, pixel_encoding, drv_name, drv_options, mime_type):
 
     drv = gdal.GetDriverByName(drv_name)
     if drv is None:
-        pytest.skip()
+        pytest.skip(f"Driver {drv_name} not available")
 
     handler = webserver.SequentialHandler()
     handler.add(
@@ -1580,7 +1595,7 @@ def _daas_getbuffer(pixel_encoding, drv_name, drv_options, mime_type):
     src_ds.GetRasterBand(1).WriteRaster(0, 0, 100, 100, "A", buf_xsize=1, buf_ysize=1)
     src_ds.GetRasterBand(2).WriteRaster(0, 0, 100, 100, "B", buf_xsize=1, buf_ysize=1)
     src_ds.GetRasterBand(3).WriteRaster(0, 0, 100, 100, "C", buf_xsize=1, buf_ysize=1)
-    tmpfile = "/vsimem/tmp"
+    tmpfile = tmp_vsimem / "tmp"
     drv.CreateCopy(tmpfile, src_ds, options=drv_options)
     f = gdal.VSIFOpenL(tmpfile, "rb")
     content = gdal.VSIFReadL(1, 10000, f)
@@ -1624,46 +1639,11 @@ Content-Type: application/json
     )
 
     with webserver.install_http_handler(handler):
-        with gdaltest.error_handler():
+        with gdal.quiet_errors():
             data = ds.GetRasterBand(1).ReadRaster(0, 0, 1, 1)
     assert data == "A".encode("ascii")
     data = ds.GetRasterBand(2).ReadRaster(0, 0, 1, 1)
     assert data == "B".encode("ascii")
-
-
-###############################################################################
-
-
-def test_daas_getbuffer_png():
-    _daas_getbuffer("PNG", "PNG", [], "image/png")
-
-
-###############################################################################
-
-
-def test_daas_getbuffer_jpeg():
-    _daas_getbuffer("JPEG", "JPEG", ["QUALITY=100"], "image/jpeg")
-
-
-###############################################################################
-
-
-def test_daas_getbuffer_jpeg2000_jp2kak():
-
-    _daas_getbuffer("JPEG2000", "JP2KAK", ["QUALITY=100", "CODEC=JP2"], "image/jp2")
-
-
-###############################################################################
-
-
-def test_daas_getbuffer_jpeg2000_jp2openjpeg():
-
-    _daas_getbuffer(
-        "JPEG2000",
-        "JP2OPENJPEG",
-        ["QUALITY=100", "REVERSIBLE=YES", "RESOLUTIONS=1", "CODEC=JP2"],
-        "image/jp2",
-    )
 
 
 ###############################################################################
@@ -2169,7 +2149,7 @@ Content-Type: application/json
 ###############################################################################
 
 
-def test_daas_png_response_4_bands_for_a_one_band_request():
+def test_daas_png_response_4_bands_for_a_one_band_request(tmp_vsimem):
 
     # Valid JSon but invalid height (string)
     handler = webserver.SequentialHandler()
@@ -2228,7 +2208,7 @@ def test_daas_png_response_4_bands_for_a_one_band_request():
     src_ds.GetRasterBand(2).WriteRaster(0, 0, 2, 3, "B", buf_xsize=1, buf_ysize=1)
     src_ds.GetRasterBand(3).WriteRaster(0, 0, 2, 3, "C", buf_xsize=1, buf_ysize=1)
     src_ds.GetRasterBand(4).WriteRaster(0, 0, 2, 3, "D", buf_xsize=1, buf_ysize=1)
-    tmpfile = "/vsimem/out.png"
+    tmpfile = tmp_vsimem / "out.png"
     gdal.GetDriverByName("PNG").CreateCopy(tmpfile, src_ds)
     f = gdal.VSIFOpenL(tmpfile, "rb")
     png_content = gdal.VSIFReadL(1, 10000, f)

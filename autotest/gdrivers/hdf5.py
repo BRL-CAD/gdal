@@ -29,6 +29,7 @@
 # DEALINGS IN THE SOFTWARE.
 ###############################################################################
 
+import array
 import shutil
 
 import gdaltest
@@ -373,8 +374,12 @@ def test_hdf5_12():
 
 def test_hdf5_13():
 
+    # Similar test file is available from
+    # https://oceandata.sci.gsfc.nasa.gov/ob/getfile/AQUA_MODIS.20160929T115000.L2.OC.nc
+    # Download requires NASA EarthData login, not supported by gdaltest
+
     gdaltest.download_or_skip(
-        "http://oceandata.sci.gsfc.nasa.gov/cgi/getfile/A2016273115000.L2_LAC_OC.nc",
+        "http://download.osgeo.org/gdal/data/netcdf/A2016273115000.L2_LAC_OC.nc",
         "A2016273115000.L2_LAC_OC.nc",
     )
 
@@ -582,6 +587,152 @@ def test_hdf5_signature_not_at_beginning():
     ds = gdal.Open(filename)
     assert ds is not None
     gdal.Unlink(filename)
+
+
+###############################################################################
+# Test RasterIO() optimizations
+
+
+def test_hdf5_rasterio_optims():
+
+    # Band-interleaved data
+    ds = gdal.Open(
+        'HDF5:"data/hdf5/dummy_HDFEOS_swath.h5"://HDFEOS/SWATHS/MySwath/Data_Fields/MyDataField'
+    )
+    expected = array.array("B", [i for i in range(2 * 3 * 4)]).tobytes()
+    assert ds.ReadRaster() == expected
+    assert (
+        ds.GetRasterBand(1).ReadRaster() + ds.GetRasterBand(2).ReadRaster() == expected
+    )
+
+    # optimization through intermediate MEMDataset: non natural interleaving
+    assert (
+        ds.ReadRaster(buf_pixel_space=ds.RasterCount, buf_band_space=1)
+        == array.array(
+            "B",
+            [
+                0,
+                12,
+                1,
+                13,
+                2,
+                14,
+                3,
+                15,
+                4,
+                16,
+                5,
+                17,
+                6,
+                18,
+                7,
+                19,
+                8,
+                20,
+                9,
+                21,
+                10,
+                22,
+                11,
+                23,
+            ],
+        ).tobytes()
+    )
+
+    # optimization through intermediate MEMDataset: non natural data type
+    expected = array.array("H", [i for i in range(2 * 3 * 4)]).tobytes()
+    assert ds.ReadRaster(buf_type=gdal.GDT_UInt16) == expected
+    assert (
+        ds.GetRasterBand(1).ReadRaster(buf_type=gdal.GDT_UInt16)
+        + ds.GetRasterBand(2).ReadRaster(buf_type=gdal.GDT_UInt16)
+        == expected
+    )
+
+    # non-optimized: out of order bands
+    assert (
+        ds.ReadRaster(band_list=[2, 1])
+        == ds.GetRasterBand(2).ReadRaster() + ds.GetRasterBand(1).ReadRaster()
+    )
+
+    # non-optimized: resampling
+    assert (
+        ds.GetRasterBand(1).ReadRaster(3, 2, 1, 1, buf_xsize=2, buf_ysize=2)
+        == b"\x0b" * 4
+    )
+
+    # Pixel-interleaved data
+    ds = gdal.Open("data/hdf5/dummy_HDFEOS_with_sinu_projection.h5")
+    assert (
+        ds.ReadRaster(buf_pixel_space=ds.RasterCount, buf_band_space=1)
+        == array.array("B", [i for i in range(5 * 4 * 3)]).tobytes()
+    )
+
+    # optimization through intermediate MEMDataset: non natural interleaving
+    assert ds.ReadRaster() == array.array(
+        "B",
+        [
+            0,
+            3,
+            6,
+            9,
+            12,
+            15,
+            18,
+            21,
+            24,
+            27,
+            30,
+            33,
+            36,
+            39,
+            42,
+            45,
+            48,
+            51,
+            54,
+            57,
+            1,
+            4,
+            7,
+            10,
+            13,
+            16,
+            19,
+            22,
+            25,
+            28,
+            31,
+            34,
+            37,
+            40,
+            43,
+            46,
+            49,
+            52,
+            55,
+            58,
+            2,
+            5,
+            8,
+            11,
+            14,
+            17,
+            20,
+            23,
+            26,
+            29,
+            32,
+            35,
+            38,
+            41,
+            44,
+            47,
+            50,
+            53,
+            56,
+            59,
+        ],
+    )
 
 
 ###############################################################################
@@ -1080,3 +1231,58 @@ def test_hdf5_band_specific_attribute():
         "bad_band": "1",
     }
     ds = None
+
+
+###############################################################################
+# Test gdal subdataset informational functions
+
+
+@pytest.mark.parametrize(
+    "filename,path_component",
+    (
+        (
+            'HDF5:"OMI-Aura_L2-OMTO3_2005m0113t0224-o02648_v002-2005m0625t035355.he5"://HDFEOS/SWATHS/OMI_Column_Amount_O3/Data_Fields/UVAerosolIndex',
+            "OMI-Aura_L2-OMTO3_2005m0113t0224-o02648_v002-2005m0625t035355.he5",
+        ),
+        (
+            "HDF5:OMI-Aura_L2-OMTO3_2005m0113t0224-o02648_v002-2005m0625t035355.he5://HDFEOS/SWATHS/OMI_Column_Amount_O3/Data_Fields/UVAerosolIndex",
+            "OMI-Aura_L2-OMTO3_2005m0113t0224-o02648_v002-2005m0625t035355.he5",
+        ),
+        (
+            r'HDF5:"C:\OMI-Aura_L2-OMTO3_2005m0113t0224-o02648_v002-2005m0625t035355.he5"://HDFEOS/SWATHS/OMI_Column_Amount_O3/Data_Fields/UVAerosolIndex',
+            r"C:\OMI-Aura_L2-OMTO3_2005m0113t0224-o02648_v002-2005m0625t035355.he5",
+        ),
+        ("", ""),
+    ),
+)
+def test_gdal_subdataset_get_filename(filename, path_component):
+
+    info = gdal.GetSubdatasetInfo(filename)
+    if filename == "":
+        assert info is None
+    else:
+        assert info.GetPathComponent() == path_component
+        assert (
+            info.GetSubdatasetComponent()
+            == "//HDFEOS/SWATHS/OMI_Column_Amount_O3/Data_Fields/UVAerosolIndex"
+        )
+
+
+@pytest.mark.parametrize(
+    "filename",
+    (
+        'HDF5:"OMI-Aura_L2-OMTO3_2005m0113t0224-o02648_v002-2005m0625t035355.he5"://HDFEOS/SWATHS/OMI_Column_Amount_O3/Data_Fields/UVAerosolIndex',
+        r'HDF5:"C:\OMI-Aura_L2-OMTO3_2005m0113t0224-o02648_v002-2005m0625t035355.he5"://HDFEOS/SWATHS/OMI_Column_Amount_O3/Data_Fields/UVAerosolIndex',
+        "",
+    ),
+)
+def test_gdal_subdataset_modify_filename(filename):
+
+    info = gdal.GetSubdatasetInfo(filename)
+    if filename == "":
+        assert info is None
+    else:
+        assert (
+            info.ModifyPathComponent('"/path/to.he5"')
+            == 'HDF5:"/path/to.he5"://HDFEOS/SWATHS/OMI_Column_Amount_O3/Data_Fields/UVAerosolIndex'
+        )

@@ -47,19 +47,13 @@ From the build directory you can now configure CMake, build and install the bina
     and is thus not recommended. It is also not supported on Windows multi-configuration
     generator (such as VisualStudio).
 
-`
-On Windows, one may need to specify generator:
-
-.. code-block:: bash
-
-    cmake -G "Visual Studio 15 2017" ..
 
 If a dependency is installed in a custom location, specify the
 paths to the include directory and the library:
 
 .. code-block:: bash
 
-    cmake -DSQLITE3_INCLUDE_DIR=/opt/SQLite/include -DSQLITE3_LIBRARY=/opt/SQLite/lib/libsqlite3.so ..
+    cmake -DSQLite3_INCLUDE_DIR=/opt/SQLite/include -DSQLite3_LIBRARY=/opt/SQLite/lib/libsqlite3.so ..
 
 Alternatively, a custom prefix can be specified:
 
@@ -89,6 +83,35 @@ for the shared lib, *e.g.* ``set (GDAL_LIB_OUTPUT_NAME gdal_x64 CACHE STRING "" 
     you may try removing CMakeCache.txt to start from a clean state.
 
 Refer to :ref:`using_gdal_in_cmake` for how to use GDAL in a CMake project.
+
+Building on Windows
++++++++++++++++++++
+
+On Windows, one may need to specify generator:
+
+.. code-block:: bash
+
+    cmake -G "Visual Studio 15 2017" ..
+
+
+Building on MacOS
++++++++++++++++++
+
+On MacOS, there are a couple of libraries that do not function properly when the GDAL build requirements are installed using Homebrew.
+
+The `Apache Arrow <https://arrow.apache.org/docs/index.html>`_ library included in the current distribution of Homebrew is broken, and causes a detection issue. In order to build GDAL successfully, configure CMake to not find the Arrow package:
+
+.. code-block:: bash
+
+    cmake -DCMAKE_DISABLE_FIND_PACKAGE_Arrow=ON ..
+
+
+Similarly, recent versions of Homebrew no longer bundle `Boost <https://www.boost.org/>`_ with libkml, causing a failure to find Boost headers. You should either install Boost manually or disable libkml when building on MacOS:
+
+.. code-block:: bash
+
+    cmake -DGDAL_USE_LIBKML=OFF ..
+
 
 CMake general configure options
 +++++++++++++++++++++++++++++++
@@ -1026,6 +1049,24 @@ of the original input image is preserved (within user defined error bounds).
     Control whether to use the LERC internal library. Defaults depends on GDAL_USE_INTERNAL_LIBS. When set
     to ON, has precedence over GDAL_USE_LERC=ON
 
+LIBAEC
+******
+
+`libaec <https://gitlab.dkrz.de/k202009/libaec>`_ is a compression library which offers
+the extended Golomb-Rice coding as defined in the CCSDS recommended standard 121.0-B-3.
+It is used by the :ref:`raster.grib` driver.
+
+.. option:: LIBAEC_INCLUDE_DIR
+
+    Path to an include directory with the ``libaec.h`` header file.
+
+.. option:: LIBAEC_LIBRARY
+
+    Path to a shared or static library file.
+
+.. option:: GDAL_USE_LIBAEC=ON/OFF
+
+    Control whether to use LIBAEC. Defaults to ON when LIBAEC is found.
 
 LibKML
 ******
@@ -1079,6 +1120,18 @@ It is used by the internal libtiff library or the :ref:`raster.zarr` driver.
 .. option:: GDAL_USE_LIBLZMA=ON/OFF
 
     Control whether to use LibLZMA. Defaults to ON when LibLZMA is found.
+
+
+LibQB3
+******
+
+The `QB3 <https://github.com/lucianpls/QB3>`_ compression, used
+by the :ref:`raster.marfa` driver.
+
+.. option:: GDAL_USE_LIBQB3=ON/OFF
+
+    Control whether to use LibQB3. Defaults to ON when LibQB3 is found.
+
 
 
 LibXml2
@@ -1621,18 +1674,6 @@ PROJ
     ``PROJ_LIBRARY_DEBUG`` can also be specified to a similar library for
     building Debug releases.
 
-
-QB3
-*******
-
-The `QB3 <https://github.com/lucianpls/QB3>`_ compression, used
-by the :ref:`raster.marfa` driver.
-
-.. option:: GDAL_USE_QB3=ON/OFF
-
-    Control whether to use QB3. Defaults to ON when QB3 is found.
-
-
 QHULL
 *****
 
@@ -2045,6 +2086,19 @@ The following options are available to select a subset of drivers:
         The following GDAL drivers cannot be disabled: VRT, DERIVED, GTiff, COG, HFA, MEM.
         The following OGR drivers cannot be disabled: "ESRI Shapefile", "MapInfo File", OGR_VRT, Memory, KML, GeoJSON, GeoJSONSeq, ESRIJSON, TopoJSON.
 
+    .. note::
+
+        Disabling all OGR/vector drivers with -DOGR_BUILD_OPTIONAL_DRIVERS=OFF may affect
+        the ability to enable some GDAL/raster drivers that require some vector
+        drivers to be enabled (and reciprocally with some GDAL/raster drivers depending
+        on vector drivers).
+        When such dependencies are not met, a CMake error will be emitted with a hint
+        for the way to resolve the issue.
+        It is also possible to anticipate such errors by looking at files
+        :source_file:`frmts/CMakeLists.txt` for dependencies of raster drivers
+        and :source_file:`ogr/ogrsf_frmts/CMakeLists.txt` for dependencies of vector drivers.
+
+
 Example of minimal build with the JP2OpenJPEG and SVG drivers enabled::
 
     cmake .. -UGDAL_ENABLE_DRIVER_* -UOGR_ENABLE_DRIVER_* \
@@ -2092,7 +2146,6 @@ a driver:
     run of CMake does not change the activation of the plugin status of individual drivers.
     It might be needed to pass ``-UGDAL_ENABLE_DRIVER_* -UOGR_ENABLE_DRIVER_*`` to reset their state.
 
-
 Example of build with all potential drivers as plugins, except the JP2OpenJPEG one::
 
     cmake .. -UGDAL_ENABLE_DRIVER_* -UOGR_ENABLE_DRIVER_* \
@@ -2118,6 +2171,8 @@ This can be done with:
 
     Set to OFF to disable loading of GDAL plugins. Default is ON.
 
+
+.. _building-python-bindings:
 
 Python bindings options
 +++++++++++++++++++++++
@@ -2182,6 +2237,12 @@ the ``install`` CMake target.
     option of ``python3 setup.py install``. It is only taken into account on
     MacOS systems, when the Python installation is a framework.
 
+.. note::
+
+    The Python bindings are made of several modules (osgeo.gdal, osgeo.ogr, etc.)
+    which link each against libgdal. Consequently, a static build of libgdal is
+    not compatible with the bindings.
+
 Java bindings options
 +++++++++++++++++++++
 
@@ -2196,8 +2257,20 @@ Java bindings options
 
 .. option:: GDAL_JAVA_INSTALL_DIR
 
-    Subdirectory into which to install the gdalalljni library and the .jar
+    Subdirectory into which to install the .jar
     files. It defaults to "${CMAKE_INSTALL_DATADIR}/java"
+
+    .. note::
+        Prior to GDAL 3.8, the gdalalljni library was also installed in that
+        directory. Starting with GDAL 3.8, this is controlled by the
+        ``GDAL_JAVA_JNI_INSTALL_DIR`` variable.
+
+.. option:: GDAL_JAVA_JNI_INSTALL_DIR
+
+    .. versionadded:: 3.8
+
+    Subdirectory into which to install the gdalalljni library.
+    It defaults to "${CMAKE_INSTALL_LIBDIR}/jni"
 
 Option only to be used by maintainers:
 
@@ -2208,6 +2281,12 @@ Option only to be used by maintainers:
 .. option:: GPG_PASS
 
     GPG pass phrase to sign build artifacts.
+
+.. note::
+
+    The Java bindings are made of several modules (org.osgeo.gdal, org.osgeo.ogr, etc.)
+    which link each against libgdal. Consequently, a static build of libgdal is
+    not compatible with the bindings.
 
 C# bindings options
 +++++++++++++++++++
@@ -2237,6 +2316,12 @@ For more details on how to build and use the C# bindings read the dedicated sect
 .. option:: GDAL_CSHARP_ONLY=OFF/ON
 
     Build the C# bindings without building GDAL. This should be used when building the bindings on top of an existing GDAL installation - for instance on top of the CONDA package.
+
+.. note::
+
+    The C# bindings are made of several modules (OSGeo.GDAL, OSGeo.OGR, etc.)
+    which link each against libgdal. Consequently, a static build of libgdal is
+    not compatible with the bindings.
 
 Driver specific options
 +++++++++++++++++++++++
