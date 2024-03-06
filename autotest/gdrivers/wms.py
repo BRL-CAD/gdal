@@ -55,7 +55,7 @@ def gpwv3_wms():
     tree = ET.parse(wms_xml)
     srv = next(tree.iter("ServerUrl")).text
 
-    wms_srv1_ok = gdaltest.gdalurlopen(srv) is not None
+    wms_srv1_ok = gdaltest.gdalurlopen(srv, timeout=5) is not None
 
     if not wms_srv1_ok:
         pytest.skip(f"Could not read from {srv}")
@@ -1032,3 +1032,9 @@ def test_gdal_subdataset_modify_filename(filename):
             )
             == "WMS:https://xxxx/?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=MODIS_Aqua_L3_Land_Surface_Temp_Monthly_CMG_Night_TES"
         )
+
+
+def test_wms_cache_path_error():
+
+    with pytest.raises(Exception):
+        gdal.Open("<GDAL_WMS><Service/><Cache/></GDAL_WMS>")
