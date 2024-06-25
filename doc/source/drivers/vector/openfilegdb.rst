@@ -92,6 +92,13 @@ available:
       using the native spatial index. See `Spatial filtering`_.
 
 
+-  .. config:: OPENFILEGDB_DEFAULT_STRING_WIDTH
+      :choices: <integer>
+
+      Width of string fields to use on creation, when the width specified to
+      CreateField() is the unspecified value 0. This defaults to 65536.
+
+
 Dataset open options
 --------------------
 
@@ -109,6 +116,19 @@ None.
 
 Layer Creation Options
 ----------------------
+
+
+-  .. lco:: TARGET_ARCGIS_VERSION
+      :choices: ALL, ARCGIS_PRO_3_2_OR_LATER
+      :default: ALL
+      :since: 3.9
+
+      ArcGIS version that the dataset must be compatible with.
+      If creation of Integer64, Date, Time field types is needed, the
+      ``ARCGIS_PRO_3_2_OR_LATER`` must be selected.
+      If set or let to the default value ``ALL``, those types will be
+      respectively be encoded to fallback types (Float64 instead of Integer64,
+      DateTime instead of Date or Time).
 
 -  .. lco:: FEATURE_DATASET
       :choices: <string>
@@ -210,6 +230,18 @@ Layer Creation Options
       automatically set, so that the resulting FileGeodatabase has those fields
       properly tagged.
 
+64-bit integer field support
+----------------------------
+
+.. versionadded:: 3.9
+
+On creation, 64-bit integer field support requires setting the :lco:`TARGET_ARCGIS_VERSION`
+layer creation option to ``ARCGIS_PRO_3_2_OR_LATER``.
+Note that Esri `recommends <https://pro.arcgis.com/en/pro-app/latest/help/data/geodatabases/overview/arcgis-field-data-types.htm#ESRI_SECTION2_8BF2454C879941258DC44AF6BB31F386>`__ to restrict the
+range of 64-bit integer values to [-9007199254740991, 9007199254740991] for the
+larger compatibility. GDAL will allow writing values outside of that range without
+warning, and can also read them fine.
+
 Field domains
 -------------
 
@@ -248,6 +280,30 @@ If the transaction is rolled back, the backup copy is restored.
 Note that this emulation has an unspecified behavior in case of
 concurrent updates (with different connections in the same or another
 process).
+
+Geometry coordinate precision
+-----------------------------
+
+.. versionadded:: GDAL 3.9
+
+The driver supports reading and writing the geometry coordinate
+precision, using the XYResolution, ZResolution and MResolution members of
+the :cpp:class:`OGRGeomCoordinatePrecision` settings of the
+:cpp:class:`OGRGeomFieldDefn`. ``XYScale`` is computed as 1.0 / ``XYResolution``
+(and similarly for the Z and M components). The tolerance setting is computed
+as being one tenth of the resolution
+
+On reading, the coordinate precision grid parameters are returned as format
+specific options of :cpp:class:`OGRGeomCoordinatePrecision` with the
+``FileGeodatabase`` format key, with the following option key names:
+``XYScale``, ``XYTolerance``, ``XYOrigin``,
+``ZScale``, ``ZTolerance``, ``ZOrigin``,
+``MScale``, ``MTolerance``, ``MOrigin``. On writing, they are also honored
+(they will have precedence over XYResolution, ZResolution and MResolution).
+
+On layer creation, the XORIGIN, YORIGIN, ZORIGIN, MORIGIN, XYSCALE, ZSCALE,
+ZORIGIN, XYTOLERANCE, ZTOLERANCE, MTOLERANCE layer creation options will be
+used in priority over the settings of :cpp:class:`OGRGeomCoordinatePrecision`.
 
 Comparison with the FileGDB driver
 ----------------------------------

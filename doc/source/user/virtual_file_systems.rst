@@ -7,7 +7,7 @@ GDAL Virtual File Systems (compressed, network hosted, etc...): /vsimem, /vsizip
 Introduction
 ------------
 
-GDAL can access files located on "standard" file systems, i.e. in the / hierarchy on Unix-like systems or in C:\, D:\, etc... drives on Windows. But most GDAL raster and vector drivers use a GDAL-specific abstraction to access files. This makes it possible to access less standard types of files, such as in-memory files, compressed files (.zip, .gz, .tar, .tar.gz archives), encrypted files, files stored on network (either publicly accessible, or in private buckets of commercial cloud storage services), etc.
+GDAL can access files located on "standard" file systems, i.e. in the / hierarchy on Unix-like systems or in C:\, D:\, etc... drives on Windows. But most GDAL raster and vector drivers use a GDAL-specific abstraction to access files. This makes it possible to access less standard types of files, such as in-memory files, compressed files (.zip, .gz, .tar, .tar.gz archives), encrypted files, standard input and output (STDIN, STDOUT), files stored on network (either publicly accessible, or in private buckets of commercial cloud storage services), etc.
 
 Each special file system has a prefix, and the general syntax to name a file is /vsiPREFIX/...
 
@@ -390,7 +390,7 @@ Starting with GDAL 2.3, options can be passed in the filename with the following
 - proxy=value
 - proxyauth=value
 - proxyuserpwd=value
-- pc_url_signing=yes/no: whether to use the URL signing mechanism of Microsoft Planetary Computer (https://planetarycomputer.microsoft.com/docs/concepts/sas/). (GDAL >= 3.5.2)
+- pc_url_signing=yes/no: whether to use the URL signing mechanism of Microsoft Planetary Computer (https://planetarycomputer.microsoft.com/docs/concepts/sas/). (GDAL >= 3.5.2). Note that starting with GDAL 3.9, this may also be set with the path-specific option ( cf :cpp:func:`VSISetPathSpecificOption`) ``VSICURL_PC_URL_SIGNING`` set to ``YES``.
 - pc_collection=name: name of the collection of the dataset for Planetary Computer URL signing. Only used when pc_url_signing=yes. (GDAL >= 3.5.2)
 
 Partial downloads (requires the HTTP server to support random reading) are done with a 16 KB granularity by default. Starting with GDAL 2.3, the chunk size can be configured with the :config:`CPL_VSIL_CURL_CHUNK_SIZE` configuration option, with a value in bytes. If the driver detects sequential reading, it will progressively increase the chunk size up to 128 times :config:`CPL_VSIL_CURL_CHUNK_SIZE` (so 2 MB by default) to improve download performance.
@@ -1139,7 +1139,8 @@ This file system handler also allows sequential writing of files (no seeks or re
 
 /vsistdin/ is a file handler that allows reading from the standard input stream.
 
-The filename syntax must be only :file:`/vsistdin/`.
+The filename syntax must be only :file:`/vsistdin/`, (not e.g.,
+/vsistdin/path/to/f.csv , but "/vsistdin?buffer_limit=value" is OK.) 
 
 The file operations available are of course limited to Read() and forward Seek().
 Full seek in the first MB of a file is possible, and it is cached so that closing,

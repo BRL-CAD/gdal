@@ -103,18 +103,20 @@ The following command line parameters can appear in any order
 
     Only display the first file of the file list.
 
-.. option:: -wkt_format WKT1|WKT2|WKT2_2015|WKT2_2018
+.. option:: -wkt_format WKT1|WKT2|WKT2_2015|WKT2_2018|WKT2_2019
 
     WKT format used to display the SRS.
     Currently the supported values are:
 
     ``WKT1``
 
-    ``WKT2`` (latest WKT version, currently *WKT2_2018*)
+    ``WKT2`` (latest WKT version, currently *WKT2_2019*)
 
     ``WKT2_2015``
 
-    ``WKT2_2018``
+    ``WKT2_2018`` (deprecated)
+
+    ``WKT2_2019``
 
     .. versionadded:: 3.0.0
 
@@ -195,6 +197,8 @@ Example
     Lower Right (  471440.000, 3720600.000) (117d18'28.50"W, 33d37'35.61"N)
     Center      (  456080.000, 3735960.000) (117d28'27.39"W, 33d45'52.46"N)
     Band 1 Block=512x16 Type=Byte, ColorInterp=Gray
+
+For corner coordinates formatted as decimal degree instead of the above degree, minute, second, inspect the ``wgs84Extent`` member of gdalinfo -json:
 
 Example of JSON output with ``gdalinfo -json byte.tif``
 

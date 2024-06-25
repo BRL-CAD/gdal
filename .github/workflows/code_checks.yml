@@ -24,7 +24,7 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[ci skip]') && !contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v4.1.3
 
       - name: Install Requirements
         run: |
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v4.1.3
 
       - name: Detect tabulations
         run: ./scripts/detect_tabulations.sh
@@ -75,20 +75,21 @@ jobs:
           if grep -e "atof(" ogr/ogrsf_frmts/geojson/libjson/*.c; then echo "Unexpected use of atof()."; /bin/false; fi
 
       - name: Shellcheck
-        run: shellcheck -e SC2086,SC2046,SC2164,SC2054 $(find . -name '*.sh' -a -not -name ltmain.sh -a -not -wholename "./autotest/*" -a -not -wholename "./.github/*")
+        # SC2129: (style): Consider using { cmd1; cmd2; } >> file instead of individual redirects
+        run: shellcheck -e SC2086,SC2046,SC2164,SC2054,SC2129 $(find . -name '*.sh' -a -not -name ltmain.sh -a -not -wholename "./autotest/*" -a -not -wholename "./.github/*")
 
   linting:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-      - uses: pre-commit/action@v3.0.0
+      - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v4.1.3
+      - uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d # v5.1.0
+      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
   doxygen:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v4.1.3
 
       - name: Install Requirements
         run: |
@@ -105,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v4.1.3
 
       - name: Install Requirements
         run: |
@@ -124,9 +125,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v4.1.3
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d # v5.1.0
       with:
         python-version: 3.8
     - name: Install lint tool
@@ -141,7 +142,7 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[ci skip]') && !contains(github.event.head_commit.message, '[skip ci]')"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v4.1.3
 
       - name: Install requirements
         run: |
@@ -150,6 +151,6 @@ jobs:
 
       - name: Run xmllint checks
         run: |
-          xmllint --schema ./data/nitf_spec.xsd ./data/nitf_spec.xml --noout
-          xmllint --schema ./data/vdv452.xsd ./data/vdv452.xml --noout
-          xmllint --schema ./data/gmlasconf.xsd ./data/gmlasconf.xml --noout
+          xmllint --schema ./frmts/nitf/data/nitf_spec.xsd ./frmts/nitf/data/nitf_spec.xml --noout
+          xmllint --schema ./ogr/ogrsf_frmts/vdv/data/vdv452.xsd ./ogr/ogrsf_frmts/vdv/data/vdv452.xml --noout
+          xmllint --schema ./ogr/ogrsf_frmts/gmlas/data/gmlasconf.xsd ./ogr/ogrsf_frmts/gmlas/data/gmlasconf.xml --noout

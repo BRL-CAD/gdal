@@ -54,13 +54,13 @@ inline void GDALGetDataLimits(Tin &tMaxValue, Tin &tMinValue)
     tMinValue = std::numeric_limits<Tin>::min();
 
     // Compute the actual minimum value of Tout in terms of Tin.
-    if (std::numeric_limits<Tout>::is_signed &&
-        std::numeric_limits<Tout>::is_integer)
+    if constexpr (std::numeric_limits<Tout>::is_signed &&
+                  std::numeric_limits<Tout>::is_integer)
     {
         // the minimum value is less than zero
-        if (std::numeric_limits<Tout>::digits <
-                std::numeric_limits<Tin>::digits ||
-            !std::numeric_limits<Tin>::is_integer)
+        if constexpr (std::numeric_limits<Tout>::digits <
+                          std::numeric_limits<Tin>::digits ||
+                      !std::numeric_limits<Tin>::is_integer)
         {
             // Tout is smaller than Tin, so we need to clamp values in input
             // to the range of Tout's min/max values
@@ -71,12 +71,12 @@ inline void GDALGetDataLimits(Tin &tMaxValue, Tin &tMinValue)
             tMaxValue = static_cast<Tin>(std::numeric_limits<Tout>::max());
         }
     }
-    else if (std::numeric_limits<Tout>::is_integer)
+    else if constexpr (std::numeric_limits<Tout>::is_integer)
     {
         // the output is unsigned, so we just need to determine the max
         /* coverity[same_on_both_sides] */
-        if (std::numeric_limits<Tout>::digits <=
-            std::numeric_limits<Tin>::digits)
+        if constexpr (std::numeric_limits<Tout>::digits <=
+                      std::numeric_limits<Tin>::digits)
         {
             // Tout is smaller than Tin, so we need to clamp the input values
             // to the range of Tout's max
@@ -103,6 +103,34 @@ inline T GDALClampValue(const T tValue, const T tMax, const T tMin)
 }
 
 /************************************************************************/
+/*                          GDALClampDoubleValue()                            */
+/************************************************************************/
+/**
+ * Clamp double values to a specified range, this uses the same
+ * argument ordering as std::clamp, returns TRUE if the value was clamped.
+ *
+ * @param tValue the value
+ * @param tMin the min value
+ * @param tMax the max value
+ *
+ */
+template <class T2, class T3>
+inline bool GDALClampDoubleValue(double &tValue, const T2 tMin, const T3 tMax)
+{
+    const double tMin2{static_cast<double>(tMin)};
+    const double tMax2{static_cast<double>(tMax)};
+    if (tValue > tMax2 || tValue < tMin2)
+    {
+        tValue = tValue > tMax2 ? tMax2 : tValue < tMin2 ? tMin2 : tValue;
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+/************************************************************************/
 /*                         GDALIsValueInRange()                         */
 /************************************************************************/
 /**
@@ -114,7 +142,7 @@ inline T GDALClampValue(const T tValue, const T tMax, const T tMin)
  */
 template <class T> inline bool GDALIsValueInRange(double dfValue)
 {
-    return dfValue >= static_cast<double>(std::numeric_limits<T>::min()) &&
+    return dfValue >= static_cast<double>(std::numeric_limits<T>::lowest()) &&
            dfValue <= static_cast<double>(std::numeric_limits<T>::max());
 }
 
@@ -581,6 +609,7 @@ inline void GDALCopy4Words(const float *pValueIn, GUInt16 *const pValueOut)
 #ifdef __AVX2__
 
 #include <immintrin.h>
+
 template <>
 inline void GDALCopy8Words(const float *pValueIn, GByte *const pValueOut)
 {

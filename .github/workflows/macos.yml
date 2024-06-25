@@ -20,14 +20,14 @@ permissions:
 jobs:
 
   macos_build:
-    # FIXME: Python tests fail with "ModuleNotFoundError: No module named '_gdal'" with macos-12
-    runs-on: macos-11
+    # Arm64
+    runs-on: macos-14
     if: "!contains(github.event.head_commit.message, '[ci skip]') && !contains(github.event.head_commit.message, '[skip ci]')"
     steps:
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v4.1.3
 
-      - uses: conda-incubator/setup-miniconda@v2
+      - uses: conda-incubator/setup-miniconda@030178870c779d9e5e1b4e563269f3aa69b04081 # v3.0.3
         with:
             channels: conda-forge
             auto-update-conda: true

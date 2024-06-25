@@ -1229,9 +1229,12 @@ CPLErr JP2OPJLikeDataset<CODEC, BASE>::SetMetadataItem(const char *pszName,
 /*                            Identify()                                */
 /************************************************************************/
 
+#ifndef jpc_header_defined
+#define jpc_header_defined
 static const unsigned char jpc_header[] = {0xff, 0x4f, 0xff,
                                            0x51};  // SOC + RSIZ markers
 static const unsigned char jp2_box_jp[] = {0x6a, 0x50, 0x20, 0x20}; /* 'jP  ' */
+#endif
 
 template <typename CODEC, typename BASE>
 int JP2OPJLikeDataset<CODEC, BASE>::Identify(GDALOpenInfo *poOpenInfo)
@@ -1971,6 +1974,7 @@ bool JP2OPJLikeDataset<CODEC, BASE>::WriteIPRBox(VSILFILE *fp,
     delete poBox;
     return bRet;
 }
+
 /************************************************************************/
 /*                         FloorPowerOfTwo()                            */
 /************************************************************************/
@@ -2174,9 +2178,11 @@ GDALDataset *JP2OPJLikeDataset<CODEC, BASE>::CreateCopy(
     }
 
     const int nMaxTileDim = std::max(nBlockXSize, nBlockYSize);
+    const int nMinTileDim = std::min(nBlockXSize, nBlockYSize);
     int nNumResolutions = 1;
     /* Pickup a reasonable value compatible with PROFILE_1 requirements */
-    while ((nMaxTileDim >> (nNumResolutions - 1)) > 128)
+    while ((nMaxTileDim >> (nNumResolutions - 1)) > 128 &&
+           (nMinTileDim >> nNumResolutions) > 0)
         nNumResolutions++;
     int nMinProfile1Resolutions = nNumResolutions;
     const char *pszResolutions =
@@ -2185,6 +2191,7 @@ GDALDataset *JP2OPJLikeDataset<CODEC, BASE>::CreateCopy(
     {
         nNumResolutions = atoi(pszResolutions);
         if (nNumResolutions <= 0 || nNumResolutions >= 32 ||
+            (nMinTileDim >> nNumResolutions) == 0 ||
             (nMaxTileDim >> nNumResolutions) == 0)
         {
             CPLError(CE_Warning, CPLE_NotSupported,
@@ -2247,21 +2254,6 @@ GDALDataset *JP2OPJLikeDataset<CODEC, BASE>::CreateCopy(
     const char *pszYCC = CSLFetchNameValue(papszOptions, "YCC");
     int bYCC = ((nBands == 3 || nBands == 4) &&
                 CPLTestBool(CSLFetchNameValueDef(papszOptions, "YCC", "TRUE")));
-
-    if (!CODEC::supportsYCC_4Band())
-    {
-        if (bYCC && nBands > 3)
-        {
-            if (pszYCC != nullptr)
-            {
-                CPLError(
-                    CE_Warning, CPLE_AppDefined,
-                    "OpenJPEG r2950 and below can generate invalid output with "
-                    "MCT YCC transform and more than 3 bands. Disabling YCC");
-            }
-            bYCC = FALSE;
-        }
-    }
 
     if (bYCBCR420 && bYCC)
     {
@@ -2470,7 +2462,7 @@ GDALDataset *JP2OPJLikeDataset<CODEC, BASE>::CreateCopy(
         else
         {
             const OGRSpatialReference *poSRS = poSrcDS->GetSpatialRef();
-            if (poSRS != nullptr)
+            if (poSRS)
             {
                 bGeoreferencingCompatOfGeoJP2 = TRUE;
                 oJP2MD.SetSpatialRef(poSRS);
@@ -2480,10 +2472,18 @@ GDALDataset *JP2OPJLikeDataset<CODEC, BASE>::CreateCopy(
             {
                 bGeoreferencingCompatOfGeoJP2 = TRUE;
                 oJP2MD.SetGeoTransform(adfGeoTransform);
+                if (poSRS && !poSRS->IsEmpty())
+                {
+                    bGeoreferencingCompatOfGMLJP2 =
+                        GDALJP2Metadata::IsSRSCompatible(poSRS);
+                    if (!bGeoreferencingCompatOfGMLJP2)
+                    {
+                        CPLDebug(
+                            CODEC::debugId(),
+                            "Cannot write GMLJP2 box due to unsupported SRS");
+                    }
+                }
             }
-            bGeoreferencingCompatOfGMLJP2 =
-                poSRS != nullptr && !poSRS->IsEmpty() &&
-                poSrcDS->GetGeoTransform(adfGeoTransform) == CE_None;
         }
         if (poSrcDS->GetMetadata("RPC") != nullptr)
         {
@@ -3702,6 +3702,7 @@ GDALDataset *JP2OPJLikeDataset<CODEC, BASE>::CreateCopy(
     return poDS;
 }
 
+#ifdef unused
 template <typename CODEC, typename BASE>
 void GDALRegisterJP2(const std::string &libraryName,
                      const std::string &driverName)
@@ -3740,3 +3741,4 @@ void GDALRegisterJP2(const std::string &libraryName,
 
     GetGDALDriverManager()->RegisterDriver(poDriver);
 }
+#endif

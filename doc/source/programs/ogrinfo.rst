@@ -20,10 +20,11 @@ Synopsis
             [-if <driver_name>] [-json] [-ro] [-q] [-where <restricted_where>|@f<ilename>]
             [-spat <xmin> <ymin> <xmax> <ymax>] [-geomfield <field>] [-fid <fid>]
             [-sql <statement>|@<filename>] [-dialect <sql_dialect>] [-al] [-rl]
-            [-so|-features] [-fields={YES|NO}]]
+            [-so|-features] [-limit <nb_features>] [-fields={YES|NO}]]
             [-geom={YES|NO|SUMMARY|WKT|ISO_WKT}] [-oo <NAME>=<VALUE>]...
             [-nomd] [-listmdd] [-mdd <domain>|all]...
-            [-nocount] [-noextent] [-nogeomtype] [-wkt_format WKT1|WKT2|<other_values>]
+            [-nocount] [-nogeomtype] [[-noextent] | [-extent3D]]
+            [-wkt_format WKT1|WKT2|<other_values>]
             [-fielddomain <name>]
             <datasource_name> [<layer> [<layer> ...]]
 
@@ -43,7 +44,7 @@ edit data.
 .. option:: -json
 
     Display the output in json format, conforming to the
-    `ogrinfo.schema.json <https://github.com/OSGeo/gdal/blob/master/data/ogrinfo_output.schema.json>`__
+    `ogrinfo_output.schema.json <https://github.com/OSGeo/gdal/blob/master/apps/data/ogrinfo_output.schema.json>`__
     schema.
 
     .. versionadded:: 3.7
@@ -66,6 +67,8 @@ edit data.
     Enable random layer reading mode, i.e. iterate over features in the order
     they are found in the dataset, and not layer per layer. This can be
     significantly faster for some formats (for example OSM, GMLAS).
+    -rl cannot be used with -sql.
+
 
     .. versionadded:: 2.2
 
@@ -85,6 +88,12 @@ edit data.
 
     .. versionadded:: 3.7
 
+.. option:: -limit <nb_features>
+
+    .. versionadded:: 3.9
+
+    Limit the number of features per layer.
+
 .. option:: -q
 
     Quiet verbose reporting of various information, including coordinate
@@ -94,16 +103,23 @@ edit data.
 
     An attribute query in a restricted form of the queries used in the SQL
     `WHERE` statement. Only features matching the attribute query will be
-    reported. Starting with GDAL 2.1, the ``\filename`` syntax can be used to
+    reported. Starting with GDAL 2.1, the ``@<filename>`` syntax can be used to
     indicate that the content is in the pointed filename.
 
-.. option:: -sql <statement>
+    Example of ``-where`` and quoting:
+
+.. code-block: bash
+
+    -where "\"Corner Point Identifier\" LIKE '%__00_00'"
+
+.. option:: -sql <statement>|@<filename>
 
     Execute the indicated SQL statement and return the result. Starting with
-    GDAL 2.1, the ``@filename`` syntax can be used to indicate that the content is
-    in the pointed filename. Data can also be edited with SQL INSERT, UPDATE,
+    GDAL 2.1, the ``@<filename>`` syntax can be used to indicate that the content is
+    in the pointed filename (e.g ``@my_select.txt`` where my_select.txt is a file
+    in the current directory). Data can also be edited with SQL INSERT, UPDATE,
     DELETE, DROP TABLE, ALTER TABLE etc. Editing capabilities depend on the selected
-    ``dialect``.
+    dialect with :option:`-dialect`.
 
 
 .. option:: -dialect <dialect>
@@ -174,6 +190,14 @@ edit data.
 .. option:: -noextent
 
     Suppress spatial extent printing.
+
+.. option:: -extent3D
+
+    .. versionadded:: 3.9
+
+    Request a 3D extent to be reported (the default is 2D only). Note that this
+    operation might be slower than requesting the 2D extent, depending on format
+    and driver capabilities.
 
 .. option:: -nogeomtype
 

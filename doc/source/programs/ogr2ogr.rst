@@ -15,45 +15,39 @@ Synopsis
 
 .. code-block::
 
-    ogr2ogr [--help] [--help-general]
-            [-skipfailures] [-append | -upsert] [-update]
-            [-select <field_list>] [-where <restricted_where>|@<filename>]
-            [-progress] [-sql <sql statement>|@<filename>] [-dialect <dialect>]
-            [-preserve_fid] [-fid <FID>] [-limit <nb_features>]
-            [-spat <xmin> <ymin> <xmax> <ymax>] [-spat_srs <srs_def>] [-geomfield <field>]
-            [-a_srs <srs_def>] [-t_srs <srs_def>] [-s_srs <srs_def>] [-ct <string>]
-            [-if <input_drv_name>] [-f <format_name>] [-overwrite] [-dsco <NAME>=<VALUE>]...
-            [-lco <NAME>=<VALUE>]... [-nln <name>]
-            [-nlt <type>|PROMOTE_TO_MULTI|CONVERT_TO_LINEAR|CONVERT_TO_CURVE]
-            [-dim XY|XYZ|XYM|XYZM|<layer_dim>]
-            <dst_datasource_name> <src_datasource_name>
-            [<layer> [<layer>...]]
+    ogr2ogr [--help] [--long-usage] [--help-general]
+            [-of <output_format>] [-dsco <NAME>=<VALUE>]... [-lco <NAME>=<VALUE>]...
+            [[-append]|[-upsert]|[-overwrite]]
+            [-update] [-sql <statement>|@<filename>] [-dialect <dialect>] [-spat <xmin> <ymin> <xmax> <ymax>]
+            [-where <restricted_where>|@<filename>] [-select <field_list>] [-nln <name>] [-nlt <type>]...
+            [-s_srs <srs_def>]
+            [[-a_srs <srs_def>]|[-t_srs <srs_def>]]
+            <dst_dataset_name> <src_dataset_name> [<layer_name>]...
 
-            # Advanced options
-            [-gt n] [-ds_transaction]
-            [-oo <NAME>=<VALUE>]... [-doo <NAME>=<VALUE>]...
-            [-clipsrc {[<xmin> <ymin> <xmax> <ymax>]|<WKT>|<datasource>|spat_extent}]
-            [-clipsrcsql <sql_statement>] [-clipsrclayer <layer>]
-            [-clipsrcwhere <expression>]
-            [-clipdst {[<xmin> <ymin> <xmax> <ymax>]|<WKT>|<datasource>}]
-            [-clipdstsql <sql_statement>] [-clipdstlayer <layer>]
-            [-clipdstwhere <expression>]
-            [-wrapdateline][-datelineoffset <val>]
-            [[-simplify <tolerance>] | [-segmentize <max_dist>]]
-            [-makevalid]
-            [-addfields] [-unsetFid] [-emptyStrAsNull]
-            [-relaxedFieldNameMatch] [-forceNullable] [-unsetDefault]
-            [-fieldTypeToString {All|{<type1>[,<type2>]}...}] [-unsetFieldWidth]
-            [-mapFieldType {<srctype>|All=<dsttype>[,<srctype2>=<dsttype2>]...}]
-            [-dateTimeTo {UTC|UTC(+|-)<HH>|UTC(+|-)<HH>:<MM>}]
-            [-fieldmap {identity|{<index1>[,<index2>]...}]
-            [-splitlistfields] [-maxsubfields <val>]
-            [-resolveDomains]
-            [-explodecollections] [-zfield <field_name>]
-            [-gcp <ungeoref_x> <ungeoref_y> <georef_x> <georef_y> [<elevation>]]... [-order <n> | -tps]
-            [-s_coord_epoch <epoch>] [-t_coord_epoch <epoch>] [-a_coord_epoch <epoch>]
-            [-nomd] [-mo <META-TAG>=<VALUE>]... [-noNativeData]
+    Field related options:
+           [-addfields] [-relaxedFieldNameMatch] [-fieldTypeToString All|<type1>[,<type2>]...]
+           [-mapFieldType <srctype>|All=<dsttype>[,<srctype2>=<dsttype2>]...] [-fieldmap <field_1>[,<field_2>]...]
+           [-splitlistfields] [-maxsubfields <n>] [-emptyStrAsNull] [-forceNullable] [-unsetFieldWidth]
+           [-unsetDefault] [-resolveDomains] [-dateTimeTo UTC|UTC(+|-)<HH>|UTC(+|-)<HH>:<MM>] [-noNativeData]
 
+    Advanced geometry and SRS related options:
+           [-dim layer_dim|2|XY|3|XYZ|XYM|XYZM] [-s_coord_epoch <epoch>] [-a_coord_epoch <epoch>]
+           [-t_coord_epoch <epoch>] [-ct <pipeline_def>] [-spat_srs <srs_def>] [-geomfield <name>]
+           [-segmentize <max_dist>] [-simplify <tolerance>] [-makevalid] [-wrapdateline]
+           [-datelineoffset <val_in_degree>]
+           [-clipsrc [<xmin> <ymin> <xmax> <ymax>]|<WKT>|<datasource>|spat_extent]
+           [-clipsrcsql <sql_statement>] [-clipsrclayer <layername>] [-clipsrcwhere <expression>]
+           [-clipdst [<xmin> <ymin> <xmax> <ymax>]|<WKT>|<datasource>] [-clipdstsql <sql_statement>]
+           [-clipdstlayer <layername>] [-clipdstwhere <expression>] [-explodecollections] [-zfield <name>]
+           [-gcp <ungeoref_x> <ungeoref_y> <georef_x> <georef_y> [<elevation>]]...
+           [-tps] [-order 1|2|3]
+           [-xyRes <val>[ m|mm|deg]] [-zRes <val>[ m|mm]] [-mRes <val>] [-unsetCoordPrecision]
+
+    Other options:
+           [--quiet] [-progress] [-if <format>]... [-oo <NAME>=<VALUE>]... [-doo <NAME>=<VALUE>]...
+           [-fid <FID>] [-preserve_fid] [-unsetFid]
+           [[-skipfailures]|[-gt <n>|unlimited]]
+           [-limit <nb_features>] [-ds_transaction] [-mo <NAME>=<VALUE>]... [-nomd]
 
 Description
 -----------
@@ -69,7 +63,7 @@ output coordinate system or even reprojecting the features during translation.
 
 .. include:: options/if.rst
 
-.. option:: -f <format_name>
+.. option:: -of <format_name>, -f <format_name>
 
     Output file format name, e.g. ``ESRI Shapefile``, ``MapInfo File``,
     ``PostgreSQL``.  Starting with GDAL 2.3, if not specified, the format is
@@ -112,11 +106,28 @@ output coordinate system or even reprojecting the features during translation.
 
 .. option:: -select <field_list>
 
-    Comma-delimited list of fields from input layer to copy to the new layer. A
-    field is skipped if mentioned previously in the list even if the input
-    layer has duplicate field names. (Defaults to ``all``; any field is skipped
-    if a subsequent field with same name is found.) Geometry fields can also be
-    specified in the list.
+    Comma-delimited list of fields from input layer to copy to the new layer.
+
+    Starting with GDAL 3.9, field names with spaces, commas or double-quote
+    should be surrounded with a starting and ending double-quote character, and
+    double-quote characters in a field name should be escaped with backslash.
+
+    Depending on the shell used, this might require further quoting. For example,
+    to select ``regular_field``, ``a_field_with space, and comma`` and
+    ``a field with " double quote`` with a Unix shell:
+
+    .. code-block:: bash
+
+        -select "regular_field,\"a_field_with space, and comma\",\"a field with \\\" double quote\""
+
+    A field is only selected once, even if mentioned several times in the list
+    and if the input layer has duplicate field names.
+
+    Geometry fields can also be specified in the list.
+
+    All fields are selected when -select is not specified. Specifying the
+    empty string can be used to disable selecting any attribute field, and only
+    keep geometries.
 
     Note this setting cannot be used together with ``-append``. To control the
     selection of fields when appending to a layer, use ``-fieldmap`` or ``-sql``.
@@ -255,6 +266,49 @@ output coordinate system or even reprojecting the features during translation.
 
     .. include:: options/srs_def.rst
 
+.. option:: -xyRes "<val>[ m|mm|deg]"
+
+    .. versionadded:: 3.9
+
+    Set/override the geometry X/Y coordinate resolution. If only a numeric value
+    is specified, it is assumed to be expressed in the units of the target SRS.
+    The m, mm or deg suffixes can be specified to indicate that the value must be
+    interpreted as being in meter, millimeter or degree.
+
+    When specifying this option, the :cpp:func:`OGRGeometry::SetPrecision`
+    method is run on geometries (that are not curves) before passing them to the
+    output driver, to avoid generating invalid geometries due to the potentially
+    reduced precision (unless the :config:`OGR_APPLY_GEOM_SET_PRECISION`
+    configuration option is set to ``NO``)
+
+    If neither this option nor :option:`-unsetCoordPrecision` are specified, the
+    coordinate resolution of the source layer, if available, is used.
+
+.. option:: -zRes "<val>[ m|mm]"
+
+    .. versionadded:: 3.9
+
+    Set/override the geometry Z coordinate resolution. If only a numeric value
+    is specified, it is assumed to be expressed in the units of the target SRS.
+    The m or mm suffixes can be specified to indicate that the value must be
+    interpreted as being in meter or millimeter.
+    If neither this option nor :option:`-unsetCoordPrecision` are specified, the
+    coordinate resolution of the source layer, if available, is used.
+
+.. option:: -mRes <val>
+
+    .. versionadded:: 3.9
+
+    Set/override the geometry M coordinate resolution.
+    If neither this option nor :option:`-unsetCoordPrecision` are specified, the
+    coordinate resolution of the source layer, if available, is used.
+
+.. option:: -unsetCoordPrecision
+
+    .. versionadded:: 3.9
+
+    Prevent the geometry coordinate resolution from being set on target layer(s).
+
 .. option:: -s_coord_epoch <epoch>
 
     .. versionadded:: 3.4
@@ -321,7 +375,7 @@ output coordinate system or even reprojecting the features during translation.
 
 .. option:: -clipsrc [<xmin> <ymin> <xmax> <ymax>]|WKT|<datasource>|spat_extent
 
-    Clip geometries to one of the following:
+    Clip geometries (before potential reprojection) to one of the following:
 
     * the specified bounding box (expressed in source SRS)
     * a WKT geometry (POLYGON or MULTIPOLYGON expressed in source SRS)
@@ -345,7 +399,7 @@ output coordinate system or even reprojecting the features during translation.
 
 .. option:: -clipdst [<xmin> <ymin> <xmax> <ymax>]|<WKT>|<datasource>
 
-    Clip geometries to one of the following:
+    Clip geometries (after potential reprojection) to one of the following:
 
     * the specified bounding box (expressed in destination SRS)
     * a WKT geometry (POLYGON or MULTIPOLYGON expressed in destination SRS)
@@ -543,6 +597,20 @@ output coordinate system or even reprojecting the features during translation.
 
     .. versionadded:: 2.1
 
+.. option:: <dst_dataset_name>
+
+    Output dataset name.
+
+.. option:: <src_dataset_name>
+
+    Source dataset name.
+
+.. option:: <layer_name>
+
+    One or more source layer names to copy to the output dataset. If no layer
+    names are passed, then all source layers are copied.
+
+
 Performance Hints
 -----------------
 
@@ -560,6 +628,21 @@ significant insertion performance boost. See the PG driver documentation page.
 More generally, consult the documentation page of the input and output drivers
 for performance hints.
 
+Known issues
+------------
+
+Starting with GDAL 3.8, ogr2ogr uses internally an Arrow array based API
+(cf :ref:`rfc-86`) for some source formats (in particular GeoPackage or FlatGeoBuf),
+and for the most basic types of operations, to improve performance.
+This substantial change in the ogr2ogr internal logic has required a number of
+fixes throughout the GDAL 3.8.x bugfix releases to fully stabilize it, and we believe
+most issues are resolved with GDAL 3.9.
+If you hit errors not met with earlier GDAL versions, you may specify
+``--config OGR2OGR_USE_ARROW_API NO`` on the ogr2ogr command line to opt for the
+classic algorithm using an iterative feature based approach. If that flag is
+needed with GDAL >= 3.9, please file an issue on the
+`GDAL issue tracker <https://github.com/OSGeo/gdal/issues>`__.
+
 C API
 -----
 
@@ -572,31 +655,31 @@ Examples
 
 Basic conversion from Shapefile to GeoPackage:
 
-.. code-block::
+.. code-block:: bash
 
   ogr2ogr output.gpkg input.shp
 
 Change the coordinate reference system from ``EPSG:4326`` to ``EPSG:3857``:
 
-.. code-block::
+.. code-block:: bash
 
   ogr2ogr -s_srs EPSG:4326 -t_srs EPSG:3857 output.gpkg input.gpkg
 
 Example appending to an existing layer:
 
-.. code-block::
+.. code-block:: bash
 
     ogr2ogr -append -f PostgreSQL PG:dbname=warmerda abc.tab
 
 Clip input layer with a bounding box (<xmin> <ymin> <xmax> <ymax>):
 
-.. code-block::
+.. code-block:: bash
 
   ogr2ogr -spat -13.931 34.886 46.23 74.12 output.gpkg natural_earth_vector.gpkg
 
 Filter Features by a ``-where`` clause:
 
-.. code-block::
+.. code-block:: bash
 
   ogr2ogr -where "\"POP_EST\" < 1000000" \
     output.gpkg natural_earth_vector.gpkg ne_10m_admin_0_countries
@@ -604,7 +687,7 @@ Filter Features by a ``-where`` clause:
 
 Example reprojecting from ETRS_1989_LAEA_52N_10E to EPSG:4326 and clipping to a bounding box:
 
-.. code-block::
+.. code-block:: bash
 
     ogr2ogr -wrapdateline -t_srs EPSG:4326 -clipdst -5 40 15 55 france_4326.shp europe_laea.shp
 
@@ -613,8 +696,14 @@ used to fill the third field (index 2 = third field) of the target layer, the
 second field of the source layer is ignored, the third field of the source
 layer used to fill the fifth field of the target layer.
 
-.. code-block::
+.. code-block:: bash
 
     ogr2ogr -append -fieldmap 2,-1,4 dst.shp src.shp
+
+Note that not all formats preserve geometries on layer creation by default. E.g., here we need ``-lco``:
+
+.. code-block:: bash
+
+    ogr2ogr -lco GEOMETRY=AS_XYZ TrackWaypoint.csv TrackWaypoint.kml
 
 More examples are given in the individual format pages.

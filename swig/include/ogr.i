@@ -275,6 +275,7 @@ using namespace std;
 #define FIELD_NAME_ERROR_TMPL "Invalid field name: '%s'"
 
 typedef void GDALMajorObjectShadow;
+typedef void GDALDatasetShadow;
 
 #ifdef DEBUG
 typedef struct OGRSpatialReferenceHS OSRSpatialReferenceShadow;
@@ -303,6 +304,7 @@ typedef struct OGRGeomFieldDefnHS OGRGeomFieldDefnShadow;
 typedef struct OGRGeomTransformer OGRGeomTransformerShadow;
 typedef struct _OGRPreparedGeometry OGRPreparedGeometryShadow;
 typedef struct OGRFieldDomainHS OGRFieldDomainShadow;
+typedef struct OGRGeomCoordinatePrecision OGRGeomCoordinatePrecisionShadow;
 %}
 
 #ifdef SWIGJAVA
@@ -491,6 +493,7 @@ typedef void retGetPoints;
 %constant char *OLCFastSpatialFilter   = "FastSpatialFilter";
 %constant char *OLCFastFeatureCount    = "FastFeatureCount";
 %constant char *OLCFastGetExtent       = "FastGetExtent";
+%constant char *OLCFastGetExtent3D     = "FastGetExtent3D";
 %constant char *OLCCreateField         = "CreateField";
 %constant char *OLCDeleteField         = "DeleteField";
 %constant char *OLCReorderFields       = "ReorderFields";
@@ -509,6 +512,7 @@ typedef void retGetPoints;
 %constant char *OLCZGeometries         = "ZGeometries";
 %constant char *OLCRename              = "Rename";
 %constant char *OLCFastGetArrowStream  = "FastGetArrowStream";
+%constant char *OLCFastWriteArrowBatch = "FastWriteArrowBatch";
 
 %constant char *ODsCCreateLayer        = "CreateLayer";
 %constant char *ODsCDeleteLayer        = "DeleteLayer";
@@ -530,6 +534,9 @@ typedef void retGetPoints;
 
 %constant char *OLMD_FID64             = "OLMD_FID64";
 
+%constant int GEOS_PREC_NO_TOPO = 1;
+%constant int GEOS_PREC_KEEP_COLLAPSED = 2;
+
 #else
 typedef int OGRErr;
 
@@ -545,6 +552,7 @@ typedef int OGRErr;
 #define OLCFastSpatialFilter   "FastSpatialFilter"
 #define OLCFastFeatureCount    "FastFeatureCount"
 #define OLCFastGetExtent       "FastGetExtent"
+#define OLCFastGetExtent3D     "FastGetExtent3D"
 #define OLCCreateField         "CreateField"
 #define OLCDeleteField         "DeleteField"
 #define OLCReorderFields       "ReorderFields"
@@ -562,6 +570,7 @@ typedef int OGRErr;
 #define OLCZGeometries         "ZGeometries"
 #define OLCRename              "Rename"
 #define OLCFastGetArrowStream  "FastGetArrowStream"
+#define OLCFastWriteArrowBatch "FastWriteArrowBatch"
 
 #define ODsCCreateLayer        "CreateLayer"
 #define ODsCDeleteLayer        "DeleteLayer"
@@ -579,6 +588,9 @@ typedef int OGRErr;
 #define ODrCDeleteDataSource   "DeleteDataSource"
 
 #define OLMD_FID64             "OLMD_FID64"
+
+#define GEOS_PREC_NO_TOPO          1
+#define GEOS_PREC_KEEP_COLLAPSED   2
 
 #endif
 
@@ -630,6 +642,7 @@ typedef int CPLErr;
 #undef FROM_PYTHON_OGR_I
 #else /* defined(SWIGPYTHON) */
 %import MajorObject.i
+%import Dataset_import.i
 #endif /* defined(SWIGPYTHON) */
 #endif /* FROM_GDAL_I */
 
@@ -1141,6 +1154,89 @@ public:
 }; /* class ArrowArrayStream */
 #endif
 
+#ifdef SWIGPYTHON
+// Implements __arrow_c_stream__ export interface:
+// https://arrow.apache.org/docs/format/CDataInterface/PyCapsuleInterface.html#create-a-pycapsule
+%{
+static void ReleaseArrowArrayStreamPyCapsule(PyObject* capsule) {
+    struct ArrowArrayStream* stream =
+        (struct ArrowArrayStream*)PyCapsule_GetPointer(capsule, "arrow_array_stream");
+    if (stream->release != NULL) {
+        stream->release(stream);
+    }
+    CPLFree(stream);
+}
+
+static char** ParseArrowMetadata(const char *pabyMetadata)
+{
+    char** ret = NULL;
+    int32_t nKVP;
+    memcpy(&nKVP, pabyMetadata, sizeof(int32_t));
+    pabyMetadata += sizeof(int32_t);
+    for (int i = 0; i < nKVP; ++i)
+    {
+        int32_t nSizeKey;
+        memcpy(&nSizeKey, pabyMetadata, sizeof(int32_t));
+        pabyMetadata += sizeof(int32_t);
+        std::string osKey;
+        osKey.assign(pabyMetadata, nSizeKey);
+        pabyMetadata += nSizeKey;
+
+        int32_t nSizeValue;
+        memcpy(&nSizeValue, pabyMetadata, sizeof(int32_t));
+        pabyMetadata += sizeof(int32_t);
+        std::string osValue;
+        osValue.assign(pabyMetadata, nSizeValue);
+        pabyMetadata += nSizeValue;
+
+        ret = CSLSetNameValue(ret, osKey.c_str(), osValue.c_str());
+    }
+
+    return ret;
+}
+
+// Create output fields using CreateFieldFromArrowSchema()
+static bool CreateFieldsFromArrowSchema(OGRLayerH hDstLayer,
+                                        const struct ArrowSchema* schemaSrc,
+                                        char** options)
+{
+    for (int i = 0; i < schemaSrc->n_children; ++i)
+    {
+        const char *metadata =
+            schemaSrc->children[i]->metadata;
+        if( metadata )
+        {
+            char** keyValues = ParseArrowMetadata(metadata);
+            const char *ARROW_EXTENSION_NAME_KEY = "ARROW:extension:name";
+            const char *EXTENSION_NAME_OGC_WKB = "ogc.wkb";
+            const char *EXTENSION_NAME_GEOARROW_WKB = "geoarrow.wkb";
+            const char* value = CSLFetchNameValue(keyValues, ARROW_EXTENSION_NAME_KEY);
+            const bool bSkip = ( value && (EQUAL(value, EXTENSION_NAME_OGC_WKB) || EQUAL(value, EXTENSION_NAME_GEOARROW_WKB)) );
+            CSLDestroy(keyValues);
+            if( bSkip )
+                continue;
+        }
+
+        const char *pszFieldName =
+            schemaSrc->children[i]->name;
+        if (!EQUAL(pszFieldName, "OGC_FID") &&
+            !EQUAL(pszFieldName, "wkb_geometry") &&
+            !OGR_L_CreateFieldFromArrowSchema(
+                hDstLayer, schemaSrc->children[i], options))
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Cannot create field %s",
+                     pszFieldName);
+            return false;
+        }
+    }
+    return true;
+}
+
+%}
+
+#endif
+
 /************************************************************************/
 /*                               OGRLayer                               */
 /************************************************************************/
@@ -1156,6 +1252,13 @@ class OGRLayerShadow : public GDALMajorObjectShadow {
   ~OGRLayerShadow();
 public:
 %extend {
+
+#ifndef SWIGCSHARP
+  GDALDatasetShadow* GetDataset()
+  {
+      return OGR_L_GetDataset(self);
+  }
+#endif
 
   %apply Pointer NONNULL {const char * new_name};
   OGRErr Rename(const char* new_name) {
@@ -1298,6 +1401,15 @@ public:
   %feature( "kwargs" ) GetExtent;
   void GetExtent(double argout[4], int* isvalid = NULL, int force = 1, int can_return_null = 0, int geom_field = 0 ) {
     OGRErr eErr = OGR_L_GetExtentEx(self, geom_field, (OGREnvelope*)argout, force);
+    if (can_return_null)
+        *isvalid = (eErr == OGRERR_NONE);
+    else
+        *isvalid = TRUE;
+    return;
+  }
+  %feature( "kwargs" ) GetExtent3D;
+  void GetExtent3D(double argout[6], int* isvalid = NULL, int force = 1, int can_return_null = 0, int geom_field = 0 ) {
+    OGRErr eErr = OGR_L_GetExtent3D(self, geom_field, (OGREnvelope3D*)argout, force);
     if (can_return_null)
         *isvalid = (eErr == OGRERR_NONE);
     else
@@ -1496,6 +1608,31 @@ public:
 
 #ifdef SWIGPYTHON
 
+    PyObject* ExportArrowArrayStreamPyCapsule(char** options = NULL)
+    {
+        struct ArrowArrayStream* stream =
+            (struct ArrowArrayStream*)CPLMalloc(sizeof(struct ArrowArrayStream));
+
+        const int success = OGR_L_GetArrowStream(self, stream, options);
+
+        PyObject* ret;
+        SWIG_PYTHON_THREAD_BEGIN_BLOCK;
+        if( success )
+        {
+            ret = PyCapsule_New(stream, "arrow_array_stream", ReleaseArrowArrayStreamPyCapsule);
+        }
+        else
+        {
+            CPLFree(stream);
+            Py_INCREF(Py_None);
+            ret = Py_None;
+        }
+
+        SWIG_PYTHON_THREAD_END_BLOCK;
+
+        return ret;
+    }
+
 %newobject GetArrowStream;
   ArrowArrayStream* GetArrowStream(char** options = NULL) {
       struct ArrowArrayStream* stream = (struct ArrowArrayStream* )malloc(sizeof(struct ArrowArrayStream));
@@ -1527,6 +1664,120 @@ public:
     OGRErr WriteArrowBatch(const struct ArrowSchema *schema, struct ArrowArray *array, char** options = NULL)
     {
         return OGR_L_WriteArrowBatch(self, schema, array, options) ? OGRERR_NONE : OGRERR_FAILURE;
+    }
+
+    OGRErr WriteArrowStreamCapsule(PyObject* capsule, int createFieldsFromSchema, char** options = NULL)
+    {
+        ArrowArrayStream* stream = (ArrowArrayStream*)PyCapsule_GetPointer(capsule, "arrow_array_stream");
+        if( !stream )
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, "PyCapsule_GetPointer(capsule, \"arrow_array_stream\") failed");
+            return OGRERR_FAILURE;
+        }
+        if( stream->release == NULL )
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, "stream->release == NULL");
+            return OGRERR_FAILURE;
+        }
+
+        ArrowSchema schema;
+        if( stream->get_schema(stream, &schema) != 0 )
+        {
+            stream->release(stream);
+            return OGRERR_FAILURE;
+        }
+
+        if( createFieldsFromSchema == TRUE ||
+            (createFieldsFromSchema == -1 && OGR_FD_GetFieldCount(OGR_L_GetLayerDefn(self)) == 0) )
+        {
+            if( !CreateFieldsFromArrowSchema(self, &schema, options) )
+            {
+                schema.release(&schema);
+                stream->release(stream);
+                return OGRERR_FAILURE;
+            }
+        }
+
+        while( true )
+        {
+            ArrowArray array;
+            if( stream->get_next(stream, &array) == 0 )
+            {
+                if( array.release == NULL )
+                    break;
+                if( !OGR_L_WriteArrowBatch(self, &schema, &array, options) )
+                {
+                    if( array.release )
+                        array.release(&array);
+                    schema.release(&schema);
+                    stream->release(stream);
+                    return OGRERR_FAILURE;
+                }
+                if( array.release )
+                    array.release(&array);
+            }
+            else
+            {
+                CPLError(CE_Failure, CPLE_AppDefined, "stream->get_next(stream, &array) failed");
+                schema.release(&schema);
+                stream->release(stream);
+                return OGRERR_FAILURE;
+            }
+        }
+        schema.release(&schema);
+        stream->release(stream);
+        return OGRERR_NONE;
+    }
+
+    OGRErr WriteArrowSchemaAndArrowArrayCapsule(PyObject* schemaCapsule, PyObject* arrayCapsule, int createFieldsFromSchema, char** options = NULL)
+    {
+        ArrowSchema* schema = (ArrowSchema*)PyCapsule_GetPointer(schemaCapsule, "arrow_schema");
+        if( !schema )
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, "PyCapsule_GetPointer(schemaCapsule, \"arrow_schema\") failed");
+            return OGRERR_FAILURE;
+        }
+        if( schema->release == NULL )
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, "schema->release == NULL");
+            return OGRERR_FAILURE;
+        }
+
+        if( createFieldsFromSchema == TRUE ||
+            (createFieldsFromSchema == -1 && OGR_FD_GetFieldCount(OGR_L_GetLayerDefn(self)) == 0) )
+        {
+            if( !CreateFieldsFromArrowSchema(self, schema, options) )
+            {
+                schema->release(schema);
+                return OGRERR_FAILURE;
+            }
+        }
+
+        ArrowArray* array = (ArrowArray*)PyCapsule_GetPointer(arrayCapsule, "arrow_array");
+        if( !array )
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, "PyCapsule_GetPointer(arrayCapsule, \"arrow_array\") failed");
+            schema->release(schema);
+            return OGRERR_FAILURE;
+        }
+        if( array->release == NULL )
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, "array->release == NULL");
+            schema->release(schema);
+            return OGRERR_FAILURE;
+        }
+
+        OGRErr eErr = OGRERR_NONE;
+        if( !OGR_L_WriteArrowBatch(self, schema, array, options) )
+        {
+            eErr = OGRERR_FAILURE;
+        }
+
+        if( schema->release )
+            schema->release(schema);
+        if( array->release )
+            array->release(array);
+        return eErr;
     }
 #endif
 
@@ -2753,6 +3004,17 @@ public:
   void SetNullable(int bNullable ) {
     return OGR_GFld_SetNullable( self, bNullable );
   }
+
+  OGRGeomCoordinatePrecisionShadow* GetCoordinatePrecision() {
+    return OGR_GFld_GetCoordinatePrecision(self);
+  }
+
+  %apply Pointer NONNULL {OGRGeomCoordinatePrecisionShadow* srs};
+  void SetCoordinatePrecision(OGRGeomCoordinatePrecisionShadow* coordPrec) {
+    OGR_GFld_SetCoordinatePrecision(self, coordPrec);
+  }
+  %clear OGRGeomCoordinatePrecisionShadow* srs;
+
 } /* %extend */
 
 
@@ -3195,6 +3457,10 @@ public:
     return OGR_G_Area(self);
   }
 
+  double GeodesicArea() {
+    return OGR_G_GeodesicArea(self);
+  }
+
   bool IsClockwise() {
     return OGR_G_IsClockwise(self);
   }
@@ -3409,6 +3675,11 @@ public:
     return (OGRGeometryShadow*) OGR_G_MakeValidEx(self, options);
   }
 
+  %newobject SetPrecision;
+  OGRGeometryShadow* SetPrecision(double gridSize, int flags = 0) {
+    return (OGRGeometryShadow*) OGR_G_SetPrecision(self, gridSize, flags);
+  }
+
   %newobject Normalize;
   OGRGeometryShadow* Normalize() {
     return (OGRGeometryShadow*) OGR_G_Normalize(self);
@@ -3441,6 +3712,11 @@ public:
   %newobject UnionCascaded;
   OGRGeometryShadow* UnionCascaded() {
     return (OGRGeometryShadow*) OGR_G_UnionCascaded( self );
+  }
+
+  %newobject UnaryUnion;
+  OGRGeometryShadow* UnaryUnion() {
+    return (OGRGeometryShadow*) OGR_G_UnaryUnion( self );
   }
 
   %newobject Difference;
@@ -4007,6 +4283,77 @@ OGRFieldDomainShadow* CreateGlobFieldDomain( const char *name,
 %}
 %clear const char* name;
 %clear const char* glob;
+
+/************************************************************************/
+/*                      OGRGeomCoordinatePrecision                      */
+/************************************************************************/
+
+%rename (GeomCoordinatePrecision) OGRGeomCoordinatePrecisionShadow;
+
+class OGRGeomCoordinatePrecisionShadow {
+  OGRGeomCoordinatePrecisionShadow();
+public:
+%extend {
+
+  ~OGRGeomCoordinatePrecisionShadow() {
+    OGRGeomCoordinatePrecisionDestroy(self);
+  }
+
+  void Set(double xyResolution, double zResolution, double mResolution) {
+      OGRGeomCoordinatePrecisionSet(self, xyResolution, zResolution, mResolution);
+  }
+
+  %apply Pointer NONNULL {OSRSpatialReferenceShadow* srs};
+  void SetFromMeter(OSRSpatialReferenceShadow* srs, double xyMeterResolution, double zMeterResolution, double mResolution) {
+      OGRGeomCoordinatePrecisionSetFromMeter(self, srs, xyMeterResolution, zMeterResolution, mResolution);
+  }
+  %clear OSRSpatialReferenceShadow* srs;
+
+  double GetXYResolution() {
+    return OGRGeomCoordinatePrecisionGetXYResolution(self);
+  }
+
+  double GetZResolution() {
+    return OGRGeomCoordinatePrecisionGetZResolution(self);
+  }
+
+  double GetMResolution() {
+    return OGRGeomCoordinatePrecisionGetMResolution(self);
+  }
+
+%apply (char **CSL) {(char **)};
+  char **GetFormats() {
+    return OGRGeomCoordinatePrecisionGetFormats(self);
+  }
+%clear char **;
+
+%apply (char **dict) {char **};
+%apply Pointer NONNULL {const char* formatName};
+  char ** GetFormatSpecificOptions(const char* formatName) {
+    return OGRGeomCoordinatePrecisionGetFormatSpecificOptions(self, formatName);
+  }
+%clear char **;
+%clear const char* formatName;
+
+%apply Pointer NONNULL {const char* formatName};
+%apply (char **dict) { char ** formatSpecificOptions };
+  void SetFormatSpecificOptions(const char* formatName, char **formatSpecificOptions) {
+    OGRGeomCoordinatePrecisionSetFormatSpecificOptions(self, formatName, formatSpecificOptions);
+  }
+%clear const char* formatName;
+%clear char **formatSpecificOptions;
+
+} /* %extend */
+
+}; /* class OGRGeomCoordinatePrecisionShadow */
+
+%newobject CreateGeomCoordinatePrecision;
+%inline %{
+static
+OGRGeomCoordinatePrecisionShadow* CreateGeomCoordinatePrecision() {
+  return OGRGeomCoordinatePrecisionCreate();
+}
+%}
 
 /************************************************************************/
 /*                        Other misc functions.                         */

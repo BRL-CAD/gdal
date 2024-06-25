@@ -98,6 +98,10 @@ for dirname in alg port gcore ogr frmts gnm apps fuzzers; do
         -D__x86_64__ \
         -DFLT_EVAL_METHOD \
         -DKDU_HAS_ROI_RECT \
+        -Dflatbuffers=gdal_flatbuffers \
+        -DPROJ_VERSION_MAJOR=9 \
+        -DPROJ_VERSION_MINOR=4 \
+        -DPROJ_VERSION_PATCH=0 \
         --include="${CPL_CONFIG_H}" \
         --include=port/cpl_port.h \
         -I "${CPL_CONFIG_H_DIR}" \
@@ -137,6 +141,10 @@ mv ${LOG_FILE}.tmp ${LOG_FILE}
 
 # Ignore pmtiles header
 grep -v -e "ogr/ogrsf_frmts/pmtiles/pmtiles/" ${LOG_FILE} > ${LOG_FILE}.tmp
+mv ${LOG_FILE}.tmp ${LOG_FILE}
+
+# Ignore apps/argparse/ header
+grep -v -e "apps/argparse/" ${LOG_FILE} > ${LOG_FILE}.tmp
 mv ${LOG_FILE}.tmp ${LOG_FILE}
 
 # Ignore third_party/fast_float

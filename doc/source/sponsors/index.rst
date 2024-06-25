@@ -102,6 +102,13 @@ the health of the project:
            :width: 150 px
            :target: https://www.sparkgeo.com
 
+    .. container:: horizontal-logo
+
+        .. image:: ../../images/sponsors/logo-maxar.png
+           :class: img-logos
+           :width: 150 px
+           :target: https://www.maxar.com
+
 
 - Supporter level:
 
@@ -111,6 +118,10 @@ the health of the project:
     .. container:: horizontal-logo
 
         Myles Sutherland
+
+    .. container:: horizontal-logo
+
+        `Dynamic Graphics, Inc. <https://www.dgi.com/>`__
 
     .. container:: horizontal-logo
 
@@ -126,11 +137,19 @@ the health of the project:
 
     .. container:: horizontal-logo
 
+        `Satelligence <https://satelligence.com/>`__
+
+    .. container:: horizontal-logo
+
         `Space Intelligence <https://www.space-intelligence.com>`__
 
     .. container:: horizontal-logo
 
         `Umbra <https://umbra.space/>`__
+
+    .. container:: horizontal-logo
+
+        `Vortex f.d.c. <https://vortexfdc.com/>`__
 
 .. raw:: html
 

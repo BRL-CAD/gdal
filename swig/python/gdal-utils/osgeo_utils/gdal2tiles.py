@@ -288,7 +288,8 @@ if filename:
             continue
         try:
             tms = TileMatrixSet.parse(j)
-        except UnsupportedTileMatrixSet:
+        except UnsupportedTileMatrixSet as e:
+            gdal.Debug("gdal2tiles", "Cannot parse " + tmsfilename + ": " + str(e))
             continue
         except Exception:
             logger.error("Cannot parse " + tmsfilename)
@@ -872,7 +873,32 @@ def scale_query_to_tile(dsquery, dstile, options, tilefilename=""):
     tile_size = dstile.RasterXSize
     tilebands = dstile.RasterCount
 
-    if options.resampling == "average":
+    dsquery.SetGeoTransform(
+        (
+            0.0,
+            tile_size / float(querysize),
+            0.0,
+            0.0,
+            0.0,
+            tile_size / float(querysize),
+        )
+    )
+    dstile.SetGeoTransform((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
+
+    if options.resampling == "average" and (
+        options.excluded_values or options.nodata_values_pct_threshold < 100
+    ):
+
+        gdal.Warp(
+            dstile,
+            dsquery,
+            options="-r average "
+            + f"-wo EXCLUDED_VALUES={options.excluded_values} "
+            + f"-wo EXCLUDED_VALUES_PCT_THRESHOLD={options.excluded_values_pct_threshold} "
+            + f"-wo NODATA_VALUES_PCT_THRESHOLD={options.nodata_values_pct_threshold}",
+        )
+
+    elif options.resampling == "average":
 
         # Function: gdal.RegenerateOverview()
         for i in range(1, tilebands + 1):
@@ -898,7 +924,12 @@ def scale_query_to_tile(dsquery, dstile, options, tilefilename=""):
             array[:, :, i] = gdalarray.BandReadAsArray(
                 dsquery.GetRasterBand(i + 1), 0, 0, querysize, querysize
             )
-        im = Image.fromarray(array, "RGBA")  # Always four bands
+        if options.tiledriver == "JPEG" and tilebands == 2:
+            im = Image.fromarray(array[:, :, 0], "L")
+        elif options.tiledriver == "JPEG" and tilebands == 4:
+            im = Image.fromarray(array[:, :, 0:3], "RGB")
+        else:
+            im = Image.fromarray(array, "RGBA")
         im1 = im.resize((tile_size, tile_size), Image.LANCZOS)
         if os.path.exists(tilefilename):
             im0 = Image.open(tilefilename)
@@ -910,6 +941,8 @@ def scale_query_to_tile(dsquery, dstile, options, tilefilename=""):
                 params["lossless"] = True
             else:
                 params["quality"] = options.webp_quality
+        elif options.tiledriver == "JPEG":
+            params["quality"] = options.jpeg_quality
         im1.save(tilefilename, options.tiledriver, **params)
 
     else:
@@ -948,18 +981,6 @@ def scale_query_to_tile(dsquery, dstile, options, tilefilename=""):
             gdal_resampling = gdal.GRA_Q3
 
         # Other algorithms are implemented by gdal.ReprojectImage().
-        dsquery.SetGeoTransform(
-            (
-                0.0,
-                tile_size / float(querysize),
-                0.0,
-                0.0,
-                0.0,
-                tile_size / float(querysize),
-            )
-        )
-        dstile.SetGeoTransform((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
-
         res = gdal.ReprojectImage(dsquery, dstile, None, None, gdal_resampling)
         if res != 0:
             exit_with_error(
@@ -1305,6 +1326,8 @@ def _get_creation_options(options):
             copts = ["LOSSLESS=True"]
         else:
             copts = ["QUALITY=" + str(options.webp_quality)]
+    elif options.tiledriver == "JPEG":
+        copts = ["QUALITY=" + str(options.jpeg_quality)]
     return copts
 
 
@@ -1345,6 +1368,7 @@ def create_base_tile(tile_job_info: "TileJobInfo", tile_detail: "TileDetail") ->
     # Tile dataset in memory
     tilefilename = os.path.join(output, str(tz), str(tx), "%s.%s" % (ty, tileext))
     dstile = mem_drv.Create("", tile_size, tile_size, tilebands)
+    dstile.GetRasterBand(tilebands).SetColorInterpretation(gdal.GCI_AlphaBand)
 
     data = alpha = None
 
@@ -1398,6 +1422,8 @@ def create_base_tile(tile_job_info: "TileJobInfo", tile_detail: "TileDetail") ->
             # Big ReadRaster query in memory scaled to the tile_size - all but 'near'
             # algo
             dsquery = mem_drv.Create("", querysize, querysize, tilebands)
+            dsquery.GetRasterBand(tilebands).SetColorInterpretation(gdal.GCI_AlphaBand)
+
             # TODO: fill the null value in case a tile without alpha is produced (now
             # only png tiles are supported)
             dsquery.WriteRaster(
@@ -1418,8 +1444,18 @@ def create_base_tile(tile_job_info: "TileJobInfo", tile_detail: "TileDetail") ->
     if options.resampling != "antialias":
         # Write a copy of tile to png/jpg
         out_drv.CreateCopy(
-            tilefilename, dstile, strict=0, options=_get_creation_options(options)
+            tilefilename,
+            dstile
+            if tile_job_info.tile_driver != "JPEG"
+            else remove_alpha_band(dstile),
+            strict=0,
+            options=_get_creation_options(options),
         )
+
+        # Remove useless side car file
+        aux_xml = tilefilename + ".aux.xml"
+        if gdal.VSIStatL(aux_xml) is not None:
+            gdal.Unlink(aux_xml)
 
     del dstile
 
@@ -1446,6 +1482,38 @@ def create_base_tile(tile_job_info: "TileJobInfo", tile_detail: "TileDetail") ->
                             tile_job_info.options,
                         ).encode("utf-8")
                     )
+
+
+def remove_alpha_band(src_ds):
+    if (
+        src_ds.GetRasterBand(src_ds.RasterCount).GetColorInterpretation()
+        != gdal.GCI_AlphaBand
+    ):
+        return src_ds
+
+    new_band_count = src_ds.RasterCount - 1
+
+    dst_ds = gdal.GetDriverByName("MEM").Create(
+        "",
+        src_ds.RasterXSize,
+        src_ds.RasterYSize,
+        new_band_count,
+        src_ds.GetRasterBand(1).DataType,
+    )
+
+    gt = src_ds.GetGeoTransform(can_return_null=True)
+    if gt:
+        dst_ds.SetGeoTransform(gt)
+    srs = src_ds.GetSpatialRef()
+    if srs:
+        dst_ds.SetSpatialRef(srs)
+
+    for i in range(1, new_band_count + 1):
+        src_band = src_ds.GetRasterBand(i)
+        dst_band = dst_ds.GetRasterBand(i)
+        dst_band.WriteArray(src_band.ReadAsArray())
+
+    return dst_ds
 
 
 def create_overview_tile(
@@ -1484,10 +1552,12 @@ def create_overview_tile(
     dsquery = mem_driver.Create(
         "", 2 * tile_job_info.tile_size, 2 * tile_job_info.tile_size, tilebands
     )
+    dsquery.GetRasterBand(tilebands).SetColorInterpretation(gdal.GCI_AlphaBand)
     # TODO: fill the null value
     dstile = mem_driver.Create(
         "", tile_job_info.tile_size, tile_job_info.tile_size, tilebands
     )
+    dstile.GetRasterBand(tilebands).SetColorInterpretation(gdal.GCI_AlphaBand)
 
     usable_base_tiles = []
 
@@ -1523,7 +1593,35 @@ def create_overview_tile(
             else:
                 tileposy = 0
 
-        if dsquerytile.RasterCount == tilebands - 1:
+        if (
+            tile_job_info.tile_driver == "JPEG"
+            and dsquerytile.RasterCount == 3
+            and tilebands == 2
+        ):
+            # Input is RGB with R=G=B. Add An alpha band
+            tmp_ds = mem_driver.Create(
+                "", dsquerytile.RasterXSize, dsquerytile.RasterYSize, 2
+            )
+            tmp_ds.GetRasterBand(1).WriteRaster(
+                0,
+                0,
+                tile_job_info.tile_size,
+                tile_job_info.tile_size,
+                dsquerytile.GetRasterBand(1).ReadRaster(),
+            )
+            mask = bytearray(
+                [255] * (tile_job_info.tile_size * tile_job_info.tile_size)
+            )
+            tmp_ds.GetRasterBand(2).WriteRaster(
+                0,
+                0,
+                tile_job_info.tile_size,
+                tile_job_info.tile_size,
+                mask,
+            )
+            tmp_ds.GetRasterBand(2).SetColorInterpretation(gdal.GCI_AlphaBand)
+            dsquerytile = tmp_ds
+        elif dsquerytile.RasterCount == tilebands - 1:
             # assume that the alpha band is missing and add it
             tmp_ds = mem_driver.CreateCopy("", dsquerytile, 0)
             tmp_ds.AddBand()
@@ -1540,7 +1638,10 @@ def create_overview_tile(
             )
             dsquerytile = tmp_ds
         elif dsquerytile.RasterCount != tilebands:
-            raise Exception("Unexpected number of bands in base tile")
+            raise Exception(
+                "Unexpected number of bands in base tile. Got %d, expected %d"
+                % (dsquerytile.RasterCount, tilebands)
+            )
 
         base_data = dsquerytile.ReadRaster(
             0, 0, tile_job_info.tile_size, tile_job_info.tile_size
@@ -1565,7 +1666,12 @@ def create_overview_tile(
     if options.resampling != "antialias":
         # Write a copy of tile to png/jpg
         out_driver.CreateCopy(
-            tilefilename, dstile, strict=0, options=_get_creation_options(options)
+            tilefilename,
+            dstile
+            if tile_job_info.tile_driver != "JPEG"
+            else remove_alpha_band(dstile),
+            strict=0,
+            options=_get_creation_options(options),
         )
         # Remove useless side car file
         aux_xml = tilefilename + ".aux.xml"
@@ -1573,7 +1679,10 @@ def create_overview_tile(
             gdal.Unlink(aux_xml)
 
     if options.verbose:
-        logger.debug(f"\tbuild from zoom {base_tz}, tiles: %s" % ",".join(base_tiles))
+        logger.debug(
+            f"\tbuild from zoom {base_tz}, tiles: %s"
+            % ",".join(["(%d, %d)" % (t[0], t[1]) for t in base_tiles])
+        )
 
     # Create a KML file for this tile.
     if tile_job_info.kml:
@@ -1750,10 +1859,30 @@ def optparse_init() -> optparse.OptionParser:
     p.add_option(
         "--tiledriver",
         dest="tiledriver",
-        choices=["PNG", "WEBP"],
+        choices=["PNG", "WEBP", "JPEG"],
         default="PNG",
         type="choice",
         help="which tile driver to use for the tiles",
+    )
+    p.add_option(
+        "--excluded-values",
+        dest="excluded_values",
+        type=str,
+        help="Tuples of values (e.g. <R>,<G>,<B> or (<R1>,<G1>,<B1>),(<R2>,<G2>,<B2>)) that must be ignored as contributing source pixels during resampling. Only taken into account for average resampling",
+    )
+    p.add_option(
+        "--excluded-values-pct-threshold",
+        dest="excluded_values_pct_threshold",
+        type=float,
+        default=50,
+        help="Minimum percentage of source pixels that must be set at one of the --excluded-values to cause the excluded value, that is in majority among source pixels, to be used as the target pixel value. Default value is 50 (%)",
+    )
+    p.add_option(
+        "--nodata-values-pct-threshold",
+        dest="nodata_values_pct_threshold",
+        type=float,
+        default=100,
+        help="Minimum percentage of source pixels that must be at nodata (or alpha=0 or any other way to express transparent pixel) to cause the target pixel value to be transparent. Default value is 100 (%). Only taken into account for average resampling",
     )
 
     # KML options
@@ -1848,6 +1977,17 @@ def optparse_init() -> optparse.OptionParser:
     )
     p.add_option_group(g)
 
+    # Jpeg options
+    g = optparse.OptionGroup(p, "JPEG options", "Options for JPEG tiledriver")
+    g.add_option(
+        "--jpeg-quality",
+        dest="jpeg_quality",
+        type=int,
+        default=75,
+        help="quality of jpeg image, integer between 1 and 100, default is 75",
+    )
+    p.add_option_group(g)
+
     p.set_defaults(
         verbose=False,
         profile="mercator",
@@ -1882,9 +2022,14 @@ def process_args(argv: List[str], called_from_main=False) -> Tuple[str, str, Opt
         )
 
     input_file = args[0]
-    if not isfile(input_file):
+    try:
+        input_file_exists = gdal.Open(input_file) is not None
+    except Exception:
+        input_file_exists = False
+    if not input_file_exists:
         exit_with_error(
-            "The provided input file %s does not exist or is not a file" % input_file
+            "The provided input file %s does not exist or is not a recognized GDAL dataset"
+            % input_file
         )
 
     if len(args) == 2:
@@ -1961,6 +2106,13 @@ def options_post_processing(
             if options.webp_quality <= 0 or options.webp_quality > 100:
                 exit_with_error("webp_quality should be in the range [1-100]")
             options.webp_quality = int(options.webp_quality)
+    elif options.tiledriver == "JPEG":
+        if gdal.GetDriverByName(options.tiledriver) is None:
+            exit_with_error("JPEG driver is not available")
+
+        if options.jpeg_quality <= 0 or options.jpeg_quality > 100:
+            exit_with_error("jpeg_quality should be in the range [1-100]")
+        options.jpeg_quality = int(options.jpeg_quality)
 
     # Output the results
     if options.verbose:
@@ -2078,8 +2230,10 @@ class GDAL2Tiles(object):
         self.tiledriver = options.tiledriver
         if options.tiledriver == "PNG":
             self.tileext = "png"
-        else:
+        elif options.tiledriver == "WEBP":
             self.tileext = "webp"
+        else:
+            self.tileext = "jpg"
         if options.mpi:
             makedirs(output_folder)
             self.tmp_dir = tempfile.mkdtemp(dir=output_folder)
@@ -2796,6 +2950,11 @@ class GDAL2Tiles(object):
                         ry = ysize - (ty * tsize) - rysize
                         if wysize != self.tile_size:
                             wy = self.tile_size - wysize
+
+                if rxsize == 0 or rysize == 0 or wxsize == 0 or wysize == 0:
+                    if self.options.verbose:
+                        logger.debug("\tExcluding tile with no pixel coverage")
+                    continue
 
                 # Read the source raster if anything is going inside the tile as per the computed
                 # geo_query

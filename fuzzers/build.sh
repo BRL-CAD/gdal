@@ -237,7 +237,7 @@ cd ../..
 # build libcurl.a (builing against Ubuntu libcurl.a doesn't work easily)
 cd curl
 autoreconf -fi
-./configure --disable-shared --with-openssl --prefix=$SRC/install
+./configure --disable-shared --with-openssl --without-libpsl --prefix=$SRC/install
 make clean -s
 make -j$(nproc) -s
 make install
@@ -303,7 +303,8 @@ cmake .. \
     -DBUILD_CSHARP_BINDINGS:BOOL=OFF  \
     -DBUILD_JAVA_BINDINGS:BOOL=OFF  \
     -DBUILD_PYTHON_BINDINGS:BOOL=OFF  \
-    -DBUILD_TESTING:BOOL=OFF
+    -DBUILD_TESTING:BOOL=OFF \
+    -DPOPPLER_24_05_OR_LATER=ON
 make -j$(nproc)
 cd ..
 

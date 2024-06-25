@@ -15,8 +15,6 @@ permissions:
 
 jobs:
   docs:
-    permissions:
-      contents: write  # for Git to git push
     name: Docs
 
     runs-on: ubuntu-latest
@@ -25,14 +23,14 @@ jobs:
     container: ghcr.io/osgeo/proj-docs
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v4.1.3
     - name: Setup environment
       shell: bash -l {0}
       run: |
           apt update
           apt install -y libproj-dev swig
           python3 -m pip install -r doc/requirements.txt
-          python3 -m pip install numpy
+          python3 -m pip install numpy setuptools
           pushd .
           mkdir build
           cd build
@@ -45,6 +43,14 @@ jobs:
             -DOGR_BUILD_OPTIONAL_DRIVERS=OFF
           cmake --build . -j$(nproc)
           cmake --install .
+          # With the new ghcr.io/osgeo/proj-docs image based on Ubuntu 24.04
+          # a venv is activated. The above does not install the
+          # Python bindings into it (and the ones in the system are not found
+          # without overriding PYTHONPATH), so do it through pip install
+          cd swig/python
+          python3 setup.py sdist
+          cp dist/* /tmp/gdal.tar.gz
+          python3 -m pip install /tmp/gdal.tar.gz
           ldconfig
           popd
 
@@ -83,15 +89,15 @@ jobs:
     #  run: |
     #    make spelling
     #  working-directory: ./doc
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@1746f4ab65b179e0ea60a494b83293b640dd5bba # v4.3.2
       with:
         name: PDF
         path: doc/build/latex/gdal.pdf
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@1746f4ab65b179e0ea60a494b83293b640dd5bba # v4.3.2
       with:
         name: HTML
         path: doc/build/html/*
-    #- uses: actions/upload-artifact@v3
+    #- uses: actions/upload-artifact@1746f4ab65b179e0ea60a494b83293b640dd5bba # v4.3.2
     #  with:
     #    name: Misspelled
     #    path: doc/build/spelling/output.txt

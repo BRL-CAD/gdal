@@ -382,6 +382,25 @@ Layer creation options
       if they start and end with brackets and braces, even if they do
       not have their subtype set to JSON.
 
+-  .. lco:: FOREIGN_MEMBERS_FEATURE
+      :since: 3.9
+
+      JSON serialized object whose content must be merged into each Feature
+      object. The string should start with { and end with }. Those characters
+      will be striped off in the output stream. It is the responsibility of the
+      user to ensure that the added foreign members are different from the other
+      members of the Feature, such as "type", "id", "properties", "geometry".
+
+-  .. lco:: FOREIGN_MEMBERS_COLLECTION
+      :since: 3.9
+
+      JSON serialized object whose content must be merged into the FeatureCollection
+      object. The string should start with { and end with }. Those characters
+      will be striped off in the output stream. It is the responsibility of the
+      user to ensure that the added foreign members are different from the other
+      members of the FeatureCollection, such as "type", "name", "crs", "features".
+
+
 VSI Virtual File System API support
 -----------------------------------
 
@@ -457,6 +476,37 @@ recalled here for what matters to the driver:
    Geometry objects.
 -  The default coordinate precision is 7 decimal digits after decimal
    separator.
+
+Geometry coordinate precision
+-----------------------------
+
+.. versionadded:: GDAL 3.9
+
+The GeoJSON driver supports reading and writing the geometry coordinate
+precision, using the :cpp:class:`OGRGeomCoordinatePrecision` settings of the
+:cpp:class:`OGRGeomFieldDefn` Those settings are used to round the coordinates
+of the geometry of the features to an appropriate decimal precision.
+
+.. note::
+
+    The :lco:`COORDINATE_PRECISION` layer creation option has precedence over
+    the values set on the :cpp:class:`OGRGeomFieldDefn`.
+
+Implementation details: the coordinate precision is stored as
+``xy_coordinate_resolution`` and ``z_coordinate_resolution`` members at the
+FeatureCollection level. Their numeric value is expressed in the units of the
+SRS.
+
+Example:
+
+.. code-block:: JSON
+
+    {
+        "type": "FeatureCollection",
+        "xy_coordinate_resolution": 8.9e-6,
+        "z_coordinate_resolution": 1e-1,
+        "features": []
+    }
 
 Examples
 --------

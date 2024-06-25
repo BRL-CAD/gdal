@@ -174,6 +174,17 @@ All cached entries can be viewed using ``cmake -LAH`` from a build directory.
     ``<Packagename>_ROOT`` variable to define the prefix for a particular
     package. See https://cmake.org/cmake/help/latest/release/3.12.html?highlight=root#commands
 
+.. option:: CMAKE_UNITY_BUILD=OFF
+
+    .. versionadded:: 3.9
+
+    Default is OFF. This can be set to ON to build GDAL using the
+    https://cmake.org/cmake/help/latest/variable/CMAKE_UNITY_BUILD.html feature.
+    This helps speeding GDAL build times. This feature is still considered
+    experimental for now, and could hide subtle bugs (we are not aware of
+    any at writing time though). We don't recommend it for mission critical
+    builds.
+
 .. option:: ENABLE_IPO=OFF
 
     Build library using the compiler's `interprocedural optimization
@@ -404,7 +415,7 @@ CURL
 
 .. option:: CURL_LIBRARY_RELEASE
 
-    Path to a shared or static library file, such as ``libcurl.dll``,
+    Path to a shared or static library file, such as
     ``libcurl.so``, ``libcurl.lib``, or other name.
 
 .. option:: CURL_USE_STATIC_LIBS=ON/OFF
@@ -621,7 +632,7 @@ If not found, an internal copy of libgeotiff can be used.
 
 .. option:: GEOTIFF_LIBRARY_RELEASE
 
-    Path to a shared or static library file, such as ``geotiff.dll``,
+    Path to a shared or static library file, such as
     ``libgeotiff.so``, ``geotiff.lib``, or other name. A similar variable
     ``GEOTIFF_LIBRARY_DEBUG`` can also be specified to a similar library for
     building Debug releases.
@@ -1499,6 +1510,15 @@ JPEG-2000 codec written in C language. It is required for the
 
     Control whether to use OpenJPEG. Defaults to ON when OpenJPEG is found.
 
+.. option:: GDAL_FIND_PACKAGE_OpenJPEG_MODE=MODULE/CONFIG/empty string
+
+    .. versionadded:: 3.9
+
+    Control the mode used for find_package(OpenJPEG). Defaults to MODULE
+    for compatibility with OpenJPEG < 2.5.1. If set to CONFIG, only Config mode
+    search is attempted. If set to empty string, default CMake logic
+    (https://cmake.org/cmake/help/latest/command/find_package.html) applies.
+
 
 OpenSSL
 *******
@@ -1661,7 +1681,7 @@ the :ref:`vector.pg` and :ref:`raster.postgisraster` drivers.
 PROJ
 ****
 
-`PROJ <https://github.com/OSGeo/PROJ/>`_ >= 6 is a *required* dependency for GDAL.
+`PROJ <https://github.com/OSGeo/PROJ/>`_ >= 6.3 is a *required* dependency for GDAL.
 
 .. option:: PROJ_INCLUDE_DIR
 
@@ -1669,10 +1689,21 @@ PROJ
 
 .. option:: PROJ_LIBRARY_RELEASE
 
-    Path to a shared or static library file, such as ``proj.dll``,
+    Path to a shared or static library file, such as
     ``libproj.so``, ``proj.lib``, or other name. A similar variable
     ``PROJ_LIBRARY_DEBUG`` can also be specified to a similar library for
     building Debug releases.
+
+.. option:: GDAL_FIND_PACKAGE_PROJ_MODE=CUSTOM/MODULE/CONFIG/empty string
+
+    .. versionadded:: 3.9
+
+    Control the mode used for find_package(PROJ).
+    Alters how the default CMake search logic
+    (https://cmake.org/cmake/help/latest/command/find_package.html) applies.
+    Defaults to CUSTOM, where the CONFIG mode is applied for PROJ >= 8, and
+    fallbacks to default MODULE mode otherwise.
+    Other values are passed directly to find_package()
 
 QHULL
 *****
@@ -1767,7 +1798,7 @@ and the :ref:`sql_sqlite_dialect`.
 
 .. option:: SQLite3_LIBRARY
 
-    Path to a shared or static library file, such as ``sqlite3.dll``,
+    Path to a shared or static library file, such as
     ``libsqlite3.so``, ``sqlite3.lib`` or other name.
 
 .. option:: GDAL_USE_SQLITE3=ON/OFF
@@ -1855,7 +1886,7 @@ If not found, an internal copy of libtiff can be used.
 
 .. option:: TIFF_LIBRARY_RELEASE
 
-    Path to a shared or static library file, such as ``tiff.dll``,
+    Path to a shared or static library file, such as
     ``libtiff.so``, ``tiff.lib``, or other name. A similar variable
     ``TIFF_LIBRARY_DEBUG`` can also be specified to a similar library for
     building Debug releases.
@@ -1875,6 +1906,8 @@ TileDB
 
 The `TileDB <https://github.com/TileDB-Inc/TileDB>` library is required for the :ref:`raster.tiledb` driver.
 Specify install prefix in the ``CMAKE_PREFIX_PATH`` variable.
+
+TileDB >= 2.15 is required since GDAL 3.9
 
 .. option:: GDAL_USE_TILEDB=ON/OFF
 
@@ -2103,7 +2136,7 @@ Example of minimal build with the JP2OpenJPEG and SVG drivers enabled::
 
     cmake .. -UGDAL_ENABLE_DRIVER_* -UOGR_ENABLE_DRIVER_* \
              -DGDAL_BUILD_OPTIONAL_DRIVERS:BOOL=OFF -DOGR_BUILD_OPTIONAL_DRIVERS:BOOL=OFF \
-             -DGDAL_ENABLE_DRIVER_JP2OPENPEG:BOOL=ON \
+             -DGDAL_ENABLE_DRIVER_JP2OPENJPEG:BOOL=ON \
              -DOGR_ENABLE_DRIVER_SVG:BOOL=ON
 
 Build drivers as plugins
@@ -2150,7 +2183,7 @@ Example of build with all potential drivers as plugins, except the JP2OpenJPEG o
 
     cmake .. -UGDAL_ENABLE_DRIVER_* -UOGR_ENABLE_DRIVER_* \
              -DGDAL_ENABLE_PLUGINS:BOOL=ON \
-             -DGDAL_ENABLE_DRIVER_JP2OPENPEG_PLUGIN:BOOL=OFF
+             -DGDAL_ENABLE_DRIVER_JP2OPENJPEG_PLUGIN:BOOL=OFF
 
 There is a subtelty regarding ``GDAL_ENABLE_PLUGINS:BOOL=ON``. It only controls
 the plugin status of plugin-capable drivers that have external dependencies,
@@ -2171,6 +2204,99 @@ This can be done with:
 
     Set to OFF to disable loading of GDAL plugins. Default is ON.
 
+
+Deferred loaded plugins
++++++++++++++++++++++++
+
+Starting with GDAL 3.9, a number of in-tree drivers, that can be built as
+plugins, are loaded in a deferred way. This involves that some part of their
+code, which does not depend on external libraries, is included in core libgdal,
+whereas most of the driver code is in a separated dynamically loaded library.
+For builds where libgdal and its plugins are built in a single operation, this
+is fully transparent to the user.
+
+When a plugin driver is known of core libgdal, but not available as a plugin at
+runtime, GDAL will inform the user that the plugin is not available, but could
+be installed. It is possible to give more hints on how to install a plugin
+by setting the following option:
+
+.. option:: GDAL_DRIVER_<driver_name>_PLUGIN_INSTALLATION_MESSAGE:STRING
+
+.. option:: OGR_DRIVER_<driver_name>_PLUGIN_INSTALLATION_MESSAGE:STRING
+
+    Custom message to give a hint to the user how to install a missing plugin
+
+
+For example, if doing a build with::
+
+    cmake .. -DOGR_DRIVER_PARQUET_PLUGIN_INSTALLATION_MESSAGE="You may install it with with 'conda install -c conda-forge libgdal-arrow-parquet'"
+
+and opening a Parquet file while the plugin is not installed will display the
+following error::
+
+    $ ogrinfo poly.parquet
+    ERROR 4: `poly.parquet' not recognized as a supported file format. It could have been recognized by driver Parquet, but plugin ogr_Parquet.so is not available in your installation. You may install it with with 'conda install -c conda-forge libgdal-arrow-parquet'
+
+
+For more specific builds where libgdal would be first built, and then plugin
+drivers built in later incremental builds, this approach would not work, given
+that the core libgdal built initially would lack code needed to declare the
+plugin(s).
+
+In that situation, the user building GDAL will need to explicitly declare at
+initial libgdal build time that one or several plugin(s) will be later built.
+Note that it is safe to distribute such a libgdal library, even if the plugins
+are not always available at runtime.
+
+This can be done with the following option:
+
+.. option:: GDAL_REGISTER_DRIVER_<driver_name>_FOR_LATER_PLUGIN:BOOL=ON
+
+.. option:: OGR_REGISTER_DRIVER_<driver_name>_FOR_LATER_PLUGIN:BOOL=ON
+
+    Declares that a driver will be later built as a plugin.
+
+Setting this option to drivers not ready for it will lead to an explicit
+CMake error.
+
+
+For some drivers (ECW, HEIF, JP2KAK, JPEG, JPEGXL, KEA, LERC, MrSID,
+MSSQLSpatial, netCDF, OpenJPEG, PDF, TileDB, WEBP), the metadata and/or dataset
+identification code embedded on libgdal, will depend on optional capabilities
+of the dependent library (e.g. libnetcdf for netCDF)
+In that situation, it is desirable that the dependent library is available at
+CMake configuration time for the core libgdal built, but disabled with
+GDAL_USE_<driver_name>=OFF. It must of course be re-enabled later when the plugin is
+built.
+
+For example for netCDF::
+
+    cmake .. -DGDAL_REGISTER_DRIVER_NETCDF_FOR_LATER_PLUGIN=ON -DGDAL_USE_NETCDF=OFF
+    cmake --build .
+
+    cmake .. -DGDAL_USE_NETCDF=ON -DGDAL_ENABLE_DRIVER_NETCDF=ON -DGDAL_ENABLE_DRIVER_NETCDF_PLUGIN=ON
+    cmake --build . --target gdal_netCDF
+
+
+For other drivers, GDAL_REGISTER_DRIVER_<driver_name>_FOR_LATER_PLUGIN /
+OGR_REGISTER_DRIVER_<driver_name>_FOR_LATER_PLUGIN can be declared at
+libgdal build time without requiring the dependent libraries needed to build
+the plugin later to be available.
+
+Out-of-tree deferred loaded plugins
++++++++++++++++++++++++++++++++++++
+
+Out-of-tree drivers can also benefit from the deferred loading capability, provided
+libgdal is built with CMake variable(s) pointing to external code containing the
+code for registering a proxy driver.
+
+This can be done with the following option:
+
+.. option:: ADD_EXTERNAL_DEFERRED_PLUGIN_<driver_name>:FILEPATH=/path/to/some/file.cpp
+
+The pointed file must declare a ``void DeclareDeferred<driver_name>(void)``
+method with C linkage that takes care of creating a GDALPluginDriverProxy
+instance and calling :cpp:func:`GDALDriverManager::DeclareDeferredPluginDriver` on it.
 
 .. _building-python-bindings:
 
@@ -2243,6 +2369,8 @@ the ``install`` CMake target.
     which link each against libgdal. Consequently, a static build of libgdal is
     not compatible with the bindings.
 
+.. _building_from_source_java:
+
 Java bindings options
 +++++++++++++++++++++
 
@@ -2257,8 +2385,8 @@ Java bindings options
 
 .. option:: GDAL_JAVA_INSTALL_DIR
 
-    Subdirectory into which to install the .jar
-    files. It defaults to "${CMAKE_INSTALL_DATADIR}/java"
+    Subdirectory into which to install the :file:`gdal.jar` file.
+    It defaults to "${CMAKE_INSTALL_DATADIR}/java"
 
     .. note::
         Prior to GDAL 3.8, the gdalalljni library was also installed in that
@@ -2269,8 +2397,20 @@ Java bindings options
 
     .. versionadded:: 3.8
 
-    Subdirectory into which to install the gdalalljni library.
-    It defaults to "${CMAKE_INSTALL_LIBDIR}/jni"
+    Subdirectory into which to install the :file:`libgdalalljni.so` /
+    :file:`libgdalalljni.dylib` / :file:`gdalalljni.dll` library.
+    It defaults to "${CMAKE_INSTALL_LIBDIR}/jni".
+
+    .. note::
+        Prior to GDAL 3.8, the gdalalljni library was installed in the
+        directory controlled by the ``GDAL_JAVA_INSTALL_DIR`` variable.
+
+
+.. note::
+
+    The Java bindings are made of several modules (org.osgeo.gdal, org.osgeo.ogr, etc.)
+    which link each against libgdal. Consequently, a static build of libgdal is
+    not compatible with the bindings.
 
 Option only to be used by maintainers:
 
@@ -2281,12 +2421,6 @@ Option only to be used by maintainers:
 .. option:: GPG_PASS
 
     GPG pass phrase to sign build artifacts.
-
-.. note::
-
-    The Java bindings are made of several modules (org.osgeo.gdal, org.osgeo.ogr, etc.)
-    which link each against libgdal. Consequently, a static build of libgdal is
-    not compatible with the bindings.
 
 C# bindings options
 +++++++++++++++++++

@@ -17,8 +17,16 @@ potentially applied as well as various kinds of metadata altered or added.
 VRT descriptions of datasets can be saved in an XML format normally given the
 extension .vrt.
 
+Note .vrt files starting with
+
+- <OGRVRTDataSource> open with :ref:`ogrinfo`, etc.
+- <VRTDataset> open with :ref:`gdalinfo`, etc.
+
 The VRT format can also describe :ref:`gdal_vrttut_warped`
 and :ref:`gdal_vrttut_pansharpen`
+
+For mosaic with a very large number of tiles (tens of thousands or mores),
+the :ref:`GTI <raster.gti>` driver may be used starting with GDAL 3.9.
 
 An example of a simple .vrt file referring to a 512x512 dataset with one band
 loaded from :file:`utm.tif` might look like this:
@@ -78,8 +86,12 @@ The following creations options are supported:
 .vrt Format
 -----------
 
-A `XML schema of the GDAL VRT format <https://raw.githubusercontent.com/OSGeo/gdal/master/data/gdalvrt.xsd>`_
+A `XML schema of the GDAL VRT format <https://raw.githubusercontent.com/OSGeo/gdal/master/frmts/vrt/data/gdalvrt.xsd>`_
 is available.
+
+Note, .vrt files starting with
+- <OGRVRTDataSource> open with ogrinfo, etc.
+- <VRTDataset> open with gdalinfo, etc.
 
 Virtual files stored on disk are kept in an XML format with the following
 elements.
@@ -182,7 +194,7 @@ The attributes for VRTRasterBand are:
 - **blockYSize** (optional, GDAL >= 3.3): block height.
   If not specified, defaults to the minimum of the raster height and 128.
 
-This element may have Metadata, ColorInterp, NoDataValue, HideNoDataValue, ColorTable, GDALRasterAttributeTable, Description and MaskBand subelements as well as the various kinds of source elements such as SimpleSource, ComplexSource, AveragedSource, KernelFilteredSource and ArraySource.  A raster band may have many "sources" indicating where the actual raster data should be fetched from, and how it should be mapped into the raster bands pixel space.
+This element may have Metadata, ColorInterp, NoDataValue, HideNoDataValue, ColorTable, GDALRasterAttributeTable, Description and MaskBand subelements as well as the various kinds of source elements such as SimpleSource, ComplexSource, AveragedSource, NoDataFromMaskSource, KernelFilteredSource and ArraySource.  A raster band may have many "sources" indicating where the actual raster data should be fetched from, and how it should be mapped into the raster bands pixel space.
 
 The allowed subelements for VRTRasterBand are :
 
@@ -301,6 +313,8 @@ The allowed subelements for VRTRasterBand are :
 
 - **AveragedSource**: The AveragedSource is derived from the SimpleSource and shares the same properties except that it uses an averaging resampling instead of a nearest neighbour algorithm as in SimpleSource, when the size of the destination rectangle is not the same as the size of the source rectangle. Note: a more general mechanism to specify resampling algorithms can be used. See above paragraph about the 'resampling' attribute.
 
+- **NoDataFromMaskSource**: (GDAL >= 3.9) The NoDataFromMaskSource is derived from the SimpleSource and shares the same properties except that it replaces the value of the source with the value of the NODATA child element when the value of the mask band of the source is less or equal to the MaskValueThreshold child element.
+
 - **ComplexSource**: The ComplexSource_ is derived from the SimpleSource (so it shares the SourceFilename, SourceBand, SrcRect and DstRect elements), but it provides support to rescale and offset the range of the source values. Certain regions of the source can be masked by specifying the NODATA value, or starting with GDAL 3.3, with the <UseMaskBand>true</UseMaskBand> element.
 
 - **KernelFilteredSource**: The KernelFilteredSource_ is a pixel source derived from the Simple Source (so it shares the SourceFilename, SourceBand, SrcRect and DstRect elements, but it also passes the data through a simple filtering kernel specified with the Kernel element.
@@ -409,6 +423,11 @@ the following form:
 
 The intermediary values are calculated using a linear interpolation
 between the bounding destination values of the corresponding range.
+Source values should be monotonically non-decreasing. Clamping is performed for
+input pixel values outside of the range specified by the LUT. That is, if an
+input pixel value is lower than the minimum source value, then the destination
+value corresponding to that minimum source value is used as the output pixel value.
+And similarly for an input pixel value that is greater than the maximum source value.
 
 The ComplexSource supports fetching a color component from a source raster
 band that has a color table. The ColorTableComponent value is the index of the
@@ -494,6 +513,25 @@ For example, a Gaussian blur:
         <Coefs>0.01111 0.04394 0.13534 0.32465 0.60653 0.8825 1.0 0.8825 0.60653 0.32465 0.13534 0.04394 0.01111</Coefs>
       </Kernel>
     </KernelFilteredSource>
+
+NoDataFromMaskSource
+~~~~~~~~~~~~~~~~~~~~
+
+.. versionadded:: 3.9
+
+The NoDataFromMaskSource is derived from the SimpleSource and shares the same properties except that it replaces the value of the source with the value of the NODATA child element when the value of the mask band of the source is less or equal to the MaskValueThreshold child element.
+An optional RemappedValue element can be set to specify the value onto which valid pixels whose value is the one of NODATA should be remapped to. When RemappedValue is not explicitly specified, for Byte bands, if NODATA=255, it is implicitly set to 254, otherwise it is set to NODATA+1.
+
+.. code-block:: xml
+
+    <NoDataFromMaskSource>
+      <SourceFilename relativeToVRT="1">in.tif</SourceFilename>
+      <SourceBand>1</SourceBand>
+      <MaskValueThreshold>128</MaskValueThreshold> <!-- if the mask value is &lt;= 128, pixels are set to NODATA=0 -->
+      <NODATA>0</NODATA>
+      <RemappedValue>1</RemappedValue> <!-- valid/unmasked pixels at NODATA=0 are remapped to 1 -->
+    </NoDataFromMaskSource>
+
 
 ArraySource
 ~~~~~~~~~~~
@@ -723,13 +761,13 @@ Except if (from top priority to lesser priority) :
 -------------------------------
 
 So far we have described how to derive new virtual datasets from existing
-files supports by GDAL.  However, it is also common to need to utilize
+files supported by GDAL.  However, it is also common to need to utilize
 raw binary raster files for which the regular layout of the data is known
 but for which no format specific driver exists.  This can be accomplished
 by writing a .vrt file describing the raw file.
 
 For example, the following .vrt describes a raw raster file containing
-floating point complex pixels in a file called <i>l2p3hhsso.img</i>.  The
+floating point complex pixels in a file called *l2p3hhsso.img*.  The
 image data starts from the first byte (ImageOffset=0).  The byte offset
 between pixels is 8 (PixelOffset=8), the size of a CFloat32.  The byte offset
 from the start of one line to the start of the next is 9376 bytes
@@ -1724,6 +1762,7 @@ PanchroBand and SpectralBand elements must have at least a **SourceFilename** ch
 element to specify the name of the dataset. They may also have a **SourceBand** child
 element to specify the number of the band in the dataset (starting with 1). If not
 specify, the first band will be assumed.
+**OpenOptions** can also be specified
 
 The SpectralBand element must generally have a **dstBand** attribute to specify the
 number of the output band (starting with 1) to which the input spectral band must be mapped.
@@ -1745,18 +1784,30 @@ with panchromatic.tif.
         <PansharpeningOptions>
             <PanchroBand>
                 <SourceFilename relativeToVRT="1">panchromatic.tif</SourceFilename>
+                <OpenOptions>
+                    <OOI key="NUM_THREADS">ALL_CPUS</OOI>
+                </OpenOptions>
                 <SourceBand>1</SourceBand>
             </PanchroBand>
             <SpectralBand dstBand="1">
                 <SourceFilename relativeToVRT="1">multispectral.tif</SourceFilename>
+                <OpenOptions>
+                    <OOI key="NUM_THREADS">ALL_CPUS</OOI>
+                </OpenOptions>
                 <SourceBand>1</SourceBand>
             </SpectralBand>
             <SpectralBand dstBand="2">
                 <SourceFilename relativeToVRT="1">multispectral.tif</SourceFilename>
+                <OpenOptions>
+                    <OOI key="NUM_THREADS">ALL_CPUS</OOI>
+                </OpenOptions>
                 <SourceBand>2</SourceBand>
             </SpectralBand>
             <SpectralBand dstBand="3">
                 <SourceFilename relativeToVRT="1">multispectral.tif</SourceFilename>
+                <OpenOptions>
+                    <OOI key="NUM_THREADS">ALL_CPUS</OOI>
+                </OpenOptions>
                 <SourceBand>3</SourceBand>
             </SpectralBand>
         </PansharpeningOptions>
@@ -1861,6 +1912,22 @@ See the dedicated :ref:`vrt_multidimensional` page.
 
    vrt_multidimensional
 
+Processed dataset VRT
+---------------------
+
+.. versionadded:: 3.9
+
+A VRT processed dataset is a specific variant of the :ref:`raster.vrt` format,
+to apply chained processing steps that may apply to several bands at the same time.
+
+See the dedicated :ref:`vrt_processed_dataset` page.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   vrt_processed_dataset
+
 vrt:// connection string
 ------------------------
 
@@ -1902,10 +1969,14 @@ For example:
 
     vrt://my.tif?bands=2&ovr=4
 
+::
 
-The supported options currently are ``bands``, ``a_srs``, ``a_ullr``, ``ovr``, ``expand``,
+    vrt://my.nc?sd_name=sds
+
+
+The supported options currently are ``bands``, ``a_nodata``, ``a_srs``, ``a_ullr``, ``ovr``, ``expand``,
 ``a_scale``, ``a_offset``, ``ot``, ``gcp``, ``if``, ``scale``, ``exponent``, ``outsize``, ``projwin``,
-``projwin_srs``, ``tr``, ``r``, ``srcwin``, ``a_gt``, ``oo``, ``unscale``, ``a_coord_epoch``, ``nogcp``, ``epo``, and ``eco``.
+``projwin_srs``, ``tr``, ``r``, ``srcwin``, ``a_gt``, ``oo``, ``unscale``, ``a_coord_epoch``, ``nogcp``, ``epo``, ``eco``, ``sd_name``, and ``sd``.
 
 Other options may be added in the future.
 
@@ -1913,6 +1984,9 @@ The effect of the ``bands`` option is to change the band composition. The values
 are the source band numbers (between 1 and N), possibly out-of-order or with repetitions.
 The ``mask`` value can be used to specify the global mask band. This can also
 be seen as an equivalent of running `gdal_translate -of VRT -b num1 ... -b numN`.
+
+The effect of the ``a_nodata`` option (added in GDAL 3.9) is to assign (override) the nodata
+value of the source in the same way as (:ref:`gdal_translate`).
 
 The effect of the ``a_srs`` option (added in GDAL 3.7) is to assign (override) the coordinate
 reference system of the source in the same way as (:ref:`gdal_translate`), it may be missing,
@@ -1988,6 +2062,20 @@ use syntax ``nogcp=true``, or ``nogcp=false`` (which is the default if not speci
 The effect of the ``epo`` option (added in GDAL 3.8) is that ``srcwin`` or ``projwin`` values that fall partially outside the source raster extent will be considered as an error as per (:ref:`gdal_translate`). To apply this use syntax ``epo=true``, or ``epo=false`` (which is the default if not specified).
 
 The effect of the ``eco`` option (added in GDAL 3.8) is that ``srcwin`` or ``projwin`` values that fall completely outside the source raster extent will be considered as an error as per (:ref:`gdal_translate`). To apply this use syntax ``eco=true``, or ``eco=false`` (which is the default if not specified).
+
+The effect of the ``sd_name`` option (added in GDAL 3.9) is to choose an individual subdataset by
+name for sources that have multiple subdatasets. This means that rather than a fully-qualified description
+such as "NETCDF:myfile.nc:somearray" we may use "vrt://myfile.nc?sd_name=somearray". This option
+is mutually exclusive with ``sd``.
+
+The effect of the ``sd`` option (added in GDAL 3.9) is to choose an individual subdataset by
+number for sources that have multiple subdatasets. This means that rather than a fully-qualified
+description such as "NETCDF:myfile.nc:somearray" we may use "vrt://myfile.nc?sd=<n>" where "<n>"
+is between 1 and the number of subdatasets. Note that there is no guarantee of the order of the
+subdatasets within a source between GDAL versions (or in some cases between file series in datasets). This
+mode is for convenience only, please use ``sd_name`` to choose a subdataset by name explicitly.
+This option is mutually exclusive with ``sd_name``.
+
 
 The options may be chained together separated by '&'. (Beware the need for quoting to protect
 the ampersand).

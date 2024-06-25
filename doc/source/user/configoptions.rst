@@ -40,6 +40,14 @@ time to affect behavior.
 
     gdal_translate --config GDAL_CACHEMAX 64 in.tif out.tif
 
+Since GDAL 3.9, it is also possible to set a config option in a more conventional
+way by using a single ``<NAME>``=``<VALUE>`` command line string instead of having ``<NAME>``
+and ``<VALUE>`` as two space-separated strings.
+
+::
+
+    gdal_translate --config GDAL_CACHEMAX=64 in.tif out.tif
+
 In C/C++ configuration switches can be set programmatically with
 :cpp:func:`CPLSetConfigOption`:
 
@@ -74,7 +82,7 @@ predefined files.
 The following locations are tried by :cpp:func:`CPLLoadConfigOptionsFromPredefinedFiles`:
 
  - the location pointed by the environment variable (or configuration option)
-   :config:`GDAL_CONFIG_FILE` is attempted first. If it set, the next steps are not
+   :config:`GDAL_CONFIG_FILE` is attempted first. If it is set, the next steps are not
    attempted
 
  - for Unix builds, the location pointed by ${sysconfdir}/gdal/gdalrc is first
@@ -358,6 +366,9 @@ Driver management
       subdirectory of the gdal home directory are searched on UNIX and
       $(BINDIR)\gdalplugins on Windows.
 
+      Auto loading can be completely disabled by setting the
+      ``GDAL_DRIVER_PATH`` config option to "disable".
+
       This option must be set before calling :cpp:func:`GDALAllRegister`, or an explicit call
       to :cpp:func:`GDALDriverManager::AutoLoadDrivers` will be required.
 
@@ -400,85 +411,8 @@ General options
       :choices: NEAR, BILINEAR, CUBIC, CUBICSPLINE, LANCZOS, AVERAGE, RMS, MODE, GAUSS
       :default: NEAR
 
-      Sets the resampling algorithm to be used when reading a from a raster
+      Sets the resampling algorithm to be used when reading from a raster
       into a buffer with different dimensions from the source region.
-
--  .. config:: OGR_ARC_STEPSIZE
-      :choices: <degrees>
-      :default: 4
-      :since: 1.8.0
-
-      Used by :cpp:func:`OGR_G_CreateFromGML` (for gml:Arc and gml:Circle) and
-      :cpp:func:`OGRGeometryFactory::approximateArcAngles` to stroke arc to linestrings.
-
-      The approximation of arcs as linestrings is done by splitting the arcs into
-      subarcs of no more than the angle specified by this option.
-
--  .. config:: OGR_ARC_MAX_GAP
-      :default: 0
-
-      Arcs will be approximated while enforcing a maximum distance
-      between adjacent points on the interpolated curve. Setting this option
-      to 0 (the default) means no maximum distance applies.
-
--  .. config:: OGR_STROKE_CURVE
-      :choices: TRUE, FALSE
-      :default: FALSE
-
-      Controls whether curved geometries should be approximated by linear geometries.
-
-- .. config:: OGR_ORGANIZE_POLYGONS
-     :choices: DEFAULT, SKIP, ONLY_CCW, CCW_INNER_JUST_AFTER_CW_OUTER
-
-     Defines the method used to classify polygon rings as holes or shells.
-     Although one of the options is named ``DEFAULT``, some drivers may default
-     to a different method to reduce processing by taking advantage of a
-     format's constraints. The following methods are available, in order of
-     decreasing expected runtime:
-
-     - ``DEFAULT``: perform a full analysis of the topological relationships
-       between all rings, classifying them as shells or holes and associating
-       them according to the OGC Simple Features convention. If the topological
-       analysis determines that a valid geometry cannot be constructed, the
-       result will be the same as with :config:`OGR_ORGANIZE_POLYGONS=SKIP`.
-
-     - ``ONLY_CCW``: assume that rings with clockwise orientation represent
-       shells and rings with counterclockwise orientation represent holes.
-       Perform a limited topological analysis to determine which shell contains
-       each hole. The Shapefile driver defaults to this method.
-
-     - ``CCW_INNER_JUST_AFTER_CW_OUTER``: assume that rings with clockwise
-       orientation represent shells and rings with counterclockwise orientation
-       represent holes and immediately follow the outer ring with which they are
-       associated.
-
-     - ``SKIP``: avoid attempting to classify rings as shells or holes. A
-       single geometry (Polygon/MultiPolygon/CurvePolygon/MultiSurface) will be
-       returned with all polygons as top-level polygons. If non-polygonal elements
-       are present, a GeometryCollection will be returned.
-
-
-
--  .. config:: OGR_SQL_LIKE_AS_ILIKE
-      :choices: YES, NO
-      :default: NO
-      :since: 3.1
-
-      If ``YES``, the LIKE operator in the OGR SQL dialect will be case-insensitive (ILIKE), as was the case for GDAL versions prior to 3.1.
-
--  .. config:: OGR_FORCE_ASCII
-      :choices: YES, NO
-      :default: YES
-
-      Used by :cpp:func:`OGRGetXML_UTF8_EscapedString` function and by GPX, KML,
-      GeoRSS and GML drivers.
-
-      Those XML based drivers should write UTF8 content. If they are provided with non
-      UTF8 content, they will replace each non-ASCII character by '?' when
-      OGR_FORCE_ASCII=YES.
-
-      Set to NO to preserve the content, but beware that the resulting XML file will
-      not be valid and will require manual edition of the encoding in the XML header.
 
 -  .. config:: CPL_VSIL_ZIP_ALLOWED_EXTENSIONS
       :choices: <comma-separated list>
@@ -559,6 +493,102 @@ General options
       Location of Python shared library file, e.g. ``pythonX.Y[...].so/.dll``.
 
 
+.. _configoptions_vector:
+
+Vector related options
+^^^^^^^^^^^^^^^^^^^^^^
+
+-  .. config:: OGR_ARC_STEPSIZE
+      :choices: <degrees>
+      :default: 4
+      :since: 1.8.0
+
+      Used by :cpp:func:`OGR_G_CreateFromGML` (for gml:Arc and gml:Circle) and
+      :cpp:func:`OGRGeometryFactory::approximateArcAngles` to stroke arc to linestrings.
+
+      The approximation of arcs as linestrings is done by splitting the arcs into
+      subarcs of no more than the angle specified by this option.
+
+-  .. config:: OGR_ARC_MAX_GAP
+      :default: 0
+
+      Arcs will be approximated while enforcing a maximum distance
+      between adjacent points on the interpolated curve. Setting this option
+      to 0 (the default) means no maximum distance applies.
+
+-  .. config:: OGR_STROKE_CURVE
+      :choices: TRUE, FALSE
+      :default: FALSE
+
+      Controls whether curved geometries should be approximated by linear geometries.
+
+- .. config:: OGR_ORGANIZE_POLYGONS
+     :choices: DEFAULT, SKIP, ONLY_CCW, CCW_INNER_JUST_AFTER_CW_OUTER
+
+     Defines the method used to classify polygon rings as holes or shells.
+     Although one of the options is named ``DEFAULT``, some drivers may default
+     to a different method to reduce processing by taking advantage of a
+     format's constraints. The following methods are available, in order of
+     decreasing expected runtime:
+
+     - ``DEFAULT``: perform a full analysis of the topological relationships
+       between all rings, classifying them as shells or holes and associating
+       them according to the OGC Simple Features convention. If the topological
+       analysis determines that a valid geometry cannot be constructed, the
+       result will be the same as with :config:`OGR_ORGANIZE_POLYGONS=SKIP`.
+
+     - ``ONLY_CCW``: assume that rings with clockwise orientation represent
+       shells and rings with counterclockwise orientation represent holes.
+       Perform a limited topological analysis to determine which shell contains
+       each hole. The Shapefile driver defaults to this method.
+
+     - ``CCW_INNER_JUST_AFTER_CW_OUTER``: assume that rings with clockwise
+       orientation represent shells and rings with counterclockwise orientation
+       represent holes and immediately follow the outer ring with which they are
+       associated.
+
+     - ``SKIP``: avoid attempting to classify rings as shells or holes. A
+       single geometry (Polygon/MultiPolygon/CurvePolygon/MultiSurface) will be
+       returned with all polygons as top-level polygons. If non-polygonal elements
+       are present, a GeometryCollection will be returned.
+
+
+-  .. config:: OGR_SQL_LIKE_AS_ILIKE
+      :choices: YES, NO
+      :default: NO
+      :since: 3.1
+
+      If ``YES``, the LIKE operator in the OGR SQL dialect will be case-insensitive (ILIKE), as was the case for GDAL versions prior to 3.1.
+
+-  .. config:: OGR_FORCE_ASCII
+      :choices: YES, NO
+      :default: YES
+
+      Used by :cpp:func:`OGRGetXML_UTF8_EscapedString` function and by GPX, KML,
+      GeoRSS and GML drivers.
+
+      Those XML based drivers should write UTF8 content. If they are provided with non
+      UTF8 content, they will replace each non-ASCII character by '?' when
+      OGR_FORCE_ASCII=YES.
+
+      Set to NO to preserve the content, but beware that the resulting XML file will
+      not be valid and will require manual edition of the encoding in the XML header.
+
+-  .. config:: OGR_APPLY_GEOM_SET_PRECISION
+      :choices: YES, NO
+      :default: NO
+      :since: 3.9
+
+      By default, when a geometry coordinate precision is set on a geometry field
+      definition and a driver honors the GDAL_DCAP_HONOR_GEOM_COORDINATE_PRECISION
+      capability, geometries passed to :cpp:func:`OGRLayer::CreateFeature` and
+      :cpp:func:`OGRLayer::SetFeature` are assumed to be compatible of the
+      coordinate precision. That is they are assumed to be valid once their
+      coordinates are rounded to it. If it might not be the case, set this
+      configuration option to YES before calling CreateFeature() or SetFeature()
+      to force :cpp:func:`OGRGeometry::SetPrecision` to be called on the passed geometries.
+
+
 Networking options
 ^^^^^^^^^^^^^^^^^^
 
@@ -573,7 +603,7 @@ Networking options
 
       .. code-block::
 
-         gdalinfo --config CPL_VSIL_CURL_ALLOWED_EXTENSIONS "".tif" /vsicurl/http://igskmncngs506.cr.usgs.gov/gmted/Global_tiles_GMTED/075darcsec/bln/W030/30N030W_20101117_gmted_bln075.tif
+         gdalinfo --config CPL_VSIL_CURL_ALLOWED_EXTENSIONS ".tif" /vsicurl/http://igskmncngs506.cr.usgs.gov/gmted/Global_tiles_GMTED/075darcsec/bln/W030/30N030W_20101117_gmted_bln075.tif
 
 -  .. config:: CPL_VSIL_CURL_CACHE_SIZE
       :choices: <bytes>
@@ -637,7 +667,8 @@ Networking options
       :choices: <filename>
       :since: 2.3
 
-      Filename of a text file with "key: value" HTTP headers.
+      Filename of a text file with "key: value" HTTP headers. The content of the
+      file is not cached, and thus it is read again before issuing each HTTP request.
 
 -  .. config:: GDAL_HTTP_CONNECTTIMEOUT
       :choices: <seconds>
@@ -805,14 +836,14 @@ Networking options
 -  .. config:: GDAL_HTTP_MERGE_CONSECUTIVE_RANGES
       :since: 2.3
       :choices: YES, NO
-      :default: NO
+      :default: YES
 
       Only applies when :config:`GDAL_HTTP_MULTIRANGE` is YES. Defines if ranges
       of a single ReadMultiRange() request that are consecutive should be merged
       into a single request.
 
 -  .. config:: GDAL_HTTP_AUTH
-      :choices: BASIC, NTLM, GSSNEGOTIATE, ANY
+      :choices: BASIC, NTLM, NEGOTIATE, ANY, ANYSAFE, BEARER
 
       Set value to tell libcurl which authentication method(s) you want it to
       use. See http://curl.haxx.se/libcurl/c/curl_easy_setopt.html#CURLOPTHTTPAUTH
@@ -828,6 +859,19 @@ Networking options
       separating the domain and name with a forward (/) or backward slash (\). Like
       this: "domain/user:password" or "domain\user:password". Some HTTP servers (on
       Windows) support this style even for Basic authentication.
+
+-  .. config:: GDAL_GSSAPI_DELEGATION
+      :since: 3.3
+      :choices: NONE, POLICY, ALWAYS
+
+      Set allowed GSS-API delegation. Relevant only with
+      :config:`GDAL_HTTP_AUTH=NEGOTIATE`.
+
+-  .. config:: GDAL_HTTP_BEARER
+      :since: 3.9
+
+      Set HTTP OAuth 2.0 Bearer Access Token to use for the connection. Must be used
+      with :config:`GDAL_HTTP_AUTH=BEARER`.
 
 -  .. config:: GDAL_HTTP_PROXY
 
@@ -852,7 +896,7 @@ Networking options
       in the form of [user name]:[password].
 
 -  .. config:: GDAL_PROXY_AUTH
-      :choices: BASIC, NTLM, DIGEST, ANY
+      :choices: BASIC, NTLM, NEGOTIATE, DIGEST, ANY, ANYSAFE
 
       Set value to  to tell libcurl which authentication method(s) you want it to use
       for your proxy authentication. See
@@ -914,11 +958,11 @@ PROJ options
 
       This option can be used to control the behavior of gdalwarp when warping global
       datasets or when transforming from/to polar projections, which causes
-      coordinates discontinuities. See http://trac.osgeo.org/gdal/ticket/2305.
+      coordinate discontinuities. See http://trac.osgeo.org/gdal/ticket/2305.
 
       The background is that PROJ does not guarantee that converting from src_srs to
       dst_srs and then from dst_srs to src_srs will yield to the initial coordinates.
-      This can cause to errors in the computation of the target bounding box of
+      This can lead to errors in the computation of the target bounding box of
       gdalwarp, or to visual artifacts.
 
       If CHECK_WITH_INVERT_PROJ option is not set, gdalwarp will check that the the
@@ -947,8 +991,7 @@ PROJ options
 
       Used by :cpp:func:`OGRLineString::transform`.
 
-      Can be set to YES to remove points that can't be reprojected. See #3758 for the
-      purpose of this option.
+      Can be set to YES to remove points that cannot be reprojected. This can for example help reproject lines that have an extremity at a pole, when the reprojection does not support coordinates at poles.
 
 -  .. config:: OGR_CT_USE_SRS_COORDINATE_EPOCH
       :choices: YES, NO

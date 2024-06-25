@@ -33,7 +33,7 @@ can be used by OGR.
   *track_seg_point_id*. All coordinates are relative to the WGS84 datum
   (EPSG:4326).
 
-The OGR/GPX reads and writes the GPX attributes for the waypoints,
+The OGR GPX driver reads and writes the GPX attributes for the waypoints,
 routes and tracks.
 
 Starting with GDAL 3.7, metadata from the top <metadata> element is reported
@@ -80,6 +80,40 @@ available:
       and track points.
 
 -  .. config:: GPX_N_MAX_LINKS
+      :default: 2
+
+      Determines the number of *<link>* elements can be taken into account by
+      feature.
+
+Open options
+------------
+
+.. versionadded:: 3.9
+
+The following open options are available:
+
+-  .. oo:: SHORT_NAMES
+      :choices: YES, NO
+      :default: FALSE
+
+      If ``YES``, the following fields will be renamed:
+
+      - "track_seg_id" to "trksegid"
+      - "track_seg_point_id" to  "trksegptid"
+      - "route_point_id" to "rteptid"
+
+      But note that
+      no particular processing will be done for any extension field names.
+
+-  .. oo:: ELE_AS_25D
+      :choices: YES, NO
+      :default: NO
+
+      If ``YES``, the elevation
+      element will be used to set the Z coordinates of waypoints, route points
+      and track points.
+
+-  .. oo:: N_MAX_LINKS
       :default: 2
 
       Determines the number of *<link>* elements can be taken into account by

@@ -119,6 +119,12 @@ Spatialite, are also available :
 -  DisableSpatialIndex(table_name *String*, geom_column_name *String*):
    drops an existing spatial index (RTree) on the specified
    table/geometry column
+-  ST_Area(geom *Geometry*): compute the area in square units of the geometry SRS.
+-  ST_Area(geom *Geometry*, use_ellipsoid *boolean*): (GDAL >= 3.9): compute
+   the area in square meters, considering the geometry on the ellipsoid
+   (use_ellipsoid must be set to true/1).
+-  SetSRID(geom *Geometry*, srs_id *Integer*): overrides the geometry' SRS ID,
+   without reprojection.
 -  ST_Transform(geom *Geometry*, target_srs_id *Integer*): reproject the geometry
    to the SRS of specified srs_id. If no SRS with that given srs_id is not found
    in gpkg_spatial_ref_sys, starting with GDAL 3.2, it will be interpreted as
@@ -168,14 +174,19 @@ Relationships
 
 .. versionadded:: 3.6
 
-Relationship retrieval is supported, respecting the OGC GeoPackage Related Tables Extension.
-If the Related Tables Extension is not in use then relationships will be reported for tables
-which utilize FOREIGN KEY constraints.
+Many-to-many relationship retrieval is supported, respecting the OGC GeoPackage Related Tables Extension.
+One-to-many relationships will also be reported for tables which utilize FOREIGN KEY constraints.
 
 Relationship creation, deletion and updating is supported since GDAL 3.7. Relationships can
 only be updated to change their base or related table fields, or the relationship related
 table type. It is not permissible to change the base or related table itself, or the mapping
 table details. If this is desired then a new relationship should be created instead.
+
+Note that when a many-to-many relationship is created in a GeoPackage, GDAL will always
+insert the mapping table into the gpkg_contents table. Formally this is not required
+by the Related Tables Extension (instead, the table should only be listed in gpkgext_relations),
+however failing to list the mapping table in gpkg_contents prevents it from being usable
+in some other applications (e.g. ESRI software).
 
 Dataset open options
 --------------------
@@ -331,6 +342,21 @@ Layer creation options
 
 The following layer creation options are available:
 
+-  .. lco:: LAUNDER
+      :choices: YES, NO
+      :default: NO
+      :since: 3.9
+
+      Whether layer and field names will be laundered. Laundering makes sure
+      that the recommendation of https://www.geopackage.org/guidance/getting-started.html
+      is followed: an identifier should start with a lowercase character and
+      only use lowercase characters, numbers 0-9, and underscores (_). UTF-8
+      accented characters in the `Latin-1 Supplement <https://en.wikipedia.org/wiki/Latin-1_Supplement>`__
+      and `Latin Extented-A <https://en.wikipedia.org/wiki/Latin_Extended-A>`__
+      sets are replaced when possible with the closest ASCII letter.
+      Characters that do not match the recommendation are replaced with underscore.
+      Consequently this option is not appropriate for non-Latin languages.
+
 -  .. lco:: GEOMETRY_NAME
       :default: geom
 
@@ -345,6 +371,30 @@ The following layer creation options are available:
       Whether the values of the
       geometry column can be NULL. Can be set to NO so that geometry is
       required.
+
+-  .. lco:: SRID
+      :choices: <integer>
+      :since: 3.9
+
+      Forced ``srs_id`` of the entry in the ``gpkg_spatial_ref_sys`` table to point to.
+      This may be -1 ("Undefined Cartesian SRS"), 0 ("Undefined geographic SRS"),
+      99999 ("Undefined SRS"), a valid EPSG CRS code or an existing entry of the
+      ``gpkg_spatial_ref_sys`` table. If pointing to a non-existing entry, only a warning
+      will be emitted.
+
+-  .. lco:: DISCARD_COORD_LSB
+      :choices: YES, NO
+      :default: NO
+      :since: 3.9
+
+      Whether the geometry coordinate precision should be used to set to zero non-significant least-significant bits of geometries. Helps when further compression is used. See :ref:`ogr_gpkg_geometry_coordinate_precision` for more details.
+
+-  .. lco:: UNDO_DISCARD_COORD_LSB_ON_READING
+      :choices: YES, NO
+      :default: NO
+      :since: 3.9
+
+      Whether to ask GDAL to take into coordinate precision to undo the effects of DISCARD_COORD_LSB. See :ref:`ogr_gpkg_geometry_coordinate_precision` for more details.
 
 -  .. lco:: FID
       :default: fid
@@ -569,12 +619,27 @@ also supported by GeoPackage and stored in the ``gpkg_spatial_ref_sys`` table.
 
 Two special hard-coded CRS are reserved per the GeoPackage specification:
 
-- SRID 0, for a Undefined Geographic CRS. This one is selected by default if
-  creating a spatial layer without any explicit CRS
+- srs_id=0, for a Undefined Geographic CRS. For GDAL 3.8 or earlier, this one is
+  selected by default if creating a spatial layer without any explicit CRS
 
-- SRID -1, for a Undefined Projected CRS. It might be selected by creating a
+- srs_id=-1, for a Undefined Projected CRS. It might be selected by creating a
   layer with a CRS instantiated from the following WKT string:
-  ``LOCAL_CS["Undefined cartesian SRS"]``. (GDAL >= 3.3)
+  ``LOCAL_CS["Undefined Cartesian SRS"]``. (GDAL >= 3.3)
+
+Starting with GDAL 3.9, a layer without any explicit CRS is mapped from/to a
+custom entry of srs_id=99999 with the following properties:
+
+- ``srs_name``: ``Undefined SRS``
+- ``organization``: ``GDAL``
+- ``organization_coordsys_id``: 99999
+- ``definition``: ``LOCAL_CS["Undefined SRS",LOCAL_DATUM["unknown",32767],UNIT["unknown",0],AXIS["Easting",EAST],AXIS["Northing",NORTH]]``
+- ``definition_12_063`` (when the CRS WKT extension is used): ``ENGCRS["Undefined SRS",EDATUM["unknown"],CS[Cartesian,2],AXIS["easting",east,ORDER[1],LENGTHUNIT["unknown",0]],AXIS["northing",north,ORDER[2],LENGTHUNIT["unknown",0]]]``
+- ``description``: ``Custom undefined coordinate reference system``
+
+Note that the use of a LOCAL_CS / EngineeringCRS is mostly to provide a valid
+CRS definition to comply with the requirements of the GeoPackage specification
+and to be compatible of other applications (or GDAL 3.8 or earlier), but the
+semantics of that entry is intended to be "undefined SRS of any kind".
 
 Level of support of GeoPackage Extensions
 -----------------------------------------
@@ -608,6 +673,9 @@ Level of support of GeoPackage Extensions
    * - :ref:`vector.gpkg_spatialite_computed_geom_column`
      - No
      - Yes, starting with GDAL 3.7.1
+   * - `OGC GeoPackage Related Tables Extension <http://www.geopackage.org/spec/related-tables/>`__
+     - Yes
+     - Yes, starting with GDAL 3.6
 
 Compressed files
 ----------------
@@ -623,6 +691,62 @@ Update of an existing file is not supported.
 
 Creation involves the creation of a temporary file. Sufficiently large files
 will be automatically compressed using the SOZip optimization.
+
+.. _ogr_gpkg_geometry_coordinate_precision:
+
+Geometry coordinate precision
+-----------------------------
+
+.. versionadded:: GDAL 3.9
+
+The GeoPackage driver supports reading and writing the geometry coordinate
+precision, using the :cpp:class:`OGRGeomCoordinatePrecision` settings of the
+:cpp:class:`OGRGeomFieldDefn`. By default, the geometry coordinate precision
+is only noted in metadata, and does not cause geometries that are written to
+be modified to comply with this precision.
+
+Several settings may be combined to apply further processing:
+
+* if the :config:`OGR_APPLY_GEOM_SET_PRECISION` configuration option is set to
+  ``YES``, the :cpp:func:`OGRGeometry::SetPrecision` method will be applied
+  when calling the CreateFeature() and SetFeature() method of the driver, to
+  round X and Y coordinates to the specified precision, and fix potential
+  geometry invalidities resulting from the rounding.
+
+* if the ``DISCARD_COORD_LSB`` layer creation option is set to YES, the
+  less-significant bits of the WKB geometry encoding which are not relevant for
+  the requested precision are set to zero. This can improve further lossless
+  compression stages, for example when putting a GeoPackage in an archive.
+  Note however that when reading back such geometries and displaying them
+  to the maximum precision, they will not "exactly" match the original
+  :cpp:class:`OGRGeomCoordinatePrecision` settings. However, they will round
+  back to it.
+  The value of the ``DISCARD_COORD_LSB`` layer creation option is written in
+  the dataset metadata, and will be re-used for later edition sessions.
+
+* if the ``UNDO_DISCARD_COORD_LSB_ON_READING`` layer creation option is set to
+  YES (only makes sense if the ``DISCARD_COORD_LSB`` layer creation option is
+  also set to YES), when *reading* back geometries from a dataset, the
+  :cpp:func:`OGRGeometry::roundCoordinates` method will be applied so that
+  the geometry coordinates exactly match the original specified coordinate
+  precision. That option will only be honored by GDAL 3.9 or later.
+
+
+Implementation details: the coordinate precision is stored in a record in each
+of the ``gpkg_metadata`` and ``gpkg_metadata_reference`` table, with the
+following additional constraints on top of the ones imposed by the GeoPackage
+specification:
+
+- gpkg_metadata.md_standard_uri = 'http://gdal.org'
+- gpkg_metadata.mime_type = 'text/xml'
+- gpkg_metadata.metadata = '<CoordinatePrecision xy_resolution="{xy_resolution}" z_resolution="{z_resolution}" m_resolution="{m_resolution}" discard_coord_lsb={true or false} undo_discard_coord_lsb_on_reading={true or false} />'
+- gpkg_metadata_reference.reference_scope = 'column'
+- gpkg_metadata_reference.table_name = '{table_name}'
+- gpkg_metadata_reference.column_name = '{geometry_column_name}'
+
+Note that the xy_resolution, z_resolution or m_resolution attributes of the
+XML CoordinatePrecision element are optional. Their numeric value is expressed
+in the units of the SRS for xy_resolution and z_resolution.
 
 .. _target_drivers_vector_gpkg_performance_hints:
 

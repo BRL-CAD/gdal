@@ -462,7 +462,7 @@ int wrapper_GridCreate( char* algorithmOptions,
 
     CPLErrorReset();
 
-    if (xSize * ySize * (GDALGetDataTypeSize(dataType) / 8) > nioBufferSize)
+    if ((GUIntBig)xSize * ySize * GDALGetDataTypeSizeBytes(dataType) > nioBufferSize)
     {
         CPLError( eErr, CPLE_AppDefined, "Buffer too small" );
         return eErr;
@@ -634,6 +634,41 @@ GDALDatasetShadow *ViewshedGenerate( GDALRasterBandShadow *srcBand,
 %}
 %clear GDALRasterBandShadow *srcBand;
 %clear (char **creationOptions);
+
+/************************************************************************/
+/*                         IsLineOfSightVisible()                       */
+/************************************************************************/
+
+#ifdef SWIGPYTHON
+%feature( "kwargs" ) IsLineOfSightVisible;
+%apply Pointer NONNULL {GDALRasterBandShadow *band};
+%inline %{
+void IsLineOfSightVisible(GDALRasterBandShadow *band,
+                          int xA, int yA, double zA,
+                          int xB, int yB, double zB,
+                          bool *pbVisible, int *pnXIntersection, int *pnYIntersection,
+                          char** options = NULL)
+{
+    *pbVisible = GDALIsLineOfSightVisible(band, xA, yA, zA, xB, yB, zB, pnXIntersection, pnYIntersection, options);
+}
+%}
+%clear GDALRasterBandShadow *band;
+#else
+#ifndef SWIGJAVA
+%feature( "kwargs" ) IsLineOfSightVisible;
+#endif
+%apply Pointer NONNULL {GDALRasterBandShadow *band};
+%inline %{
+bool IsLineOfSightVisible(GDALRasterBandShadow *band,
+                          int xA, int yA, double zA,
+                          int xB, int yB, double zB,
+                          char** options = NULL)
+{
+    return GDALIsLineOfSightVisible(band, xA, yA, zA, xB, yB, zB, NULL, NULL, options);
+}
+%}
+%clear GDALRasterBandShadow *band;
+#endif
 
 /************************************************************************/
 /*                        AutoCreateWarpedVRT()                         */
@@ -1027,4 +1062,5 @@ GDALDatasetShadow* ApplyVerticalShiftGrid( GDALDatasetShadow *src_ds,
 }
 %}
 %clear GDALDatasetShadow *src_ds, GDALDatasetShadow *grid_ds;
+
 

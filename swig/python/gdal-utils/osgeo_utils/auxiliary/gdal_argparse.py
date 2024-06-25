@@ -62,6 +62,9 @@ class GDALArgumentParser(argparse.ArgumentParser):
                     formatter_class = argparse.RawDescriptionHelpFormatter
                 description = f'{title}\n{"-"*(2+len(title))}\n{description}'
 
+        if formatter_class is None:
+            formatter_class = argparse.HelpFormatter
+
         super().__init__(
             fromfile_prefix_chars=fromfile_prefix_chars,
             description=description,
@@ -225,6 +228,9 @@ class GDALScript(ABC):
         try:
             self.doit(**kwargs)
             return 0
+        except IOError as e:
+            print(str(e), file=sys.stderr)
+            return 1
         except Exception:
             import traceback
 

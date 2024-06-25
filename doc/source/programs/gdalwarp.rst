@@ -15,25 +15,27 @@ Synopsis
 
 .. code-block::
 
-    gdalwarp [--help] [--help-general] [--formats]
-        [-b|-srcband <n>]... [-dstband <n>]...
-        [-s_srs <srs_def>] [-t_srs <srs_def>] [-ct <string>]
-        [-to <NAME>=<VALUE>]... [-vshift | -novshift]
-        [-s_coord_epoch <epoch>] [-t_coord_epoch <epoch>]
-        [-order n | -tps | -rpc | -geoloc] [-et <err_threshold>]
-        [-refine_gcps <tolerance> [<minimum_gcps>]]
-        [-te <xmin> <ymin> <xmax> <ymax>] [-te_srs <srs_def>]
-        [-tr <xres> <yres>]|[-tr square] [-tap] [-ts <width> <height>]
-        [-ovr <level>|AUTO|AUTO-<n>|NONE] [-wo <NAME>=<VALUE>]... [-ot Byte/Int16/...] [-wt Byte/Int16]
-        [-srcnodata "<value>[ <value>...]"][-dstnodata "<value>[ <value>...]"]
-        [-srcalpha|-nosrcalpha] [-dstalpha]
-        [-r <resampling_method>] [-wm <memory_in_mb>] [-multi] [-q]
-        [-cutline <datasource>] [-cl <layer>] [-cwhere <expression>]
-        [-csql <statement>] [-cblend <dist_in_pixels>] [-crop_to_cutline]
-        [-if <format>]... [-of <format>] [-co <NAME>=<VALUE>]... [-overwrite]
-        [-nomd] [-cvmd <meta_conflict_value>] [-setci] [-oo <NAME>=<VALUE>]...
-        [-doo <NAME>=<VALUE>]...
-        <srcfile>... <dstfile>
+       gdalwarp [--help] [--long-usage] [--help-general]
+                [--quiet] [-overwrite] [-of <output_format>] [-co <NAME>=<VALUE>]... [-s_srs <srs_def>]
+                [-t_srs <srs_def>]
+                [[-srcalpha]|[-nosrcalpha]]
+                [-dstalpha] [-tr <xres> <yres>|square] [-ts <width> <height>] [-te <xmin> <ymin> <max> <ymaX]
+                [-te_srs <srs_def>] [-r near|bilinear|cubic|cubicspline|lanczos|average|rms|mode|min|max|med|q1|q3|sum]
+                [-ot Byte|Int8|[U]Int{16|32|64}|CInt{16|32}|[C]Float{32|64}]
+                <src_dataset_name>... <dst_dataset_name>
+
+       Advanced options:
+                [-wo <NAME>=<VALUE>]... [-multi] [-s_coord_epoch <epoch>] [-t_coord_epoch <epoch>] [-ct <string>]
+                [[-tps]|[-rpc]|[-geoloc]]
+                [-order <1|2|3>] [-refine_gcps <tolerance> [<minimum_gcps>]] [-to <NAME>=<VALUE>]...
+                [-et <err_threshold>] [-wm <memory_in_mb>] [-srcnodata <value>[ <value>...]]
+                [-dstnodata <value>[ <value>...]] [-tap] [-wt Byte|Int8|[U]Int{16|32|64}|CInt{16|32}|[C]Float{32|64}]
+                [-cutline <datasource>|<WKT>] [-cutline_srs <srs_def>] [-cwhere <expression>]
+                [[-cl <layername>]|[-csql <query>]]
+                [-cblend <distance>] [-crop_to_cutline] [-nomd] [-cvmd <meta_conflict_value>] [-setci]
+                [-oo <NAME>=<VALUE>]... [-doo <NAME>=<VALUE>]... [-ovr <level>|AUTO|AUTO-<n>|NONE]
+                [[-vshift]|[-novshiftgrid]]
+                [-if <format>]... [-srcband <band>]... [-dstband <band>]...
 
 
 Description
@@ -71,7 +73,7 @@ with control information.
     Blue, Green, Red, NearInfraRed in an output dataset with bands ordered as
     Red, Green, Blue.
 
-    ::
+    .. code-block:: bash
 
         gdalwarp in_bgrn.tif out_rgb.tif -b 3 -b 2 -b 1 -overwrite
 
@@ -84,7 +86,7 @@ with control information.
     is only useful when updating an existing dataset, e.g to warp one band at
     at time.
 
-    ::
+    .. code-block:: bash
 
         gdal_create -if in_red.tif -bands 3 out_rgb.tif
         gdalwarp in_red.tif out_rgb.tif -srcband 1 -dstband 1
@@ -400,9 +402,17 @@ with control information.
 
 .. include:: options/co.rst
 
-.. option:: -cutline <datasource>
+.. option:: -cutline <datasource>|<WKT>
 
-    Enable use of a blend cutline from the name OGR support datasource.
+    Enable use of a blend cutline from the name of a vector dataset.
+    Starting with GDAL 3.9, a WKT geometry string starting with POLYGON or
+    MULTIPOLYGON can also be specified.
+
+.. option:: -cutline_srs <srs_def>
+
+    .. versionadded:: 3.9
+
+    Sets or overrides the SRS of the cutline.
 
 .. option:: -cl <layername>
 
@@ -457,11 +467,11 @@ with control information.
 
     .. versionadded:: 2.1
 
-.. option:: <srcfile>
+.. option:: <src_dataset_name>
 
     The source file name(s).
 
-.. option:: <dstfile>
+.. option:: <dst_dataset_name>
 
     The destination file name.
 
@@ -549,6 +559,35 @@ The error threshold (in pixels) can be controlled with the gdalwarp
 :option:`-et` switch. If you want to compare a true pixel-by-pixel reprojection
 use :option:`-et 0` which disables this approximator entirely.
 
+Vertical transformation
+-----------------------
+
+While gdalwarp can essentially perform coordinate transformations in the 2D
+space, it can perform as well vertical transformations. This is automatically
+enabled when the 2 following conditions are met:
+
+- at least one of the source or target CRS has an explicit vertical CRS
+  (as part of a compound CRS) or is a 3D (generally geographic) CRS,
+- and the raster has a single band.
+
+This mode can also be forced by using the :option:`-vshift` (this is
+essentially useful when the CRS involved are not explicitly 3D, but a
+transformation pipeline is specified with :option:`-ct`), or disabled with
+:option:`-novshift`.
+
+When a vertical transformation is involved, typically a shift value read in a
+geoid grid will be applied. This may require such grid(s) to be installed, or
+PROJ networking capabilities to be enabled. Consult `PROJ <https://proj.org>`__
+documentation for more details. In addition to a shift, the raster values may
+be multiplied by a factor to take into account vertical unit changes.
+In priority, the value returned by :cpp:func:`GDALRasterBand::GetUnitType` is
+used. The following values are currently recognized: ``m``, ``metre``, ``metre``,
+``ft``, ``foot``, ``US survey foot``. If there is no defined unit type at the
+band level, the vertical unit of the source CRS is used. The vertical unit of
+the target CRS is also used to determine that conversion factor. The conversion
+factor may be overridden by setting the ``MULT_FACTOR_VERTICAL_SHIFT`` warping
+option with :option:`-wo`. For example ``-wo MULT_FACTOR_VERTICAL_SHIFT=1`` to
+disable any vertical unit change.
 
 Memory usage
 ------------
@@ -579,13 +618,13 @@ less than 100% then you know things are IO bound. Otherwise they are CPU bound.
 The ``--debug`` option may also provide useful information. For instance, after
 running the following:
 
-.. code-block::
+.. code-block:: bash
 
    gdalwarp --debug on abc.tif def.tif
 
 a message like the following will be output:
 
-::
+.. code-block::
 
   GDAL: 224 block reads on 32 block band 1 of utm.tif
 
@@ -594,7 +633,7 @@ that 224 block reads were done, implying that lots of data was having to be
 re-read, presumably because of a limited IO cache. You will also see messages
 like:
 
-::
+.. code-block::
 
    GDAL: GDALWarpKernel()::GWKNearestNoMasksByte()
    Src=0,0,512x512 Dst=0,0,512x512
@@ -648,7 +687,7 @@ Examples
 
 - Basic transformation:
 
-::
+.. code-block:: bash
 
   gdalwarp -t_srs EPSG:4326 input.tif output.tif
 
@@ -657,7 +696,7 @@ Examples
   control points mapping the corners to lat/long could be warped to a UTM
   projection with a command like this:
 
-::
+.. code-block:: bash
 
     gdalwarp -t_srs '+proj=utm +zone=11 +datum=WGS84' -overwrite raw_spot.tif utm11.tif
 
@@ -667,19 +706,21 @@ Examples
 
     .. versionadded:: 2.2
 
-::
+.. code-block:: bash
 
-    gdalwarp -overwrite HDF4_SDS:ASTER_L1B:"pg-PR1B0000-2002031402_100_001":2 pg-PR1B0000-2002031402_100_001_2.tif
+    gdalwarp -overwrite HDF4_SDS:ASTER_L1B:"pg-PR1B0000-2002031402_100_001":2 \
+        pg-PR1B0000-2002031402_100_001_2.tif
 
 - To apply a cutline on a un-georeferenced image and clip from pixel (220,60) to pixel (1160,690):
 
-::
+.. code-block:: bash
 
-    gdalwarp -overwrite -to SRC_METHOD=NO_GEOTRANSFORM -to DST_METHOD=NO_GEOTRANSFORM -te 220 60 1160 690 -cutline cutline.csv in.png out.tif
+    gdalwarp -overwrite -to SRC_METHOD=NO_GEOTRANSFORM -to DST_METHOD=NO_GEOTRANSFORM \
+        -te 220 60 1160 690 -cutline cutline.csv in.png out.tif
 
 where cutline.csv content is like:
 
-::
+.. code-block::
 
     id,WKT
     1,"POLYGON((....))"
@@ -688,7 +729,7 @@ where cutline.csv content is like:
 
     .. versionadded:: 2.2
 
-::
+.. code-block:: bash
 
     gdalwarp -overwrite in_dem.tif out_dem.tif -s_srs EPSG:4326+5773 -t_srs EPSG:4979
 
@@ -702,4 +743,10 @@ This utility is also callable from C with :cpp:func:`GDALWarp`.
 See also
 --------
 
-`Wiki page discussing options and behaviours of gdalwarp <http://trac.osgeo.org/gdal/wiki/UserDocs/GdalWarp>`_
+.. only:: not man
+
+    `Wiki page discussing options and behaviours of gdalwarp <https://trac.osgeo.org/gdal/wiki/UserDocs/GdalWarp>`_
+
+.. only:: man
+
+    Wiki page discussing options and behaviours of gdalwarp: https://trac.osgeo.org/gdal/wiki/UserDocs/GdalWarp

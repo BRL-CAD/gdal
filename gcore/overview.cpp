@@ -246,104 +246,6 @@ std::vector<GDALColorEntry> ReadColorTable(const GDALColorTable &table,
 }  // unnamed  namespace
 
 /************************************************************************/
-/*                    GetReplacementValueIfNoData()                     */
-/************************************************************************/
-
-static double GetReplacementValueIfNoData(GDALDataType dt, bool bHasNoData,
-                                          double dfNoDataValue)
-{
-    double dfReplacementVal = 0.0f;
-    if (bHasNoData)
-    {
-        if (dt == GDT_Byte)
-        {
-            if (dfNoDataValue == std::numeric_limits<unsigned char>::max())
-                dfReplacementVal =
-                    std::numeric_limits<unsigned char>::max() - 1;
-            else
-                dfReplacementVal = dfNoDataValue + 1;
-        }
-        else if (dt == GDT_Int8)
-        {
-            if (dfNoDataValue == std::numeric_limits<GInt8>::max())
-                dfReplacementVal = std::numeric_limits<GInt8>::max() - 1;
-            else
-                dfReplacementVal = dfNoDataValue + 1;
-        }
-        else if (dt == GDT_UInt16)
-        {
-            if (dfNoDataValue == std::numeric_limits<GUInt16>::max())
-                dfReplacementVal = std::numeric_limits<GUInt16>::max() - 1;
-            else
-                dfReplacementVal = dfNoDataValue + 1;
-        }
-        else if (dt == GDT_Int16)
-        {
-            if (dfNoDataValue == std::numeric_limits<GInt16>::max())
-                dfReplacementVal = std::numeric_limits<GInt16>::max() - 1;
-            else
-                dfReplacementVal = dfNoDataValue + 1;
-        }
-        else if (dt == GDT_UInt32)
-        {
-            // Be careful to limited precision of float
-            dfReplacementVal = dfNoDataValue + 1;
-            double dfVal = dfNoDataValue;
-            if (dfReplacementVal >= std::numeric_limits<GUInt32>::max() - 128)
-            {
-                while (dfReplacementVal == dfNoDataValue)
-                {
-                    dfVal -= 1.0;
-                    dfReplacementVal = dfVal;
-                }
-            }
-            else
-            {
-                while (dfReplacementVal == dfNoDataValue)
-                {
-                    dfVal += 1.0;
-                    dfReplacementVal = dfVal;
-                }
-            }
-        }
-        else if (dt == GDT_Int32)
-        {
-            // Be careful to limited precision of float
-            dfReplacementVal = dfNoDataValue + 1;
-            double dfVal = dfNoDataValue;
-            if (dfReplacementVal >= std::numeric_limits<GInt32>::max() - 64)
-            {
-                while (dfReplacementVal == dfNoDataValue)
-                {
-                    dfVal -= 1.0;
-                    dfReplacementVal = dfVal;
-                }
-            }
-            else
-            {
-                while (dfReplacementVal == dfNoDataValue)
-                {
-                    dfVal += 1.0;
-                    dfReplacementVal = dfVal;
-                }
-            }
-        }
-        else if (dt == GDT_Float32 || dt == GDT_Float64)
-        {
-            if (dfNoDataValue == 0)
-            {
-                dfReplacementVal = std::numeric_limits<float>::min();
-            }
-            else
-            {
-                dfReplacementVal = dfNoDataValue + 1e-7 * dfNoDataValue;
-            }
-        }
-    }
-    return dfReplacementVal;
-}
-
-/************************************************************************/
 /*                             SQUARE()                                 */
 /************************************************************************/
 
@@ -1229,8 +1131,10 @@ static CPLErr GDALResampleChunk_AverageOrRMS_T(
         tNoDataValue = 0;
     else
         tNoDataValue = static_cast<T>(dfNoDataValue);
-    const T tReplacementVal = static_cast<T>(GetReplacementValueIfNoData(
-        poOverview->GetRasterDataType(), bHasNoData, dfNoDataValue));
+    const T tReplacementVal =
+        bHasNoData ? static_cast<T>(GDALGetNoDataReplacementValue(
+                         poOverview->GetRasterDataType(), dfNoDataValue))
+                   : 0;
 
     int nChunkRightXOff = nChunkXOff + nChunkXSize;
     int nChunkBottomYOff = nChunkYOff + nChunkYSize;
@@ -1256,6 +1160,7 @@ static CPLErr GDALResampleChunk_AverageOrRMS_T(
         double dfRightWeight;
         double dfTotalWeightFullLine;
     };
+
     PrecomputedXValue *pasSrcX = static_cast<PrecomputedXValue *>(
         VSI_MALLOC_VERBOSE(nDstXWidth * sizeof(PrecomputedXValue)));
 
@@ -2478,6 +2383,10 @@ GDALResampleConvolutionHorizontal(const T *pChunk, const double *padfWeights,
     double dfVal1 = 0.0;
     double dfVal2 = 0.0;
     int i = 0;  // Used after for.
+    // Intel Compiler 2024.0.2.29 (maybe other versions?) crashes on this
+    // manually (untypical) unrolled loop in -O2 and -O3:
+    // https://github.com/OSGeo/gdal/issues/9508
+#if !defined(__INTEL_CLANG_COMPILER)
     for (; i + 3 < nSrcPixelCount; i += 4)
     {
         dfVal1 += pChunk[i] * padfWeights[i];
@@ -2485,6 +2394,7 @@ GDALResampleConvolutionHorizontal(const T *pChunk, const double *padfWeights,
         dfVal2 += pChunk[i + 2] * padfWeights[i + 2];
         dfVal2 += pChunk[i + 3] * padfWeights[i + 3];
     }
+#endif
     for (; i < nSrcPixelCount; ++i)
     {
         dfVal1 += pChunk[i] * padfWeights[i];
@@ -3094,7 +3004,8 @@ static CPLErr GDALResampleChunk_ConvolutionT(
     const auto dstDataType = poDstBand->GetRasterDataType();
     const int nDstDataTypeSize = GDALGetDataTypeSizeBytes(dstDataType);
     const double dfReplacementVal =
-        GetReplacementValueIfNoData(dstDataType, bHasNoData, dfNoDataValue);
+        bHasNoData ? GDALGetNoDataReplacementValue(dstDataType, dfNoDataValue)
+                   : dfNoDataValue;
     // cppcheck-suppress unreadVariable
     const int isIntegerDT = GDALDataTypeIsInteger(dstDataType);
     const auto nNodataValueInt64 = static_cast<GInt64>(dfNoDataValue);
@@ -3501,7 +3412,7 @@ static CPLErr GDALResampleChunk_ConvolutionT(
             size_t j =
                 (nSrcLineStart - nChunkYOff) * static_cast<size_t>(nDstXSize);
 #ifdef USE_SSE2
-            if (eWrkDataType == GDT_Float32)
+            if constexpr (eWrkDataType == GDT_Float32)
             {
 #ifdef __AVX__
                 for (; iFilteredPixelOff + 15 < nDstXSize;
@@ -4209,10 +4120,12 @@ struct PointerHolder
     explicit PointerHolder(void *ptrIn) : ptr(ptrIn)
     {
     }
+
     ~PointerHolder()
     {
         CPLFree(ptr);
     }
+
     PointerHolder(const PointerHolder &) = delete;
     PointerHolder &operator=(const PointerHolder &) = delete;
 };
@@ -4560,6 +4473,7 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
         {
             oSrcMaskBufferHolder = oSrcMaskBufferHolderIn;
         }
+
         void SetSrcBufferHolder(
             const std::shared_ptr<PointerHolder> &oSrcBufferHolderIn)
         {
@@ -4595,7 +4509,7 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
         }
 
         poJob->oDstBufferHolder =
-            cpl::make_unique<PointerHolder>(poJob->pDstBuffer);
+            std::make_unique<PointerHolder>(poJob->pDstBuffer);
 
         {
             std::lock_guard<std::mutex> guard(poJob->mutex);
@@ -5636,7 +5550,9 @@ CPLErr GDALRegenerateOverviewsMultiBand(
 
 /** Undocumented
  * @param hSrcBand undocumented.
- * @param nSampleStep undocumented.
+ * @param nSampleStep Step between scanlines used to compute statistics.
+ *                    When nSampleStep is equal to 1, all scanlines will
+ *                    be processed.
  * @param pdfMean undocumented.
  * @param pdfStdDev undocumented.
  * @param pfnProgress undocumented.
@@ -5729,7 +5645,7 @@ CPLErr CPL_STDCALL GDALComputeBandStats(GDALRasterBandH hSrcBand,
             }
 
             dfSum += fValue;
-            dfSum2 += fValue * fValue;
+            dfSum2 += static_cast<double>(fValue) * fValue;
         }
 
         nSamples += nWidth;

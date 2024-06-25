@@ -14,6 +14,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
 
   linux-build:
@@ -34,7 +37,6 @@ jobs:
       CACHE_CONTAINER_TAG: ${{ matrix.container }}-master
 
     permissions:
-      contents: write  # for Git to git push
       packages: write
 
     strategy:
@@ -61,19 +63,40 @@ jobs:
             id: alpine
             container: alpine
             build_script: build.sh
+            os: ubuntu-22.04
+
+          - name: Alpine, gcc 32-bit
+            id: alpine_32bit
+            container: alpine_32bit
+            build_script: build.sh
+            test_script: test.sh
+            travis_branch: alpine_32bit
+            os: ubuntu-22.04
 
           - name: Fedora Rawhide, clang++
             id: fedora_rawhide
             travis_branch: sanitize
             container: fedora_rawhide
             build_script: build.sh
+            os: ubuntu-22.04
 
-          - name: Ubuntu 20.04, clang ASAN
-            id: asan
-            travis_branch: sanitize
-            container: ubuntu_20.04
+          - name: Ubuntu 22.04, gcc
+            id: ubuntu_22.04
+            travis_branch: ubuntu_2204
+            container: ubuntu_22.04
+            before_test_script: services.sh
             build_script: build.sh
             test_script: test.sh
+            os: ubuntu-22.04
+
+          - name: Ubuntu 22.04, clang ASAN
+            id: asan
+            travis_branch: sanitize
+            container: ubuntu_22.04
+            build_script: build.sh
+            test_script: test.sh
+            # We force the host OS to be 20.04 to avoid "AddressSanitizer:DEADLYSIGNAL"
+            os: ubuntu-20.04
 
           - name: Ubuntu 20.04, gcc
             id: ubuntu_20.04
@@ -82,13 +105,16 @@ jobs:
             use_avx2: true
             build_script: build.sh
             test_script: test.sh
+            os: ubuntu-22.04
 
           - name: Ubuntu 20.04, coverage
             id: coverage
             travis_branch: ubuntu_2004
             container: ubuntu_20.04
+            before_test_script: services.sh
             build_script: build.sh
             test_script: test.sh
+            os: ubuntu-22.04
 
           - name: Ubuntu 20.04, benchmarks
             id: benchmarks
@@ -96,30 +122,17 @@ jobs:
             container: ubuntu_20.04
             build_script: build.sh
             test_script: test.sh
+            os: ubuntu-22.04
 
           - name: Ubuntu 20.04, Intel compiler
             id: icc
             container: icc
             build_script: build.sh
-
-          - name: Ubuntu 18.04, gcc
-            id: ubuntu_18.04
-            container: ubuntu_18.04
-            build_script: build.sh
-            before_test_script: services.sh
-            test_script: test.sh
-            travis_branch: ubuntu_1804
-
-          - name: Ubuntu 18.04, gcc 32-bit
-            id: ubuntu_18.04_32bit
-            container: ubuntu_18.04_32bit
-            build_script: build.sh
-            test_script: test.sh
-            travis_branch: ubuntu_1804_32bit
+            os: ubuntu-22.04
 
     name: ${{ matrix.name }}
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     defaults:
       run:
@@ -140,11 +153,11 @@ jobs:
           echo "CONTAINER_NAME_FULL=${CONTAINER_REGISTRY}/${CONTAINER_REGISTRY_USER,,}/${CONTAINER_NAME}:${CONTAINER_TAG_CLEAN}"  >>${GITHUB_ENV}
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f # v4.1.3
 
       - name: Login to Docker Hub
         if: env.CONTAINER_REGISTRY == 'docker.io'
-        uses: docker/login-action@v3
+        uses: docker/login-action@e92390c5fb421da1463c202d546fed0ec5c39f20 # v3.1.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -207,7 +220,7 @@ jobs:
       # different architecture.
       - name: Restore build cache
         id: restore-cache
-        uses: actions/cache/restore@v3
+        uses: actions/cache/restore@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
         with:
           path: ${{ github.workspace }}/.ccache
           key: ${{ matrix.id }}-${{ steps.get-arch.outputs.arch }}-${{ github.ref_name }}-${{ github.run_id }}
@@ -255,7 +268,7 @@ jobs:
             ccache -s
 
       - name: Save build cache
-        uses: actions/cache/save@v3
+        uses: actions/cache/save@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
         with:
           path: ${{ github.workspace }}/.ccache
           key: ${{ steps.restore-cache.outputs.cache-primary-key }}
@@ -304,7 +317,7 @@ jobs:
             ${TEST_CMD}
 
       - name: Coveralls
-        uses: coverallsapp/github-action@v2
+        uses: coverallsapp/github-action@3dfc5567390f6fa9267c0ee9c251e4c8c3f18949 # v2.2.3
         if: ${{ matrix.id == 'coverage' }}
         with:
           format: lcov
@@ -319,14 +332,14 @@ jobs:
           docker push ${CONTAINER_NAME_FULL}
 
       - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@1746f4ab65b179e0ea60a494b83293b640dd5bba # v4.3.2
         if: ${{ matrix.id == 'coverage' }}
         with:
           name: coverage_index.html
           path: build-${{ matrix.id }}/coverage_html/index.html
 
       - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@1746f4ab65b179e0ea60a494b83293b640dd5bba # v4.3.2
         if: ${{ matrix.id == 'coverage' }}
         with:
           name: HTML
