@@ -13,7 +13,7 @@ reference documentation, but the https://gdal.org/api/python_bindings.html#tutor
 Dependencies
 ------------
 
- * libgdal (3.9.0 or greater) and header files (gdal-devel)
+ * libgdal (3.9.2 or greater) and header files (gdal-devel)
  * numpy (1.0.0 or greater) and header files (numpy-devel) (not explicitly
    required, but many examples and utilities will not work without it)
 
@@ -80,6 +80,7 @@ This is most often due to pip reusing a cached GDAL installation.
 Verify that the necessary dependencies have been installed and then run the following to force a clean build:
 
 ::
+
     pip install --no-cache --force-reinstall gdal[numpy]=="$(gdal-config --version).*"
 
 

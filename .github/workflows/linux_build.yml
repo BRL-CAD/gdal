@@ -6,6 +6,7 @@ on:
             - 'doc/**'
         branches-ignore:
             - 'backport**'
+            - 'dependabot**'
     pull_request:
         paths-ignore:
             - 'doc/**'
@@ -75,7 +76,7 @@ jobs:
 
           - name: Fedora Rawhide, clang++
             id: fedora_rawhide
-            travis_branch: sanitize
+            travis_branch: fedora_rawhide
             container: fedora_rawhide
             build_script: build.sh
             os: ubuntu-22.04
@@ -283,6 +284,7 @@ jobs:
         env:
           TRAVIS: yes
           TRAVIS_BRANCH: ${{ matrix.travis_branch }}
+          BUILD_NAME: ${{ matrix.travis_branch }}
         run: |
           if test -f ".github/workflows/${{ matrix.id }}/${{ matrix.test_script }}"; then
             TEST_CMD="$(pwd)/.github/workflows/${{ matrix.id }}/${{ matrix.test_script }}"
@@ -305,6 +307,7 @@ jobs:
             -e GITHUB_WORKFLOW \
             -e TRAVIS \
             -e TRAVIS_BRANCH \
+            -e BUILD_NAME \
             -e "GDAL_SOURCE_DIR=$(pwd)" \
             -u $(id -u ${USER}):$(id -g ${USER}) \
             --security-opt seccomp=unconfined \
@@ -317,11 +320,13 @@ jobs:
             ${TEST_CMD}
 
       - name: Coveralls
-        uses: coverallsapp/github-action@3dfc5567390f6fa9267c0ee9c251e4c8c3f18949 # v2.2.3
+        uses: coverallsapp/github-action@643bc377ffa44ace6394b2b5d0d3950076de9f63 # v2.3.0
         if: ${{ matrix.id == 'coverage' }}
         with:
           format: lcov
           file: build-coverage/gdal_filtered.info
+          # Pin to v0.6.10 because of issue with v0.6.11 (https://github.com/coverallsapp/coverage-reporter/issues/127)
+          coverage-reporter-version: v0.6.10
 
       - name: Push build environment
         if: github.event_name == 'push'

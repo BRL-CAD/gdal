@@ -1857,13 +1857,13 @@ def GetMDArrayNames(self, options = []) -> "list[str]":
       if not buffer_datatype:
         buffer_datatype = self.GetDataType()
 
-      is_1d_string = self.GetDataType().GetClass() == GEDTC_STRING and buffer_datatype.GetClass() == GEDTC_STRING and dimCount == 1
+      is_0d_or_1d_string = self.GetDataType().GetClass() == GEDTC_STRING and buffer_datatype.GetClass() == GEDTC_STRING and dimCount <= 1
 
       if not array_start_idx:
         array_start_idx = [0] * dimCount
 
       if not count:
-        if is_1d_string:
+        if is_0d_or_1d_string:
             assert type(buffer) == type([])
             count = [ len(buffer) ]
         else:
@@ -1882,7 +1882,7 @@ def GetMDArrayNames(self, options = []) -> "list[str]":
             stride *= cnt
         buffer_stride.reverse()
 
-      if is_1d_string:
+      if is_0d_or_1d_string:
           return _gdal.MDArray_WriteStringArray(self, array_start_idx, count, array_step, buffer_datatype, buffer)
 
       return _gdal.MDArray_Write(self, array_start_idx, count, array_step, buffer_stride, buffer_datatype, buffer)
@@ -4105,15 +4105,15 @@ def Footprint(destNameOrDestDS, srcDS, **kwargs):
 
     1. Special mode to get deserialized GeoJSON (in EPSG:4326 if dstSRS not specified):
 
-    >>> deserialized_geojson = gdal.FootPrint(None, src_ds, format="GeoJSON")
+    >>> deserialized_geojson = gdal.Footprint(None, src_ds, format="GeoJSON")
 
     2. Special mode to get WKT:
 
-    >>> wkt = gdal.FootPrint(None, src_ds, format="WKT")
+    >>> wkt = gdal.Footprint(None, src_ds, format="WKT")
 
     3. Get result in a GeoPackage
 
-    >>> gdal.FootPrintf("out.gpkg", src_ds, format="GPKG")
+    >>> gdal.Footprint("out.gpkg", src_ds, format="GPKG")
 
     """
 
