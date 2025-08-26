@@ -8,23 +8,7 @@
  * Copyright (c) 2000, Frank Warmerdam
  * Copyright (c) 2007-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ******************************************************************************
  *
  * ISSUES:
@@ -145,18 +129,13 @@ CPLErr PNGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
 #endif
 
     PNGDataset *poGDS = cpl::down_cast<PNGDataset *>(poDS);
-    int nPixelSize;
     CPLAssert(nBlockXOff == 0);
 
-    if (poGDS->nBitDepth == 16)
-        nPixelSize = 2;
-    else
-        nPixelSize = 1;
+    const int nPixelSize = (poGDS->nBitDepth == 16) ? 2 : 1;
 
-    const int nXSize = GetXSize();
     if (poGDS->fpImage == nullptr)
     {
-        memset(pImage, 0, cpl::fits_on<int>(nPixelSize * nXSize));
+        memset(pImage, 0, cpl::fits_on<int>(nPixelSize * nRasterXSize));
         return CE_None;
     }
 
@@ -167,38 +146,64 @@ CPLErr PNGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
 
     const int nPixelOffset = poGDS->nBands * nPixelSize;
 
-    GByte *pabyScanline =
-        poGDS->pabyBuffer +
-        (nBlockYOff - poGDS->nBufferStartLine) * nPixelOffset * nXSize +
-        nPixelSize * (nBand - 1);
-
-    // Transfer between the working buffer and the caller's buffer.
-    if (nPixelSize == nPixelOffset)
-        memcpy(pImage, pabyScanline, cpl::fits_on<int>(nPixelSize * nXSize));
-    else if (nPixelSize == 1)
+    const auto CopyToDstBuffer =
+        [this, nPixelOffset, nPixelSize](const GByte *pabyScanline, void *pDest)
     {
-        for (int i = 0; i < nXSize; i++)
-            reinterpret_cast<GByte *>(pImage)[i] =
-                pabyScanline[i * nPixelOffset];
-    }
-    else
-    {
-        CPLAssert(nPixelSize == 2);
-        for (int i = 0; i < nXSize; i++)
+        // Transfer between the working buffer and the caller's buffer.
+        if (nPixelSize == nPixelOffset)
+            memcpy(pDest, pabyScanline,
+                   cpl::fits_on<int>(nPixelSize * nRasterXSize));
+        else if (nPixelSize == 1)
         {
-            reinterpret_cast<GUInt16 *>(pImage)[i] =
-                *reinterpret_cast<GUInt16 *>(pabyScanline + i * nPixelOffset);
+            for (int i = 0; i < nRasterXSize; i++)
+                reinterpret_cast<GByte *>(pDest)[i] =
+                    pabyScanline[i * nPixelOffset];
         }
-    }
+        else
+        {
+            CPLAssert(nPixelSize == 2);
+            for (int i = 0; i < nRasterXSize; i++)
+            {
+                reinterpret_cast<GUInt16 *>(pDest)[i] =
+                    *reinterpret_cast<const GUInt16 *>(pabyScanline +
+                                                       i * nPixelOffset);
+            }
+        }
+    };
+
+    const GByte *const pabySrcBufferFirstBand =
+        poGDS->pabyBuffer +
+        (nBlockYOff - poGDS->nBufferStartLine) * nPixelOffset * nRasterXSize;
+    CopyToDstBuffer(pabySrcBufferFirstBand + nPixelSize * (nBand - 1), pImage);
 
     // Forcibly load the other bands associated with this scanline.
-    for (int iBand = 1; iBand < poGDS->GetRasterCount(); iBand++)
+    for (int iBand = 1; iBand <= poGDS->GetRasterCount(); iBand++)
     {
-        GDALRasterBlock *poBlock =
-            poGDS->GetRasterBand(iBand + 1)->GetLockedBlockRef(nBlockXOff,
-                                                               nBlockYOff);
-        if (poBlock != nullptr)
+        if (iBand != nBand)
+        {
+            auto poIterBand = poGDS->GetRasterBand(iBand);
+            GDALRasterBlock *poBlock =
+                poIterBand->TryGetLockedBlockRef(nBlockXOff, nBlockYOff);
+            if (poBlock != nullptr)
+            {
+                // Block already cached
+                poBlock->DropLock();
+                continue;
+            }
+
+            // Instantiate the block
+            poBlock =
+                poIterBand->GetLockedBlockRef(nBlockXOff, nBlockYOff, TRUE);
+            if (poBlock == nullptr)
+            {
+                continue;
+            }
+
+            CopyToDstBuffer(pabySrcBufferFirstBand + nPixelSize * (iBand - 1),
+                            poBlock->GetDataRef());
+
             poBlock->DropLock();
+        }
     }
 
     return CE_None;
@@ -344,7 +349,7 @@ PNGDataset::~PNGDataset()
 #include "filter_sse2_intrinsics.c"
 #endif
 
-#if defined(__GNUC__) && !defined(__SSE2__)
+#if defined(__GNUC__) && !defined(__SSE2__) && !defined(USE_NEON_OPTIMIZATIONS)
 __attribute__((optimize("tree-vectorize"))) static inline void
 AddVectors(const GByte *CPL_RESTRICT pabyInputLine,
            GByte *CPL_RESTRICT pabyOutputLine, int nSize)
@@ -693,7 +698,7 @@ CPLErr PNGDataset::LoadWholeImage(void *pSingleBuffer, GSpacing nPixelSpace,
                     const GByte *CPL_RESTRICT pabyOutputLineUp =
                         pabyOutputBuffer +
                         (static_cast<size_t>(iY) - 1) * nSamplesPerLine;
-#if defined(__GNUC__) && !defined(__SSE2__)
+#if defined(__GNUC__) && !defined(__SSE2__) && !defined(USE_NEON_OPTIMIZATIONS)
                     AddVectors(pabyInputLine, pabyOutputLineUp, pabyOutputLine,
                                nSamplesPerLine);
 #else
@@ -723,7 +728,7 @@ CPLErr PNGDataset::LoadWholeImage(void *pSingleBuffer, GSpacing nPixelSpace,
                 }
                 else
                 {
-#if defined(__GNUC__) && !defined(__SSE2__)
+#if defined(__GNUC__) && !defined(__SSE2__) && !defined(USE_NEON_OPTIMIZATIONS)
                     AddVectors(pabyInputLine, pabyOutputLine, nSamplesPerLine);
 #else
                     int iX;
@@ -1010,7 +1015,7 @@ CPLErr PNGDataset::LoadWholeImage(void *pSingleBuffer, GSpacing nPixelSpace,
 /*                            IsFullBandMap()                           */
 /************************************************************************/
 
-static int IsFullBandMap(int *panBandMap, int nBands)
+static int IsFullBandMap(const int *panBandMap, int nBands)
 {
     for (int i = 0; i < nBands; i++)
     {
@@ -1027,7 +1032,7 @@ static int IsFullBandMap(int *panBandMap, int nBands)
 CPLErr PNGDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                              int nXSize, int nYSize, void *pData, int nBufXSize,
                              int nBufYSize, GDALDataType eBufType,
-                             int nBandCount, int *panBandMap,
+                             int nBandCount, BANDMAP_TYPE panBandMap,
                              GSpacing nPixelSpace, GSpacing nLineSpace,
                              GSpacing nBandSpace,
                              GDALRasterIOExtraArg *psExtraArg)
@@ -1313,6 +1318,12 @@ static void PNGDatasetDisableCRCCheck(png_structp hPNG)
 void PNGDataset::Restart()
 
 {
+    if (!m_bHasRewind)
+    {
+        m_bHasRewind = true;
+        CPLDebug("PNG", "Restart decompression from top (emitted once)");
+    }
+
     png_destroy_read_struct(&hPNG, &psPNGInfo, nullptr);
 
     hPNG =
@@ -1421,6 +1432,25 @@ CPLErr PNGDataset::LoadInterlacedChunk(int iLine)
 
     bool bRet = safe_png_read_image(hPNG, png_rows, sSetJmpContext);
 
+    // Do swap on LSB machines. 16-bit PNG data is stored in MSB format.
+    if (bRet && nBitDepth == 16
+#ifdef CPL_LSB
+        && !m_bByteOrderIsLittleEndian
+#else
+        && m_bByteOrderIsLittleEndian
+#endif
+    )
+    {
+        for (int i = 0; i < GetRasterYSize(); i++)
+        {
+            if (i >= nBufferStartLine && i < nBufferStartLine + nBufferLines)
+            {
+                GDALSwapWords(png_rows[i], 2,
+                              GetRasterXSize() * GetRasterCount(), 2);
+            }
+        }
+    }
+
     CPLFree(png_rows);
     CPLFree(dummy_row);
     if (!bRet)
@@ -1497,10 +1527,16 @@ CPLErr PNGDataset::LoadScanline(int nLine)
     nBufferLines = 1;
 
     // Do swap on LSB machines. 16-bit PNG data is stored in MSB format.
+    if (nBitDepth == 16
 #ifdef CPL_LSB
-    if (nBitDepth == 16)
-        GDALSwapWords(row, 2, GetRasterXSize() * GetRasterCount(), 2);
+        && !m_bByteOrderIsLittleEndian
+#else
+        && m_bByteOrderIsLittleEndian
 #endif
+    )
+    {
+        GDALSwapWords(row, 2, GetRasterXSize() * GetRasterCount(), 2);
+    }
 
     return CE_None;
 }
@@ -1604,11 +1640,12 @@ void PNGDataset::CollectXMPMetadata()
             if (memcmp(pszContent, "XML:com.adobe.xmp\0\0\0\0\0", 22) == 0)
             {
                 // Avoid setting the PAM dirty bit just for that.
-                int nOldPamFlags = nPamFlags;
+                const int nOldPamFlags = nPamFlags;
 
                 char *apszMDList[2] = {pszContent + 22, nullptr};
                 SetMetadata(apszMDList, "xml:XMP");
 
+                // cppcheck-suppress redundantAssignment
                 nPamFlags = nOldPamFlags;
 
                 VSIFree(pszContent);
@@ -1788,9 +1825,7 @@ GDALDataset *PNGDataset::Open(GDALOpenInfo *poOpenInfo)
 
     if (poOpenInfo->eAccess == GA_Update)
     {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "The PNG driver does not support update access to existing"
-                 " datasets.\n");
+        ReportUpdateNotSupportedByDriver("PNG");
         return nullptr;
     }
 
@@ -1977,8 +2012,11 @@ GDALDataset *PNGDataset::OpenStage2(GDALOpenInfo *poOpenInfo, PNGDataset *&poDS)
     poDS->TryLoadXML(poOpenInfo->GetSiblingFiles());
 
     // Open overviews.
-    poDS->oOvManager.Initialize(poDS, poOpenInfo->pszFilename,
-                                poOpenInfo->GetSiblingFiles());
+    poDS->oOvManager.Initialize(poDS, poOpenInfo);
+
+    // Used by JPEG FLIR
+    poDS->m_bByteOrderIsLittleEndian = CPLTestBool(CSLFetchNameValueDef(
+        poOpenInfo->papszOpenOptions, "BYTE_ORDER_LITTLE_ENDIAN", "NO"));
 
     return poDS;
 }

@@ -80,6 +80,7 @@ the USE_TILE_EXTENT=YES open option to use the actual extent of tiles at
 the maximum zoom level. Or it can specify any of MINX/MINY/MAXX/MAXY to
 have a custom extent.
 
+|about-open-options|
 The following open options are available:
 
 -  .. oo:: TABLE
@@ -362,7 +363,7 @@ In all the above tiling schemes, consecutive zoom levels defer by a
 resolution of a factor of two.
 
 Starting with GDAL 3.2, it is also possible to use a Tile Matrix Set definition,
-encoded as a JSon file, according to the `OGC Two Dimensional Tile Matrix Set standard`_
+encoded as a JSON file, according to the `OGC Two Dimensional Tile Matrix Set standard`_
 Examples of such files can be found at http://schemas.opengis.net/tms/1.0/json/examples/
 The GDAL data directory also contains files prefixed with ``tms_`` and with a ``.json``
 extension. If there is a ``tms_FOO.json`` file, then ``FOO`` can be used as the
@@ -420,6 +421,7 @@ Float32        65535                                               65535
 Creation options
 ~~~~~~~~~~~~~~~~
 
+|about-creation-options|
 The following creation options are available:
 
 -  .. co:: RASTER_TABLE
@@ -571,13 +573,14 @@ The following creation options are available:
       when AREA_OR_POINT metadata item is not set.
 
 -  .. co:: VERSION
-      :choices: AUTO, 1.0, 1.1, 1.2, 1.3
+      :choices: AUTO, 1.0, 1.1, 1.2, 1.3, 1.4
       :since: 2.2
 
       Set GeoPackage version
       (for application_id and user_version fields). In AUTO mode, this will
-      be equivalent to 1.2 starting with GDAL 2.3.
+      be equivalent to 1.4 starting with GDAL 3.11 (1.2 in prior versions)
       1.3 is available starting with GDAL 3.3
+      1.4 is available starting with GDAL 3.7.1
 
 -  .. co:: ADD_GPKG_OGR_CONTENTS
       :choices: YES, NO
@@ -794,7 +797,7 @@ The ``gdal_get_layer_pixel_value()`` function (added in GDAL 3.7), variant of th
 generic ``gdal_get_pixel_value()``, can be used to extract the value of a pixel
 in a raster layer of the current dataset.
 
-It takes 5 arguments:
+It takes 5 or 6 arguments:
 
 * a string with the layer/table name
 * a band number (numbering starting at 1)
@@ -803,11 +806,13 @@ It takes 5 arguments:
   pixel space
 * georeferenced X value or column number
 * georeferenced Y value or line number
+* resampling method among ``nearest`` (default), ``bilinear``, ``cubic``, ``cubicspline``. Optional, added in GDAL 3.10
 
 .. code-block::
 
     SELECT gdal_get_layer_pixel_value('my_raster_table', 1, 'georef', 440720, 3751320)
     SELECT gdal_get_layer_pixel_value('my_raster_table', 1, 'pixel', 0, 0)
+    SELECT gdal_get_pixel_value('my_raster_table', 1, 'pixel', 0.5, 0.5, 'bilinear')  -- GDAL >= 3.10
 
 See Also
 --------

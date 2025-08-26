@@ -57,6 +57,7 @@ Open options (vector only)
 
 .. versionadded:: 3.0
 
+|about-open-options|
 When opening a PDS4 vector dataset, the following open options are
 available:
 
@@ -97,6 +98,7 @@ to preserve as much as possible of the original label when doing PDS4 to
 PDS4 conversions. This can be disabled with the :co:`USE_SRC_LABEL=NO`
 creation option.
 
+|about-creation-options|
 The following dataset creation options are available:
 
 -  Raster only:
@@ -192,10 +194,7 @@ The following dataset creation options are available:
           and not creating from an existing PDS4 file, the
           data/pds4_template.xml file will be used. For GDAL utilities to
           find this default PDS4 template, GDAL's data directory should be
-          defined in your environment (typically on Windows builds). Consult
-          the
-          `wiki <https://trac.osgeo.org/gdal/wiki/FAQInstallationAndBuilding#HowtosetGDAL_DATAvariable>`__
-          for more information.
+          defined in your environment (typically on Windows builds).
 
    -  .. co:: LATITUDE_TYPE
          :choices: Planetocentric, Planetographic
@@ -228,6 +227,7 @@ The following dataset creation options are available:
 Layer creation options (vector/table datasets)
 ----------------------------------------------
 
+|about-layer-creation-options|
 (Starting with GDAL 3.0) When creating a PDS4 vector dataset, or
 appending a new table to an existing table, the following layer creation
 options are available:
@@ -533,12 +533,6 @@ Converting a shapefile to a PDS4 dataset with a CSV-delimited table
 ::
 
    $ ogr2ogr my_out_pds4.xml in.shp
-
-Limitations
------------
-
-As a new driver and new format, please report any issues to the bug
-tracker, as explained on the `wiki <https://trac.osgeo.org/gdal/wiki>`__
 
 See Also:
 ---------

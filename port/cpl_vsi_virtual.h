@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  VSI Virtual File System
  * Purpose:  Declarations for classes related to the virtual filesystem.
@@ -12,33 +11,19 @@
  * Copyright (c) 2005, Frank Warmerdam <warmerdam@pobox.com>
  * Copyright (c) 2010-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #ifndef CPL_VSI_VIRTUAL_H_INCLUDED
 #define CPL_VSI_VIRTUAL_H_INCLUDED
 
+#include "cpl_progress.h"
 #include "cpl_vsi.h"
 #include "cpl_vsi_error.h"
 #include "cpl_string.h"
 #include "cpl_multiproc.h"
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <vector>
@@ -109,7 +94,11 @@ struct CPL_DLL VSIVirtualHandle
     int Printf(CPL_FORMAT_STRING(const char *pszFormat), ...)
         CPL_PRINT_FUNC_FORMAT(2, 3);
 
+    virtual void ClearErr() = 0;
+
     virtual int Eof() = 0;
+
+    virtual int Error() = 0;
 
     virtual int Flush()
     {
@@ -134,6 +123,14 @@ struct CPL_DLL VSIVirtualHandle
     virtual bool HasPRead() const;
     virtual size_t PRead(void *pBuffer, size_t nSize,
                          vsi_l_offset nOffset) const;
+
+    /** Ask current operations to be interrupted.
+     * Implementations must be thread-safe, as this will typically be called
+     * from another thread than the active one for this file.
+     */
+    virtual void Interrupt()
+    {
+    }
 
     // NOTE: when adding new methods, besides the "actual" implementations,
     // also consider the VSICachedFile one.
@@ -228,10 +225,13 @@ class CPL_DLL VSIFilesystemHandler
         return nullptr;
     }
 
-    virtual int Rename(const char *oldpath, const char *newpath)
+    virtual int Rename(const char *oldpath, const char *newpath,
+                       GDALProgressFunc pProgressFunc, void *pProgressData)
     {
         (void)oldpath;
         (void)newpath;
+        (void)pProgressFunc;
+        (void)pProgressData;
         errno = ENOENT;
         return -1;
     }
@@ -283,6 +283,12 @@ class CPL_DLL VSIFilesystemHandler
                          const char *const *papszOptions,
                          GDALProgressFunc pProgressFunc, void *pProgressData);
 
+    virtual int
+    CopyFileRestartable(const char *pszSource, const char *pszTarget,
+                        const char *pszInputPayload, char **ppszOutputPayload,
+                        CSLConstList papszOptions,
+                        GDALProgressFunc pProgressFunc, void *pProgressData);
+
     virtual VSIDIR *OpenDir(const char *pszPath, int nRecurseDepth,
                             const char *const *papszOptions);
 
@@ -295,6 +301,31 @@ class CPL_DLL VSIFilesystemHandler
                                  const char *pszDomain,
                                  CSLConstList papszOptions);
 
+    virtual bool
+    MultipartUploadGetCapabilities(int *pbNonSequentialUploadSupported,
+                                   int *pbParallelUploadSupported,
+                                   int *pbAbortSupported, size_t *pnMinPartSize,
+                                   size_t *pnMaxPartSize, int *pnMaxPartCount);
+
+    virtual char *MultipartUploadStart(const char *pszFilename,
+                                       CSLConstList papszOptions);
+
+    virtual char *MultipartUploadAddPart(const char *pszFilename,
+                                         const char *pszUploadId,
+                                         int nPartNumber,
+                                         vsi_l_offset nFileOffset,
+                                         const void *pData, size_t nDataLength,
+                                         CSLConstList papszOptions);
+
+    virtual bool
+    MultipartUploadEnd(const char *pszFilename, const char *pszUploadId,
+                       size_t nPartIdsCount, const char *const *apszPartIds,
+                       vsi_l_offset nTotalSize, CSLConstList papszOptions);
+
+    virtual bool MultipartUploadAbort(const char *pszFilename,
+                                      const char *pszUploadId,
+                                      CSLConstList papszOptions);
+
     virtual bool AbortPendingUploads(const char * /*pszFilename*/)
     {
         return true;
@@ -302,6 +333,12 @@ class CPL_DLL VSIFilesystemHandler
 
     virtual std::string
     GetStreamingFilename(const std::string &osFilename) const
+    {
+        return osFilename;
+    }
+
+    virtual std::string
+    GetNonStreamingFilename(const std::string &osFilename) const
     {
         return osFilename;
     }
@@ -461,10 +498,6 @@ class VSIArchiveFilesystemHandler : public VSIFilesystemHandler
 
     int Stat(const char *pszFilename, VSIStatBufL *pStatBuf,
              int nFlags) override;
-    int Unlink(const char *pszFilename) override;
-    int Rename(const char *oldpath, const char *newpath) override;
-    int Mkdir(const char *pszDirname, long nMode) override;
-    int Rmdir(const char *pszDirname) override;
     char **ReadDirEx(const char *pszDirname, int nMaxFiles) override;
 
     virtual const VSIArchiveContent *
@@ -472,7 +505,7 @@ class VSIArchiveFilesystemHandler : public VSIFilesystemHandler
                         VSIArchiveReader *poReader = nullptr);
     virtual char *SplitFilename(const char *pszFilename,
                                 CPLString &osFileInArchive,
-                                int bCheckMainFileExists);
+                                bool bCheckMainFileExists, bool bSetError);
     virtual VSIArchiveReader *OpenArchiveFile(const char *archiveFilename,
                                               const char *fileInArchiveName);
     virtual int FindFileInArchive(const char *archiveFilename,

@@ -28,7 +28,7 @@ are also handled.
 Starting with GDAL 2.2, the "JSonStringList", "JSonIntegerList",
 "JSonInteger64List" and "JSonRealList" SQLite declaration types are used
 to map the corresponding OGR StringList, IntegerList, Integer64List and
-RealList types. The field values are then encoded as JSon arrays, with
+RealList types. The field values are then encoded as JSON arrays, with
 proper CSV escaping.
 
 SQLite databases often do not work well over NFS, or some other
@@ -240,6 +240,9 @@ Relationship creation is supported since GDAL 3.7, for one-to-many relationships
 Dataset open options
 ~~~~~~~~~~~~~~~~~~~~
 
+|about-open-options|
+The following open options are supported:
+
 -  .. oo:: LIST_ALL_TABLES
       :choices: YES, NO
 
@@ -267,8 +270,20 @@ Dataset open options
            The other database must be of a type recognized by this driver, so
            its geometry blobs are properly recognized (so typically not a GeoPackage one)
 
+-  .. oo:: OGR_SCHEMA
+      :choices: <filename>|<json string>
+      :since: 3.11.0
+
+      Partially or totally overrides the auto-detected schema to use for creating the layer.
+      The overrides are defined as a JSON list of field definitions.
+      This can be a filename, a URL or JSON string conformant with the `ogr_fields_override.schema.json schema <https://raw.githubusercontent.com/OSGeo/gdal/refs/heads/master/ogr/data/ogr_fields_override.schema.json>`_
+
+
 Database creation options
 ~~~~~~~~~~~~~~~~~~~~~~~~~
+
+|about-dataset-creation-options|
+The following dataset creation options are supported:
 
 -  .. dsco:: METADATA
       :choices: YES, NO
@@ -315,6 +330,9 @@ Database creation options
 
 Layer creation options
 ~~~~~~~~~~~~~~~~~~~~~~
+
+|about-layer-creation-options|
+The following layer creation options are supported:
 
 -  .. lco:: FORMAT
       :choices: WKB, WKT, SPATIALITE
@@ -415,8 +433,8 @@ Layer creation options
 Configuration options
 ---------------------
 
-The following :ref:`configuration options <configoptions>` are
-available:
+|about-config-options|
+The following configuration options are available:
 
 - .. config:: SQLITE_LIST_ALL_TABLES
      :choices: YES, NO
@@ -547,6 +565,17 @@ and optimize it.
 
    ogrinfo db.sqlite -sql "VACUUM"
 
+Secure deletion
+---------------
+
+Depending on how SQLite3 is built, `secure deletion <https://www.sqlite.org/pragma.html#pragma_secure_delete>`__
+might or might not be enabled.
+Starting with GDAL 3.10, secure deletion is always enabled, unless
+``SECURE_DELETE`` is specified through the :config:`OGR_SQLITE_PRAGMA`
+configuration option.
+Note that secure deletion does not recover potential lost space, so running
+a `VACUUM <https://sqlite.org/lang_vacuum.html>`__ query is recommended to fully
+optimized a database that has been subject to updates or deletions.
 
 Example
 -------

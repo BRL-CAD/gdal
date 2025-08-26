@@ -8,23 +8,7 @@
  * Copyright (c) 2001, Frank Warmerdam, DM Solutions Group Inc
  * Copyright (c) 2007-2023, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -38,6 +22,7 @@
 #include "ogrsf_frmts.h"
 #include "ogr_spatialref.h"
 #include "commonutils.h"
+#include "gdalargumentparser.h"
 
 #include <ctype.h>
 
@@ -99,6 +84,8 @@ struct GDALTileIndexOptions
     double dfMaxPixelSize = std::numeric_limits<double>::quiet_NaN();
     std::vector<GDALTileIndexRasterMetadata> aoFetchMD{};
     std::set<std::string> oSetFilenameFilters{};
+    GDALProgressFunc pfnProgress = nullptr;
+    void *pProgressData = nullptr;
 };
 
 /************************************************************************/
@@ -166,6 +153,219 @@ static bool PatternMatch(const char *input, const char *pattern)
 }
 
 /************************************************************************/
+/*                     GDALTileIndexAppOptionsGetParser()               */
+/************************************************************************/
+
+static std::unique_ptr<GDALArgumentParser> GDALTileIndexAppOptionsGetParser(
+    GDALTileIndexOptions *psOptions,
+    GDALTileIndexOptionsForBinary *psOptionsForBinary)
+{
+    auto argParser = std::make_unique<GDALArgumentParser>(
+        "gdaltindex", /* bForBinary=*/psOptionsForBinary != nullptr);
+
+    argParser->add_description(
+        _("Build a tile index from a list of datasets."));
+
+    argParser->add_epilog(
+        _("For more details, see the full documentation for gdaltindex at\n"
+          "https://gdal.org/programs/gdaltindex.html"));
+
+    argParser->add_argument("-overwrite")
+        .flag()
+        .store_into(psOptions->bOverwrite)
+        .help(_("Overwrite the output tile index file if it already exists."));
+
+    argParser->add_argument("-recursive")
+        .flag()
+        .store_into(psOptions->bRecursive)
+        .help(_("Whether directories specified in <file_or_dir> should be "
+                "explored recursively."));
+
+    argParser->add_argument("-filename_filter")
+        .metavar("<val>")
+        .append()
+        .store_into(psOptions->oSetFilenameFilters)
+        .help(_("Pattern that the filenames contained in directories pointed "
+                "by <file_or_dir> should follow."));
+
+    argParser->add_argument("-min_pixel_size")
+        .metavar("<val>")
+        .store_into(psOptions->dfMinPixelSize)
+        .help(_("Minimum pixel size in term of geospatial extent per pixel "
+                "(resolution) that a raster should have to be selected."));
+
+    argParser->add_argument("-max_pixel_size")
+        .metavar("<val>")
+        .store_into(psOptions->dfMaxPixelSize)
+        .help(_("Maximum pixel size in term of geospatial extent per pixel "
+                "(resolution) that a raster should have to be selected."));
+
+    argParser->add_output_format_argument(psOptions->osFormat);
+
+    argParser->add_argument("-tileindex")
+        .metavar("<field_name>")
+        .store_into(psOptions->osLocationField)
+        .help(_("Name of the layer in the tile index file."));
+
+    argParser->add_argument("-write_absolute_path")
+        .flag()
+        .store_into(psOptions->bWriteAbsolutePath)
+        .help(_("Write the absolute path of the raster files in the tile index "
+                "file."));
+
+    argParser->add_argument("-skip_different_projection")
+        .flag()
+        .store_into(psOptions->bSkipDifferentProjection)
+        .help(_(
+            "Only files with the same projection as files already inserted in "
+            "the tile index will be inserted (unless -t_srs is specified)."));
+
+    argParser->add_argument("-t_srs")
+        .metavar("<srs_def>")
+        .store_into(psOptions->osTargetSRS)
+        .help(_("Geometries of input files will be transformed to the desired "
+                "target coordinate reference system."));
+
+    argParser->add_argument("-src_srs_name")
+        .metavar("<field_name>")
+        .store_into(psOptions->osSrcSRSFieldName)
+        .help(_("Name of the field in the tile index file where the source SRS "
+                "will be stored."));
+
+    argParser->add_argument("-src_srs_format")
+        .metavar("{AUTO|WKT|EPSG|PROJ}")
+        .choices("AUTO", "WKT", "EPSG", "PROJ")
+        .action(
+            [psOptions](const auto &f)
+            {
+                if (f == "WKT")
+                    psOptions->eSrcSRSFormat = FORMAT_WKT;
+                else if (f == "EPSG")
+                    psOptions->eSrcSRSFormat = FORMAT_EPSG;
+                else if (f == "PROJ")
+                    psOptions->eSrcSRSFormat = FORMAT_PROJ;
+                else
+                    psOptions->eSrcSRSFormat = FORMAT_AUTO;
+            })
+        .help(_("Format of the source SRS to store in the tile index file."));
+
+    argParser->add_argument("-lyr_name")
+        .metavar("<name>")
+        .store_into(psOptions->osIndexLayerName)
+        .help(_("Name of the layer in the tile index file."));
+
+    argParser->add_layer_creation_options_argument(psOptions->aosLCO);
+
+    // GTI driver options
+
+    argParser->add_argument("-gti_filename")
+        .metavar("<filename>")
+        .store_into(psOptions->osGTIFilename)
+        .help(_("Filename of the XML Virtual Tile Index file to generate."));
+
+    // NOTE: no store_into
+    argParser->add_argument("-tr")
+        .metavar("<xres> <yres>")
+        .nargs(2)
+        .scan<'g', double>()
+        .help(_("Set target resolution."));
+
+    // NOTE: no store_into
+    argParser->add_argument("-te")
+        .metavar("<xmin> <ymin> <xmax> <ymax>")
+        .nargs(4)
+        .scan<'g', double>()
+        .help(_("Set target extent in SRS unit."));
+
+    argParser->add_argument("-ot")
+        .metavar("<datatype>")
+        .store_into(psOptions->osDataType)
+        .help(_("Output data type."));
+
+    argParser->add_argument("-bandcount")
+        .metavar("<val>")
+        .store_into(psOptions->osBandCount)
+        .help(_("Number of bands of the tiles of the tile index."));
+
+    argParser->add_argument("-nodata")
+        .metavar("<val>")
+        .append()
+        .store_into(psOptions->osNodata)
+        .help(_("Nodata value of the tiles of the tile index."));
+
+    // Should we use choices here?
+    argParser->add_argument("-colorinterp")
+        .metavar("<val>")
+        .append()
+        .store_into(psOptions->osColorInterp)
+        .help(_("Color interpretation of of the tiles of the tile index: red, "
+                "green, blue, alpha, gray, undefined."));
+
+    argParser->add_argument("-mask")
+        .flag()
+        .store_into(psOptions->bMaskBand)
+        .help(_("Add a mask band to the tiles of the tile index."));
+
+    argParser->add_argument("-mo")
+        .metavar("<name>=<value>")
+        .append()
+        .store_into(psOptions->aosMetadata)
+        .help(_("Write an arbitrary layer metadata item, for formats that "
+                "support layer metadata."));
+
+    // NOTE: no store_into
+    argParser->add_argument("-fetch_md")
+        .nargs(3)
+        .metavar("<gdal_md_name> <fld_name> <fld_type>")
+        .append()
+        .help("Fetch a metadata item from the raster tile and write it as a "
+              "field in the tile index.");
+
+    if (psOptionsForBinary)
+    {
+        argParser->add_quiet_argument(&psOptionsForBinary->bQuiet);
+
+        argParser->add_argument("index_file")
+            .metavar("<index_file>")
+            .store_into(psOptionsForBinary->osDest)
+            .help(_("The name of the output file to create/append to."));
+
+        argParser->add_argument("file_or_dir")
+            .metavar("<file_or_dir>")
+            .nargs(argparse::nargs_pattern::at_least_one)
+            .action([psOptionsForBinary](const std::string &s)
+                    { psOptionsForBinary->aosSrcFiles.AddString(s.c_str()); })
+            .help(_(
+                "The input GDAL raster files or directory, can be multiple "
+                "locations separated by spaces. Wildcards may also be used."));
+    }
+
+    return argParser;
+}
+
+/************************************************************************/
+/*                  GDALTileIndexAppGetParserUsage()                    */
+/************************************************************************/
+
+std::string GDALTileIndexAppGetParserUsage()
+{
+    try
+    {
+        GDALTileIndexOptions sOptions;
+        GDALTileIndexOptionsForBinary sOptionsForBinary;
+        auto argParser =
+            GDALTileIndexAppOptionsGetParser(&sOptions, &sOptionsForBinary);
+        return argParser->usage();
+    }
+    catch (const std::exception &err)
+    {
+        CPLError(CE_Failure, CPLE_AppDefined, "Unexpected exception: %s",
+                 err.what());
+        return std::string();
+    }
+}
+
+/************************************************************************/
 /*                        GDALTileIndexTileIterator                     */
 /************************************************************************/
 
@@ -177,6 +377,8 @@ struct GDALTileIndexTileIterator
     std::string osCurDir{};
     int iCurSrc = 0;
     VSIDIR *psDir = nullptr;
+
+    CPL_DISALLOW_COPY_ASSIGN(GDALTileIndexTileIterator)
 
     GDALTileIndexTileIterator(const GDALTileIndexOptions *psOptionsIn,
                               int nSrcCountIn,
@@ -258,8 +460,8 @@ struct GDALTileIndexTileIterator
                     continue;
             }
 
-            const std::string osFilename =
-                CPLFormFilename(osCurDir.c_str(), psEntry->pszName, nullptr);
+            const std::string osFilename = CPLFormFilenameSafe(
+                osCurDir.c_str(), psEntry->pszName, nullptr);
             if (VSI_ISDIR(psEntry->nMode))
             {
                 auto poSrcDS = std::unique_ptr<GDALDataset>(
@@ -309,6 +511,17 @@ GDALDatasetH GDALTileIndex(const char *pszDest, int nSrcCount,
                            const GDALTileIndexOptions *psOptionsIn,
                            int *pbUsageError)
 {
+    return GDALTileIndexInternal(pszDest, nullptr, nullptr, nSrcCount,
+                                 papszSrcDSNames, psOptionsIn, pbUsageError);
+}
+
+GDALDatasetH GDALTileIndexInternal(const char *pszDest,
+                                   GDALDatasetH hTileIndexDS, OGRLayerH hLayer,
+                                   int nSrcCount,
+                                   const char *const *papszSrcDSNames,
+                                   const GDALTileIndexOptions *psOptionsIn,
+                                   int *pbUsageError)
+{
     if (nSrcCount == 0)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "No input dataset specified.");
@@ -346,93 +559,112 @@ GDALDatasetH GDALTileIndex(const char *pszDest, int nSrcCount,
     /*      Open or create the target datasource                            */
     /* -------------------------------------------------------------------- */
 
-    if (psOptions->bOverwrite)
-    {
-        CPLPushErrorHandler(CPLQuietErrorHandler);
-        auto hDriver = GDALIdentifyDriver(pszDest, nullptr);
-        if (hDriver)
-            GDALDeleteDataset(hDriver, pszDest);
-        else
-            VSIUnlink(pszDest);
-        CPLPopErrorHandler();
-    }
-
-    auto poTileIndexDS = std::unique_ptr<GDALDataset>(GDALDataset::Open(
-        pszDest, GDAL_OF_VECTOR | GDAL_OF_UPDATE, nullptr, nullptr, nullptr));
-    OGRLayer *poLayer = nullptr;
-    std::string osFormat;
-    int nMaxFieldSize = 254;
+    std::unique_ptr<GDALDataset> poTileIndexDSUnique;
+    GDALDataset *poTileIndexDS = GDALDataset::FromHandle(hTileIndexDS);
+    OGRLayer *poLayer = OGRLayer::FromHandle(hLayer);
     bool bExistingLayer = false;
+    std::string osFormat;
 
-    if (poTileIndexDS != nullptr)
+    if (!hTileIndexDS)
     {
-        auto poDriver = poTileIndexDS->GetDriver();
-        if (poDriver)
-            osFormat = poDriver->GetDescription();
-
-        if (poTileIndexDS->GetLayerCount() == 1)
+        if (psOptions->bOverwrite)
         {
-            poLayer = poTileIndexDS->GetLayer(0);
-        }
-        else
-        {
-            if (psOptions->osIndexLayerName.empty())
-            {
-                CPLError(CE_Failure, CPLE_AppDefined,
-                         "-lyr_name must be specified.");
-                if (pbUsageError)
-                    *pbUsageError = true;
-                return nullptr;
-            }
             CPLPushErrorHandler(CPLQuietErrorHandler);
-            poLayer = poTileIndexDS->GetLayerByName(
-                psOptions->osIndexLayerName.c_str());
+            auto hDriver = GDALIdentifyDriver(pszDest, nullptr);
+            if (hDriver)
+                GDALDeleteDataset(hDriver, pszDest);
+            else
+                VSIUnlink(pszDest);
             CPLPopErrorHandler();
         }
-    }
-    else
-    {
-        if (psOptions->osFormat.empty())
+
+        poTileIndexDSUnique.reset(
+            GDALDataset::Open(pszDest, GDAL_OF_VECTOR | GDAL_OF_UPDATE, nullptr,
+                              nullptr, nullptr));
+
+        if (poTileIndexDSUnique != nullptr)
         {
-            const auto aoDrivers = GetOutputDriversFor(pszDest, GDAL_OF_VECTOR);
-            if (aoDrivers.empty())
+            auto poDriver = poTileIndexDSUnique->GetDriver();
+            if (poDriver)
+                osFormat = poDriver->GetDescription();
+
+            if (poTileIndexDSUnique->GetLayerCount() == 1)
             {
-                CPLError(CE_Failure, CPLE_AppDefined,
-                         "Cannot guess driver for %s", pszDest);
-                return nullptr;
+                poLayer = poTileIndexDSUnique->GetLayer(0);
             }
             else
             {
-                if (aoDrivers.size() > 1)
+                if (psOptions->osIndexLayerName.empty())
                 {
-                    CPLError(CE_Warning, CPLE_AppDefined,
-                             "Several drivers matching %s extension. Using %s",
-                             CPLGetExtension(pszDest), aoDrivers[0].c_str());
+                    CPLError(CE_Failure, CPLE_AppDefined,
+                             "Multiple layers detected: -lyr_name must be "
+                             "specified.");
+                    if (pbUsageError)
+                        *pbUsageError = true;
+                    return nullptr;
                 }
-                osFormat = aoDrivers[0];
+                CPLPushErrorHandler(CPLQuietErrorHandler);
+                poLayer = poTileIndexDSUnique->GetLayerByName(
+                    psOptions->osIndexLayerName.c_str());
+                CPLPopErrorHandler();
             }
         }
         else
         {
-            osFormat = psOptions->osFormat;
-        }
-        if (!EQUAL(osFormat.c_str(), "ESRI Shapefile"))
-            nMaxFieldSize = 0;
+            if (psOptions->osFormat.empty())
+            {
+                const auto aoDrivers =
+                    GetOutputDriversFor(pszDest, GDAL_OF_VECTOR);
+                if (aoDrivers.empty())
+                {
+                    CPLError(CE_Failure, CPLE_AppDefined,
+                             "Cannot guess driver for %s", pszDest);
+                    return nullptr;
+                }
+                else
+                {
+                    if (aoDrivers.size() > 1)
+                    {
+                        CPLError(
+                            CE_Warning, CPLE_AppDefined,
+                            "Several drivers matching %s extension. Using %s",
+                            CPLGetExtensionSafe(pszDest).c_str(),
+                            aoDrivers[0].c_str());
+                    }
+                    osFormat = aoDrivers[0];
+                }
+            }
+            else
+            {
+                osFormat = psOptions->osFormat;
+            }
 
-        auto poDriver =
-            GetGDALDriverManager()->GetDriverByName(osFormat.c_str());
-        if (poDriver == nullptr)
-        {
-            CPLError(CE_Warning, CPLE_AppDefined, "%s driver not available.",
-                     osFormat.c_str());
-            return nullptr;
+            auto poDriver =
+                GetGDALDriverManager()->GetDriverByName(osFormat.c_str());
+            if (poDriver == nullptr)
+            {
+                CPLError(CE_Warning, CPLE_AppDefined,
+                         "%s driver not available.", osFormat.c_str());
+                return nullptr;
+            }
+
+            poTileIndexDSUnique.reset(
+                poDriver->Create(pszDest, 0, 0, 0, GDT_Unknown, nullptr));
+            if (!poTileIndexDSUnique)
+                return nullptr;
         }
 
-        poTileIndexDS.reset(
-            poDriver->Create(pszDest, 0, 0, 0, GDT_Unknown, nullptr));
-        if (!poTileIndexDS)
-            return nullptr;
+        poTileIndexDS = poTileIndexDSUnique.get();
     }
+
+    if (osFormat.empty())
+    {
+        if (auto poOutDrv = poTileIndexDS->GetDriver())
+            osFormat = poOutDrv->GetDescription();
+    }
+
+    const int nMaxFieldSize =
+        EQUAL(osFormat.c_str(), "ESRI Shapefile") ? 254 : 0;
 
     if (poLayer)
     {
@@ -447,7 +679,7 @@ GDALDatasetH GDALTileIndex(const char *pszDest, int nSrcCount,
             if (EQUAL(osFormat.c_str(), "ESRI Shapefile") ||
                 VSIStat(pszDest, &sStat) == 0)
             {
-                osLayerName = CPLGetBasename(pszDest);
+                osLayerName = CPLGetBasenameSafe(pszDest);
             }
             else
             {
@@ -785,6 +1017,8 @@ GDALDatasetH GDALTileIndex(const char *pszDest, int nSrcCount,
     /* -------------------------------------------------------------------- */
     /*      loop over GDAL files, processing.                               */
     /* -------------------------------------------------------------------- */
+    int iCur = 0;
+    int nTotal = nSrcCount + 1;
     while (true)
     {
         const std::string osSrcFilename = oGDALTileIndexTileIterator.next();
@@ -799,7 +1033,7 @@ GDALDatasetH GDALTileIndex(const char *pszDest, int nSrcCount,
             CPLIsFilenameRelative(osSrcFilename.c_str()) &&
             VSIStat(osSrcFilename.c_str(), &sStatBuf) == 0)
         {
-            osFileNameToWrite = CPLProjectRelativeFilename(
+            osFileNameToWrite = CPLProjectRelativeFilenameSafe(
                 osCurrentPath.c_str(), osSrcFilename.c_str());
         }
         else
@@ -951,7 +1185,7 @@ GDALDatasetH GDALTileIndex(const char *pszDest, int nSrcCount,
         const double dfMaxY =
             std::max(std::max(adfY[0], adfY[1]), std::max(adfY[2], adfY[3]));
         const double dfRes =
-            (dfMaxX - dfMinX) * (dfMaxY - dfMinY) / nXSize / nYSize;
+            sqrt((dfMaxX - dfMinX) * (dfMaxY - dfMinY) / nXSize / nYSize);
         if (!std::isnan(psOptions->dfMinPixelSize) &&
             dfRes < psOptions->dfMinPixelSize)
         {
@@ -1074,7 +1308,7 @@ GDALDatasetH GDALTileIndex(const char *pszDest, int nSrcCount,
         auto poRing = std::make_unique<OGRLinearRing>();
         for (int k = 0; k < 5; k++)
             poRing->addPoint(adfX[k], adfY[k]);
-        poPoly->addRingDirectly(poRing.release());
+        poPoly->addRing(std::move(poRing));
         poFeature->SetGeometryDirectly(poPoly.release());
 
         if (poLayer->CreateFeature(poFeature.get()) != OGRERR_NONE)
@@ -1083,37 +1317,25 @@ GDALDatasetH GDALTileIndex(const char *pszDest, int nSrcCount,
                      "Failed to create feature in tile index.");
             return nullptr;
         }
-    }
 
-    return GDALDataset::ToHandle(poTileIndexDS.release());
+        ++iCur;
+        if (psOptions->pfnProgress &&
+            !psOptions->pfnProgress(static_cast<double>(iCur) / nTotal, "",
+                                    psOptions->pProgressData))
+        {
+            return nullptr;
+        }
+        if (iCur >= nSrcCount)
+            ++nTotal;
+    }
+    if (psOptions->pfnProgress)
+        psOptions->pfnProgress(1.0, "", psOptions->pProgressData);
+
+    if (poTileIndexDSUnique)
+        return GDALDataset::ToHandle(poTileIndexDSUnique.release());
+    else
+        return GDALDataset::ToHandle(poTileIndexDS);
 }
-
-/************************************************************************/
-/*                   CHECK_HAS_ENOUGH_ADDITIONAL_ARGS()                 */
-/************************************************************************/
-
-#ifndef CheckHasEnoughAdditionalArgs_defined
-#define CheckHasEnoughAdditionalArgs_defined
-
-static bool CheckHasEnoughAdditionalArgs(CSLConstList papszArgv, int i,
-                                         int nExtraArg, int nArgc)
-{
-    if (i + nExtraArg >= nArgc)
-    {
-        CPLError(CE_Failure, CPLE_IllegalArg,
-                 "%s option requires %d argument%s", papszArgv[i], nExtraArg,
-                 nExtraArg == 1 ? "" : "s");
-        return false;
-    }
-    return true;
-}
-#endif
-
-#define CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(nExtraArg)                            \
-    if (!CheckHasEnoughAdditionalArgs(papszArgv, iArg, nExtraArg, argc))       \
-    {                                                                          \
-        return nullptr;                                                        \
-    }
 
 /************************************************************************/
 /*                             SanitizeSRS                              */
@@ -1167,218 +1389,112 @@ GDALTileIndexOptionsNew(char **papszArgv,
 {
     auto psOptions = std::make_unique<GDALTileIndexOptions>();
 
-    bool bSrcSRSFormatSpecified = false;
-
     /* -------------------------------------------------------------------- */
     /*      Parse arguments.                                                */
     /* -------------------------------------------------------------------- */
-    int argc = CSLCount(papszArgv);
-    for (int iArg = 0; papszArgv != nullptr && iArg < argc; iArg++)
+
+    CPLStringList aosArgv;
+
+    if (papszArgv)
     {
-        if ((strcmp(papszArgv[iArg], "-f") == 0 ||
-             strcmp(papszArgv[iArg], "-of") == 0))
+        const int nArgc = CSLCount(papszArgv);
+        for (int i = 0; i < nArgc; i++)
         {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->osFormat = papszArgv[++iArg];
+            aosArgv.AddString(papszArgv[i]);
         }
-        else if (strcmp(papszArgv[iArg], "-lyr_name") == 0)
+    }
+
+    try
+    {
+        auto argParser = GDALTileIndexAppOptionsGetParser(psOptions.get(),
+                                                          psOptionsForBinary);
+        argParser->parse_args_without_binary_name(aosArgv.List());
+
+        // Check all no store_into args
+        if (auto oTr = argParser->present<std::vector<double>>("-tr"))
         {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->osIndexLayerName = papszArgv[++iArg];
+            psOptions->xres = (*oTr)[0];
+            psOptions->yres = (*oTr)[1];
         }
-        else if (strcmp(papszArgv[iArg], "-tileindex") == 0)
+
+        if (auto oTargetExtent = argParser->present<std::vector<double>>("-te"))
         {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->osLocationField = papszArgv[++iArg];
+            psOptions->xmin = (*oTargetExtent)[0];
+            psOptions->ymin = (*oTargetExtent)[1];
+            psOptions->xmax = (*oTargetExtent)[2];
+            psOptions->ymax = (*oTargetExtent)[3];
         }
-        else if (strcmp(papszArgv[iArg], "-lco") == 0)
+
+        if (auto fetchMd =
+                argParser->present<std::vector<std::string>>("-fetch_md"))
         {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->aosLCO.AddString(papszArgv[++iArg]);
-        }
-        else if (strcmp(papszArgv[iArg], "-t_srs") == 0)
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            char *pszSRS = SanitizeSRS(papszArgv[++iArg]);
-            if (pszSRS == nullptr)
+
+            CPLAssert(fetchMd->size() % 3 == 0);
+
+            // Loop
+            for (size_t i = 0; i < fetchMd->size(); i += 3)
             {
-                return nullptr;
-            }
-            psOptions->osTargetSRS = pszSRS;
-            CPLFree(pszSRS);
-        }
-        else if (strcmp(papszArgv[iArg], "-write_absolute_path") == 0)
-        {
-            psOptions->bWriteAbsolutePath = true;
-        }
-        else if (strcmp(papszArgv[iArg], "-skip_different_projection") == 0)
-        {
-            psOptions->bSkipDifferentProjection = true;
-        }
-        else if (strcmp(papszArgv[iArg], "-src_srs_name") == 0)
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->osSrcSRSFieldName = papszArgv[++iArg];
-        }
-        else if (strcmp(papszArgv[iArg], "-src_srs_format") == 0)
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            const char *pszFormat = papszArgv[++iArg];
-            bSrcSRSFormatSpecified = true;
-            if (EQUAL(pszFormat, "AUTO"))
-                psOptions->eSrcSRSFormat = FORMAT_AUTO;
-            else if (EQUAL(pszFormat, "WKT"))
-                psOptions->eSrcSRSFormat = FORMAT_WKT;
-            else if (EQUAL(pszFormat, "EPSG"))
-                psOptions->eSrcSRSFormat = FORMAT_EPSG;
-            else if (EQUAL(pszFormat, "PROJ"))
-                psOptions->eSrcSRSFormat = FORMAT_PROJ;
-            else
-            {
-                CPLError(CE_Failure, CPLE_IllegalArg,
-                         "Unhandled value for -src_srs_format");
-                return nullptr;
-            }
-        }
-        else if (EQUAL(papszArgv[iArg], "-q") ||
-                 EQUAL(papszArgv[iArg], "-quiet"))
-        {
-            if (psOptionsForBinary)
-            {
-                psOptionsForBinary->bQuiet = true;
-            }
-        }
-        else if (EQUAL(papszArgv[iArg], "-tr"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(2);
-            psOptions->xres = CPLAtofM(papszArgv[++iArg]);
-            psOptions->yres = std::fabs(CPLAtofM(papszArgv[++iArg]));
-        }
-        else if (EQUAL(papszArgv[iArg], "-te"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(4);
-            psOptions->xmin = CPLAtofM(papszArgv[++iArg]);
-            psOptions->ymin = CPLAtofM(papszArgv[++iArg]);
-            psOptions->xmax = CPLAtofM(papszArgv[++iArg]);
-            psOptions->ymax = CPLAtofM(papszArgv[++iArg]);
-        }
-        else if (EQUAL(papszArgv[iArg], "-ot"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->osDataType = papszArgv[++iArg];
-        }
-        else if (EQUAL(papszArgv[iArg], "-mo"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->aosMetadata.push_back(papszArgv[++iArg]);
-        }
-        else if (EQUAL(papszArgv[iArg], "-bandcount"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->osBandCount = papszArgv[++iArg];
-        }
-        else if (EQUAL(papszArgv[iArg], "-nodata"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->osNodata = papszArgv[++iArg];
-        }
-        else if (EQUAL(papszArgv[iArg], "-colorinterp"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->osColorInterp = papszArgv[++iArg];
-        }
-        else if (EQUAL(papszArgv[iArg], "-mask"))
-        {
-            psOptions->bMaskBand = true;
-        }
-        else if (EQUAL(papszArgv[iArg], "-gti_filename"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->osGTIFilename = papszArgv[++iArg];
-        }
-        else if (EQUAL(papszArgv[iArg], "-overwrite"))
-        {
-            psOptions->bOverwrite = true;
-        }
-        else if (EQUAL(papszArgv[iArg], "-recursive"))
-        {
-            psOptions->bRecursive = true;
-        }
-        else if (EQUAL(papszArgv[iArg], "-min_pixel_size"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->dfMinPixelSize = CPLAtofM(papszArgv[++iArg]);
-        }
-        else if (EQUAL(papszArgv[iArg], "-max_pixel_size"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->dfMaxPixelSize = CPLAtofM(papszArgv[++iArg]);
-        }
-        else if (EQUAL(papszArgv[iArg], "-filename_filter"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(1);
-            psOptions->oSetFilenameFilters.insert(papszArgv[++iArg]);
-        }
-        else if (EQUAL(papszArgv[iArg], "-fetch_md"))
-        {
-            CHECK_HAS_ENOUGH_ADDITIONAL_ARGS(3);
-            GDALTileIndexRasterMetadata md;
-            md.osRasterItemName = papszArgv[++iArg];
-            md.osFieldName = papszArgv[++iArg];
-            const char *pszType = papszArgv[++iArg];
-            if (EQUAL(pszType, "String"))
-                md.eType = OFTString;
-            else if (EQUAL(pszType, "Integer"))
-                md.eType = OFTInteger;
-            else if (EQUAL(pszType, "Integer64"))
-                md.eType = OFTInteger64;
-            else if (EQUAL(pszType, "Real"))
-                md.eType = OFTReal;
-            else if (EQUAL(pszType, "Date"))
-                md.eType = OFTDate;
-            else if (EQUAL(pszType, "DateTime"))
-                md.eType = OFTDateTime;
-            else
-            {
-                CPLError(CE_Failure, CPLE_NotSupported, "Unknown type '%s'",
-                         pszType);
-                return nullptr;
-            }
-            psOptions->aoFetchMD.emplace_back(std::move(md));
-        }
-        else if (papszArgv[iArg][0] == '-')
-        {
-            CPLError(CE_Failure, CPLE_NotSupported, "Unknown option name '%s'",
-                     papszArgv[iArg]);
-            return nullptr;
-        }
-        else
-        {
-            if (psOptionsForBinary)
-            {
-                if (!psOptionsForBinary->bDestSpecified)
+                OGRFieldType type;
+                const auto &typeName{fetchMd->at(i + 2)};
+                if (typeName == "String")
                 {
-                    psOptionsForBinary->bDestSpecified = true;
-                    psOptionsForBinary->osDest = papszArgv[iArg];
+                    type = OFTString;
+                }
+                else if (typeName == "Integer")
+                {
+                    type = OFTInteger;
+                }
+                else if (typeName == "Integer64")
+                {
+                    type = OFTInteger64;
+                }
+                else if (typeName == "Real")
+                {
+                    type = OFTReal;
+                }
+                else if (typeName == "Date")
+                {
+                    type = OFTDate;
+                }
+                else if (typeName == "DateTime")
+                {
+                    type = OFTDateTime;
                 }
                 else
                 {
-                    psOptionsForBinary->aosSrcFiles.AddString(papszArgv[iArg]);
+                    CPLError(CE_Failure, CPLE_AppDefined,
+                             "-fetch_md requires a valid type name as third "
+                             "argument: %s was given.",
+                             fetchMd->at(i).c_str());
+                    return nullptr;
                 }
+
+                const GDALTileIndexRasterMetadata oMD{type, fetchMd->at(i + 1),
+                                                      fetchMd->at(i)};
+                psOptions->aoFetchMD.push_back(oMD);
+            }
+        }
+
+        // Check -t_srs
+        if (!psOptions->osTargetSRS.empty())
+        {
+            auto sanitized{SanitizeSRS(psOptions->osTargetSRS.c_str())};
+            if (sanitized)
+            {
+                psOptions->osTargetSRS = sanitized;
+                CPLFree(sanitized);
             }
             else
             {
-                CPLError(CE_Failure, CPLE_NotSupported, "Unexpected argument");
+                // Error was already reported by SanitizeSRS, just return nullptr
+                psOptions->osTargetSRS.clear();
                 return nullptr;
             }
         }
     }
-
-    if (bSrcSRSFormatSpecified && psOptions->osTargetSRS.empty())
+    catch (const std::exception &error)
     {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "-src_srs_name must be specified when -src_srs_format is "
-                 "specified.");
+        CPLError(CE_Failure, CPLE_AppDefined, "%s", error.what());
         return nullptr;
     }
 
@@ -1400,6 +1516,28 @@ GDALTileIndexOptionsNew(char **papszArgv,
 void GDALTileIndexOptionsFree(GDALTileIndexOptions *psOptions)
 {
     delete psOptions;
+}
+
+/************************************************************************/
+/*                 GDALTileIndexOptionsSetProgress()                    */
+/************************************************************************/
+
+/**
+ * Set a progress function.
+ *
+ * @param psOptions the options struct for GDALTileIndex().
+ * @param pfnProgress the progress callback.
+ * @param pProgressData the user data for the progress callback.
+ *
+ * @since GDAL 3.11
+ */
+
+void GDALTileIndexOptionsSetProgress(GDALTileIndexOptions *psOptions,
+                                     GDALProgressFunc pfnProgress,
+                                     void *pProgressData)
+{
+    psOptions->pfnProgress = pfnProgress;
+    psOptions->pProgressData = pProgressData;
 }
 
 #undef CHECK_HAS_ENOUGH_ADDITIONAL_ARGS

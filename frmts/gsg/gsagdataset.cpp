@@ -9,23 +9,7 @@
  * Copyright (c) 2006, Kevin Locke <kwl7@cornell.edu>
  * Copyright (c) 2008-2012, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_conv.h"
@@ -286,10 +270,9 @@ CPLErr GSAGRasterBand::ScanForMinMaxZ()
 
 CPLErr GSAGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
 {
-    GSAGDataset *poGDS = (GSAGDataset *)poDS;
-    assert(poGDS != nullptr);
+    GSAGDataset *poGDS = cpl::down_cast<GSAGDataset *>(poDS);
 
-    double *pdfImage = (double *)pImage;
+    double *pdfImage = static_cast<double *>(pImage);
 
     if (nBlockYOff < 0 || nBlockYOff > nRasterYSize - 1 || nBlockXOff != 0)
         return CE_Failure;
@@ -385,6 +368,7 @@ CPLErr GSAGRasterBand::IReadBlock(int nBlockXOff, int nBlockYOff, void *pImage)
             }
             else if (*szStart != '\0')
             {
+                // cppcheck-suppress redundantAssignment
                 szEnd = szStart;
                 while (!isspace((unsigned char)*szEnd) && *szEnd != '\0')
                     szEnd++;
@@ -567,8 +551,7 @@ CPLErr GSAGRasterBand::IWriteBlock(int nBlockXOff, int nBlockYOff, void *pImage)
     if (nBlockYOff < 0 || nBlockYOff > nRasterYSize - 1 || nBlockXOff != 0)
         return CE_Failure;
 
-    GSAGDataset *poGDS = (GSAGDataset *)poDS;
-    assert(poGDS != nullptr);
+    GSAGDataset *poGDS = cpl::down_cast<GSAGDataset *>(poDS);
 
     if (padfRowMinZ == nullptr || padfRowMaxZ == nullptr || nMinZRow < 0 ||
         nMaxZRow < 0)
@@ -1081,12 +1064,8 @@ CPLErr GSAGDataset::GetGeoTransform(double *padfGeoTransform)
     padfGeoTransform[4] = 0;
     padfGeoTransform[5] = 1;
 
-    GSAGRasterBand *poGRB = (GSAGRasterBand *)GetRasterBand(1);
-
-    if (poGRB == nullptr)
-    {
-        return CE_Failure;
-    }
+    const GSAGRasterBand *poGRB =
+        cpl::down_cast<const GSAGRasterBand *>(GetRasterBand(1));
 
     /* check if we have a PAM GeoTransform stored */
     CPLPushErrorHandler(CPLQuietErrorHandler);
@@ -1127,7 +1106,7 @@ CPLErr GSAGDataset::SetGeoTransform(double *padfGeoTransform)
         return CE_Failure;
     }
 
-    GSAGRasterBand *poGRB = (GSAGRasterBand *)GetRasterBand(1);
+    GSAGRasterBand *poGRB = cpl::down_cast<GSAGRasterBand *>(GetRasterBand(1));
 
     if (poGRB == nullptr || padfGeoTransform == nullptr)
         return CE_Failure;
@@ -1401,12 +1380,7 @@ CPLErr GSAGDataset::ShiftFileContents(VSILFILE *fp, vsi_l_offset nShiftStart,
 CPLErr GSAGDataset::UpdateHeader()
 
 {
-    GSAGRasterBand *poBand = (GSAGRasterBand *)GetRasterBand(1);
-    if (poBand == nullptr)
-    {
-        CPLError(CE_Failure, CPLE_FileIO, "Unable to open raster band.\n");
-        return CE_Failure;
-    }
+    GSAGRasterBand *poBand = cpl::down_cast<GSAGRasterBand *>(GetRasterBand(1));
 
     std::ostringstream ssOutBuf;
     ssOutBuf.precision(nFIELD_PRECISION);

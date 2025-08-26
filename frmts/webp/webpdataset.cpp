@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2011-2013, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_string.h"
@@ -60,8 +44,9 @@ class WEBPDataset final : public GDALPamDataset
     virtual ~WEBPDataset();
 
     virtual CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                             GDALDataType, int, int *, GSpacing nPixelSpace,
-                             GSpacing nLineSpace, GSpacing nBandSpace,
+                             GDALDataType, int, BANDMAP_TYPE,
+                             GSpacing nPixelSpace, GSpacing nLineSpace,
+                             GSpacing nBandSpace,
                              GDALRasterIOExtraArg *psExtraArg) override;
 
     virtual char **GetMetadataDomainList() override;
@@ -262,6 +247,7 @@ char **WEBPDataset::GetMetadata(const char *pszDomain)
                 char *apszMDList[2] = {pszXMP, nullptr};
                 SetMetadata(apszMDList, "xml:XMP");
 
+                // cppcheck-suppress redundantAssignment
                 nPamFlags = nOldPamFlags;
 
                 VSIFree(pszXMP);
@@ -345,7 +331,7 @@ CPLErr WEBPDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                               int nXSize, int nYSize, void *pData,
                               int nBufXSize, int nBufYSize,
                               GDALDataType eBufType, int nBandCount,
-                              int *panBandMap, GSpacing nPixelSpace,
+                              BANDMAP_TYPE panBandMap, GSpacing nPixelSpace,
                               GSpacing nLineSpace, GSpacing nBandSpace,
                               GDALRasterIOExtraArg *psExtraArg)
 
@@ -549,7 +535,9 @@ GDALPamDataset *WEBPDataset::OpenPAM(GDALOpenInfo *poOpenInfo)
         config.input.format == 2 ? "LOSSLESS" : "LOSSY", "IMAGE_STRUCTURE");
 #endif
 
-    if (config.input.has_alpha)
+    if (config.input.has_alpha ||
+        CPLTestBool(CSLFetchNameValueDef(poOpenInfo->papszOpenOptions,
+                                         "FORCE_4BANDS", "NO")))
         nBands = 4;
 
     WebPFreeDecBuffer(&config.output);
@@ -561,9 +549,7 @@ GDALPamDataset *WEBPDataset::OpenPAM(GDALOpenInfo *poOpenInfo)
 
     if (poOpenInfo->eAccess == GA_Update)
     {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "The WEBP driver does not support update access to existing"
-                 " datasets.\n");
+        ReportUpdateNotSupportedByDriver("WEBP");
         return nullptr;
     }
 

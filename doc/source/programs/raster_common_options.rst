@@ -17,14 +17,20 @@ All GDAL command line programs support the following common options.
 .. _raster_common_options_formats:
 .. include:: options/formats_raster.rst
 
+.. _raster_common_options_format:
 .. option:: --format <format>
 
     List detailed information about a single format driver. The format should be the short name reported in the --formats list, such as GTiff.
 
+.. option:: --formats
+
+    List all drivers. Can be combined with ``-json`` switch of :program:`gdalinfo` of since GDAL 3.10
+
 .. _raster_common_options_optfile:
 .. option:: --optfile <filename>
 
-    Read the named file and substitute the contents into the command line options list. Lines beginning with # will be ignored. Multi-word arguments may be kept together with double quotes.
+    Read the named file and substitute the contents into the command line options list. Lines beginning with # will be ignored. Multi-word arguments may be kept together with double quotes. Multiple --optfiles may be used: --optfile file1 --optfile file2...
+
 
 .. option:: --config <key> <value>
 

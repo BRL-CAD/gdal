@@ -144,7 +144,8 @@ scanning the features of the tile(s).
 
 As an extension, OGR handles in reading and writing custom tiling
 schemes by using the *crs*, *tile_origin_upper_left_x*,
-*tile_origin_upper_left_y* and *tile_dimension_zoom_0* metadata items.
+*tile_origin_upper_left_y*, *tile_dimension_zoom_0*, *tile_matrix_width_zoom_0*
+and *tile_matrix_height_zoom_0* metadata items.
 For example, for the Finnish ETRS-TM35FIN (EPSG:3067) tiling scheme:
 
 .. code-block:: json
@@ -157,9 +158,25 @@ For example, for the Finnish ETRS-TM35FIN (EPSG:3067) tiling scheme:
      "tile_dimension_zoom_0":2097152.0,
    }
 
+Or for a ``WorldCRS84Quad`` tiling scheme with 2 tiles in the horizontal
+direction at zoom level 0:
+
+.. code-block:: json
+
+   {
+     "...": "...",
+     "crs":"EPSG:4326",
+     "tile_origin_upper_left_x":-180.0,
+     "tile_origin_upper_left_y":90.0,
+     "tile_dimension_zoom_0":180.0,
+     "tile_matrix_width_zoom_0":2,
+     "tile_matrix_height_zoom_0":1
+   }
+
 Opening options
 ---------------
 
+|about-open-options|
 The following open options are available:
 
 -  .. oo:: X
@@ -224,6 +241,9 @@ with the :config:`GDAL_NUM_THREADS` configuration option.
 Dataset creation options
 ------------------------
 
+|about-dataset-creation-options|
+The following dataset creation options are supported:
+
 -  .. co:: NAME
 
       Tileset name. Defaults to the basename of the
@@ -268,8 +288,8 @@ Dataset creation options
 -  .. co:: CONF
       :choices: <json>, <filename>
 
-      Layer configuration as a JSon serialized string.
-      Or, starting with GDAL 3.0.1, filename containing the configuration as JSon.
+      Layer configuration as a JSON serialized string.
+      Or, starting with GDAL 3.0.1, filename containing the configuration as JSON .
 
 -  .. co:: SIMPLIFICATION
       :choices: float
@@ -347,7 +367,7 @@ Dataset creation options
       metadata item, which is the center of :co:`BOUNDS` at minimum zoom level.
 
 -  .. co:: TILING_SCHEME
-      :choices: <crs\,tile_origin_upper_left_x\,tile_origin_upper_left_y\,tile_dimension_zoom_0>
+      :choices: <crs\,tile_origin_upper_left_x\,tile_origin_upper_left_y\,tile_dimension_zoom_0[\,tile_matrix_width_zoom_0\,tile_matrix_height_zoom_0]>
 
       Define a custom tiling scheme with a CRS
       (typically given as EPSG:XXXX), the coordinates of the upper-left
@@ -361,12 +381,15 @@ Dataset creation options
       scheme, the 'crs', 'tile_origin_upper_left_x',
       'tile_origin_upper_left_y' and 'tile_dimension_zoom_0' entries are
       added to the metadata.json, and are honoured by the OGR MVT reader.
+      Starting with GDAL 3.10.2, 'tile_matrix_width_zoom_0' (resp.
+      'tile_matrix_height_zoom_0') can be specified to indicate the number of
+      tiles along the X (resp. Y) axis at zoom level 0.
 
 Layer configuration
 -------------------
 
 The above mentioned CONF dataset creation option can be set to a string
-whose value is a JSon serialized document such as the below one:
+whose value is a JSON serialized document such as the below one:
 
 .. code-block:: json
 
@@ -394,6 +417,9 @@ case.
 
 Layer creation options
 ----------------------
+
+|about-layer-creation-options|
+The following layer creation options are supported:
 
 -  .. lco:: MINZOOM
       :choices: <integer>
@@ -435,7 +461,7 @@ See Also:
 -  `Mapbox Vector Tile
    Specification <https://github.com/mapbox/vector-tile-spec>`__
 -  :ref:`MBTiles <raster.mbtiles>` driver
--  `tippecanoe <https://github.com/mapbox/tippecanoe>`__: Builds vector
+-  `tippecanoe <https://github.com/felt/tippecanoe>`__: Builds vector
    tilesets from large (or small) collections of GeoJSON, Geobuf, or CSV
    features
 -  `Links to tools dealing with Mapbox Vector

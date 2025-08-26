@@ -33,7 +33,7 @@ other content before the ``<GDAL_WMS>`` element.
 <Service name="WMS">                                                       Define what mini-driver to use, currently supported are: WMS, WorldWind, TileService, TMS, TiledWMS, VirtualEarth or AGS. (required)
 <Version>1.1.1</Version>                                                   WMS version. (optional, defaults to 1.1.1)
 <ServerUrl>http://host.domain.com/wms.cgi?</ServerUrl>                     WMS server URL. (required)
-<SRS>EPSG:4326</SRS>                                                       Image projection (optional, defaults to EPSG:4326 in WMS and 102100 in AGS, WMS version 1.1.1 or below only and ArcGIS Server). For ArcGIS Server the spatial reference can be specified as either a well-known ID or as a `spatial reference json object <http://resources.arcgis.com/en/help/rest/apiref/geometry.html#sr>`__
+<SRS>EPSG:4326</SRS>                                                       Image projection (optional, defaults to EPSG:4326 in WMS and 102100 in AGS, WMS version 1.1.1 or below only and ArcGIS Server). For ArcGIS Server the spatial reference can be specified as either a well-known ID or as a `spatial reference json object <https://developers.arcgis.com/rest/services-reference/enterprise/geometry-objects/#spatial-reference>`__
 <CRS>CRS:83</CRS>                                                          Image projection (optional, defaults to EPSG:4326, WMS version 1.3.0 or above only)
 <ImageFormat>image/jpeg</ImageFormat>                                      Format in which to request data. Paletted formats like image/gif will be converted to RGB. (optional, defaults to image/jpeg)
 <Transparent>FALSE</Transparent>                                           Set to TRUE to include "transparent=TRUE" in the WMS GetMap request (optional defaults to FALSE).  The request format and BandsCount need to support alpha.
@@ -279,22 +279,22 @@ ArcGIS REST API
 ~~~~~~~~~~~~~~~
 
 Access to ArcGIS REST `map service
-resource <http://resources.arcgis.com/en/help/rest/apiref/mapserver.html>`__
+resource <https://developers.arcgis.com/rest/services-reference/enterprise/map-service/>`__
 (untiled requests).
 
 AGS layers can be
-`queried <http://resources.arcgis.com/en/help/rest/apiref/identify.html>`__
+`queried <https://developers.arcgis.com/rest/services-reference/enterprise/identify-map-service/>`__
 (through a GetFeatureInfo request) with the gdallocationinfo utility, or
 with a GetMetadataItem("Pixel_iCol_iLine", "LocationInfo") call on a
 band object.
 
 ::
 
-   gdallocationinfo -wgs84 "<GDAL_WMS><Service name=\"AGS\"><ServerUrl>http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Specialty/ESRI_StateCityHighway_USA/MapServer</ServerUrl><BBoxOrder>xyXY</BBoxOrder><SRS>3857</SRS></Service><DataWindow><UpperLeftX>-20037508.34</UpperLeftX><UpperLeftY>20037508.34</UpperLeftY><LowerRightX>20037508.34</LowerRightX><LowerRightY>-20037508.34</LowerRightY><SizeX>512</SizeX><SizeY>512</SizeY></DataWindow></GDAL_WMS>" -75.704 39.75
+   gdallocationinfo -wgs84 "<GDAL_WMS><Service name=\"AGS\"><ServerUrl>https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer</ServerUrl><BBoxOrder>xyXY</BBoxOrder><SRS>3857</SRS></Service><DataWindow><UpperLeftX>-20037508.34</UpperLeftX><UpperLeftY>20037508.34</UpperLeftY><LowerRightX>20037508.34</LowerRightX><LowerRightY>-20037508.34</LowerRightY><SizeX>512</SizeX><SizeY>512</SizeY></DataWindow></GDAL_WMS>" -75.704 39.75
 
 
-Internet Imaging Protocol (IIP) (GDAL 2.1 and later)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Internet Imaging Protocol (IIP)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Access to images served through `IIP
 protocol <https://en.wikipedia.org/wiki/Internet_Imaging_Protocol>`__.
@@ -310,51 +310,34 @@ the full resolution dimension and the number of resolutions.
 The XML definition can then be generated with "gdal_translate
 IIP:http://foo.com/FIF=image_name out.xml -of WMS"
 
+
+International Image Interoperability Framework Image API (IIIF)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. versionadded:: 3.11.1
+
+Access to images served through `IIIF Image API 3.0 <https://iiif.io/api/image/3.0>`__.
+
+If using the XML syntax, the ServerURL must point to the image identifier URL,
+such that :file:`{url}/info.json` exists.
+
+Otherwise it is also possible to use "IIIF:https://path/to/image/identifier"
+syntax as connection string, to retrieve from the server information on
+the full resolution dimension and the number of resolutions.
+
+The XML definition can then be generated with "gdal_translate
+IIIF:https://path/to/image/identifier out.xml -of WMS"
+
 Caching
 -------
 
-Caching of remote pixel data is possible by setting a <Cache> element in the
-WMS configuration file.
-
-Before GDAL 3.9, if the <Path> sub-element of <Cache> was not specified, the
-directory of the cache was ``./gdalwmscache`` (that is to say a ``gdalwmscache``
-subdiretory of the current directory), unless the :config:`GDAL_DEFAULT_WMS_CACHE_PATH`
-configuration option is specified.
-
-Starting with GDAL 3.9, the directory of the cache is set according to the
-following logic (first listed criterion is prioritary over following ones):
-
-- Value of the <Path> sub-element of <Cache>, if specified.
-
-- ``${GDAL_DEFAULT_WMS_CACHE_PATH}`` if :config:`GDAL_DEFAULT_WMS_CACHE_PATH` is set.
-
-- ``${XDG_CACHE_HOME}/gdalwmscache`` if the ``XDG_CACHE_HOME`` configuration option is set.
-
-- On Unix, ``${HOME}/.cache/gdalwmscache`` if the ``HOME`` configuration option is set.
-
-- On Windows, ``${USERPROFILE}/.cache/gdalwmscache`` if the ``USERPROFILE`` configuration option is set.
-
-- ``${CPL_TMPDIR}/gdalwmscache_${USER}`` if :config:`CPL_TMPDIR` and ``USER`` configuration options are set.
-
-   If ``CPL_TMPDIR`` is not set, then ``TMPDIR`` is used, or ``TEMP``
-
-   If ``USER`` is not set, ``USERNAME`` is used if set.
-   If neither ``USERNAME`` or ``USER`` are set, the md5sum of the filename of the configuration file is used)
-
-- ``./gdalwmscache_{md5sum(filename)}`` if none of the above mentioned configuration options are set.
-
-Note that if the <Unique> element is set to true (which is its default value),
-a subdirectory whose name is the md5sum of the filename of the configuration file
-is appended to the caching directory.
-
-The actual caching directory can be got by querying the ``CACHE_PATH`` metadata
-item on the dataset.
+.. include:: wms_wmts_cache.rst
 
 Configuration options
 ---------------------
 
-The following :ref:`configuration options <configoptions>` are
-available:
+|about-config-options|
+The following configuration options are available:
 
 - .. config:: GDAL_MAX_CONNECTIONS
      :choices: <integer>
@@ -374,7 +357,7 @@ available:
 - .. config:: GDAL_DEFAULT_WMS_CACHE_PATH
      :choices: <string>
 
-     Sets the WMS cache path is the <Cache> element is included in the WMS
+     Sets the WMS/WMTS cache path is the <Cache> element is included in the WMS/WMTS
      configuration file without a <Path> element.
 
 
@@ -387,7 +370,7 @@ Examples
     time. They are just here to demonstrate how to use the various services.
 
 
--  | `onearth_global_mosaic.xml <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_wms_onearth_global_mosaic.xml>`__
+-  | :source_file:`frmts/wms/frmt_wms_onearth_global_mosaic.xml`
      - Landsat mosaic from a `OnEarth <http://onearth.jpl.nasa.gov/>`__
      WMS server
 
@@ -402,20 +385,20 @@ Examples
    *Note : this particular server does no longer accept regular WMS
    queries.*
 
--  `metacarta_wmsc.xml <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_wms_metacarta_wmsc.xml>`__ - It is possible
+-  :source_file:`frmts/wms/frmt_wms_metacarta_wmsc.xml` - It is possible
    to configure a WMS Service conforming to a WMS-C cache by specifying
    a number of overviews and specifying the 'block size' as the tile
    size of the cache. The following example is a sample set up for a
    19-level "Global Profile" WMS-C cache.
 
--  | `tileservice_bmng.xml <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_wms_tileservice_bmng.xml>`__ -
+-  | :source_file:`frmts/wms/frmt_wms_tileservice_bmng.xml` -
      - TileService, Blue Marble NG (January)
 
--  | `tileservice_nysdop2004.xml <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_wms_tileservice_nysdop2004.xml>`__
+-  | :source_file:`frmts/wms/frmt_wms_tileservice_nysdop2004.xml`
      - TileService, NYSDOP 2004
 
--  | `OpenStreetMap TMS Service
-     Example <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_wms_openstreetmap_tms.xml>`__: Connect to
+-  | OpenStreetMap TMS Service
+     Example :source_file:`frmts/wms/frmt_wms_openstreetmap_tms.xml`: Connect to
      OpenStreetMap tile service. Note that this file takes advantage of
      the tile cache; more information about configuring the tile cache
      settings is available above. Please also change the <UserAgent>, to avoid the
@@ -423,31 +406,34 @@ Examples
      big usage of it would be seen.
    | ``gdal_translate -of PNG -outsize 512 512 frmt_wms_openstreetmap_tms.xml openstreetmap.png``
 
--  | `MetaCarta TMS Layer Example <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_wms_metacarta_tms.xml>`__,
+-  | MetaCarta TMS Layer Example :source_file:`frmts/wms/frmt_wms_metacarta_tms.xml`,
      accessing the default MetaCarta TMS layer.
    | ``gdal_translate -of PNG -outsize 512 256 frmt_wms_metacarta_tms.xml metacarta.png``
 
--  `BlueMarble Amazon S3 Example <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_wms_bluemarble_s3_tms.xml>`__
+-  BlueMarble Amazon S3 Example :source_file:`frmts/wms/frmt_wms_bluemarble_s3_tms.xml`
    accessed with the TMS minidriver.
 
--  `Google Maps <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_wms_googlemaps_tms.xml>`__ accessed with the TMS
+-  Google Maps :source_file:`frmts/wms/frmt_wms_googlemaps_tms.xml` accessed with the TMS
    minidriver.
 
--  `ArcGIS MapServer Tiles <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_wms_arcgis_mapserver_tms.xml>`__
+-  ArcGIS MapServer Tiles :source_file:`frmts/wms/frmt_wms_arcgis_mapserver_tms.xml`
    accessed with the TMS minidriver.
 
--  OnEarth Tiled WMS `Clementine <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_twms_Clementine.xml>`__,
-   `daily <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_twms_daily.xml>`__, and `srtm <https://github.com/OSGeo/gdal/blob/master/gdal/frmts/wms/frmt_twms_srtm.xml>`__
+-  OnEarth Tiled WMS Clementine :source_file:`frmts/wms/frmt_twms_Clementine.xml`,
+   daily :source_file:`frmts/wms/frmt_twms_daily.xml`, and ``STRM`` :source_file:`frmts/wms/frmt_twms_srtm.xml`
    examples.
 
--  `VirtualEarth Aerial Layer <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_wms_virtualearth.xml>`__ accessed
+-  VirtualEarth Aerial Layer :source_file:`frmts/wms/frmt_wms_virtualearth.xml` accessed
    with the VirtualEarth minidriver.
 
--  `ArcGIS online sample server layer <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_ags_arcgisonline.xml>`__
+-  ArcGIS online sample server layer :source_file:`frmts/wms/frmt_ags_arcgisonline.xml`
    accessed with the ArcGIS Server REST API minidriver.
 
--  `IIP online sample server layer <https://github.com/OSGeo/gdal/blob/master/frmts/wms/frmt_wms_iip.xml>`__ accessed with
+-  IIP online sample server layer :source_file:`frmts/wms/frmt_wms_iip.xml` accessed with
    the IIP minidriver.
+
+-  IIIF online sample server layer :source_file:`frmts/wms/frmt_wms_iiif.xml` accessed with
+   the IIIF minidriver.
 
 Open syntax
 -----------
@@ -474,6 +460,11 @@ The WMS driver can open :
 
    A list of subdatasets will be returned, resulting from the parsing of
    the GetCapabilities request on that server.
+
+   Starting with GDAL 3.10, specifying the ``-if WMS`` option to command line utilities
+   accepting it, or ``WMS`` as the only value of the ``papszAllowedDrivers`` of
+   :cpp:func:`GDALOpenEx`, also forces the driver to recognize the passed
+   URL,  without the ``WMS:`` prefix.
 
 -  a pseudo GetMap request, such as the subdataset name
    returned by the previous syntax :
@@ -533,5 +524,5 @@ See Also
 -  `OnEarth Tiled WMS
    specification <http://web.archive.org/web/20130511182803/http://onearth.jpl.nasa.gov/tiled.html>`__
 -  `ArcGIS Server REST
-   API <http://resources.arcgis.com/en/help/rest/apiref/>`__
+   API <https://developers.arcgis.com/rest/>`__
 -  :ref:`raster.wmts` driver page.

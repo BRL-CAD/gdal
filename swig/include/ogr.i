@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Project:  OGR Core SWIG Interface declarations.
  * Purpose:  OGR declarations.
@@ -8,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2005, Howard Butler
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  *****************************************************************************/
 
 #ifdef SWIGPYTHON
@@ -49,6 +32,12 @@ typedef void* VoidPtrAsLong;
 #ifndef FROM_GDAL_I
 %inline %{
 typedef char retStringAndCPLFree;
+%}
+#endif
+
+#ifdef SWIGJAVA
+%inline %{
+typedef const char StringAsByteArray;
 %}
 #endif
 
@@ -756,6 +745,11 @@ public:
 
 #ifndef FROM_GDAL_I
 
+#ifdef SWIGPYTHON
+/* In Python, gdal.Driver and ogr.Driver are equivalent */
+typedef GDALDriverShadow OGRDriverShadow;
+#else
+
 %rename (Driver) OGRDriverShadow;
 
 #ifdef SWIGCSHARP
@@ -867,10 +861,17 @@ public:
 } /* %extend */
 }; /* class OGRDriverShadow */
 
+#endif
+
 /************************************************************************/
 /*                            OGRDataSource                             */
 /************************************************************************/
 
+#ifdef SWIGPYTHON
+/* In Python, ogr.DataSource and gdal.Dataset are equivalent */
+typedef GDALDatasetShadow OGRDataSourceShadow;
+
+#else
 
 %rename (DataSource) OGRDataSourceShadow;
 
@@ -917,6 +918,12 @@ public:
   const char * GetName() {
     return OGR_DS_GetName(self);
   }
+
+#ifdef SWIGJAVA
+  StringAsByteArray* GetNameAsByteArray() {
+    return OGR_DS_GetName(self);
+  }
+#endif
 
   OGRErr DeleteLayer(int index){
     return OGR_DS_DeleteLayer(self, index);
@@ -1032,6 +1039,8 @@ public:
 
 
 }; /* class OGRDataSourceShadow */
+
+#endif /* not SWIGPYTHON */
 
 #endif /* FROM_GDAL_I */
 
@@ -1310,6 +1319,12 @@ public:
     return OGR_L_GetName(self);
   }
 
+#ifdef SWIGJAVA
+  StringAsByteArray* GetNameAsByteArray() {
+    return OGR_L_GetName(self);
+  }
+#endif
+
   /* Added in OGR 1.8.0 */
   OGRwkbGeometryType GetGeomType() {
     return (OGRwkbGeometryType) OGR_L_GetGeomType(self);
@@ -1319,9 +1334,21 @@ public:
     return OGR_L_GetGeometryColumn(self);
   }
 
+#ifdef SWIGJAVA
+  StringAsByteArray* GetGeometryColumnAsByteArray() {
+    return OGR_L_GetGeometryColumn(self);
+  }
+#endif
+
   const char * GetFIDColumn() {
     return OGR_L_GetFIDColumn(self);
   }
+
+#ifdef SWIGJAVA
+  StringAsByteArray* GetFIDColumnAsByteArray() {
+    return OGR_L_GetFIDColumn(self);
+  }
+#endif
 
 %newobject GetFeature;
   OGRFeatureShadow *GetFeature(GIntBig fid) {
@@ -1971,17 +1998,40 @@ public:
   /* ---- GetFieldAsString --------------------- */
 
   const char* GetFieldAsString(int id) {
-    return (const char *) OGR_F_GetFieldAsString(self, id);
+    return OGR_F_GetFieldAsString(self, id);
   }
 
   const char* GetFieldAsString(const char* field_name) {
       int i = OGR_F_GetFieldIndex(self, field_name);
       if (i == -1)
-	  CPLError(CE_Failure, 1, FIELD_NAME_ERROR_TMPL, field_name);
+      {
+          CPLError(CE_Failure, 1, FIELD_NAME_ERROR_TMPL, field_name);
+          return NULL;
+      }
       else
-	  return (const char *) OGR_F_GetFieldAsString(self, i);
-      return NULL;
+      {
+          return OGR_F_GetFieldAsString(self, i);
+      }
   }
+
+#ifdef SWIGJAVA
+  StringAsByteArray* GetFieldAsStringAsByteArray(int id) {
+    return OGR_F_GetFieldAsString(self, id);
+  }
+
+  StringAsByteArray* GetFieldAsStringAsByteArray(const char* field_name) {
+      int i = OGR_F_GetFieldIndex(self, field_name);
+      if (i == -1)
+      {
+          CPLError(CE_Failure, 1, FIELD_NAME_ERROR_TMPL, field_name);
+          return NULL;
+      }
+      else
+      {
+          return OGR_F_GetFieldAsString(self, i);
+      }
+  }
+#endif
 
   /* ------------------------------------------- */
 
@@ -2460,6 +2510,12 @@ public:
     return (const char*) OGR_F_GetStyleString(self);
   }
 
+#ifdef SWIGJAVA
+  StringAsByteArray *GetStyleStringAsByteArray() {
+    return OGR_F_GetStyleString(self);
+  }
+#endif
+
   void SetStyleString(const char* the_string) {
     OGR_F_SetStyleString(self, the_string);
   }
@@ -2495,6 +2551,12 @@ public:
   const char* GetNativeData () {
     return OGR_F_GetNativeData(self);
   }
+
+#ifdef SWIGJAVA
+  StringAsByteArray *GetNativeDataAsByteArray() {
+    return OGR_F_GetNativeData(self);
+  }
+#endif
 
   const char* GetNativeMediaType () {
     return OGR_F_GetNativeMediaType(self);
@@ -2625,6 +2687,12 @@ public:
   const char* GetName(){
     return OGR_FD_GetName(self);
   }
+
+#ifdef SWIGJAVA
+  StringAsByteArray* GetNameAsByteArray() {
+    return OGR_FD_GetName(self);
+  }
+#endif
 
   int GetFieldCount(){
     return OGR_FD_GetFieldCount(self);
@@ -2782,11 +2850,17 @@ public:
   }
 
   const char * GetName() {
-    return (const char *) OGR_Fld_GetNameRef(self);
+    return OGR_Fld_GetNameRef(self);
   }
 
+#ifdef SWIGJAVA
+  StringAsByteArray* GetNameAsByteArray() {
+    return OGR_Fld_GetNameRef(self);
+  }
+#endif
+
   const char * GetNameRef() {
-    return (const char *) OGR_Fld_GetNameRef(self);
+    return OGR_Fld_GetNameRef(self);
   }
 
   void SetName( const char* name) {
@@ -2796,6 +2870,12 @@ public:
   const char * GetAlternativeName() {
     return OGR_Fld_GetAlternativeNameRef(self);
   }
+
+#ifdef SWIGJAVA
+  StringAsByteArray* GetAlternativeNameAsByteArray() {
+    return OGR_Fld_GetAlternativeNameRef(self);
+  }
+#endif
 
   const char * GetAlternativeNameRef() {
     return OGR_Fld_GetAlternativeNameRef(self);
@@ -2897,9 +2977,23 @@ public:
     OGR_Fld_SetUnique( self, bUnique );
   }
 
+  int IsGenerated() {
+    return OGR_Fld_IsGenerated( self );
+  }
+
+  void SetGenerated(int bGenerated ) {
+    OGR_Fld_SetGenerated( self, bGenerated );
+  }
+
   const char* GetDefault() {
     return OGR_Fld_GetDefault( self );
   }
+
+#ifdef SWIGJAVA
+  StringAsByteArray* GetDefaultAsByteArray() {
+    return OGR_Fld_GetDefault(self);
+  }
+#endif
 
   void SetDefault(const char* pszValue ) {
     OGR_Fld_SetDefault( self, pszValue );
@@ -2913,6 +3007,12 @@ public:
     return OGR_Fld_GetDomainName(self);
   }
 
+#ifdef SWIGJAVA
+  StringAsByteArray* GetDomainNameAsByteArray() {
+    return OGR_Fld_GetDomainName(self);
+  }
+#endif
+
   void SetDomainName(const char* name ) {
     OGR_Fld_SetDomainName( self, name );
   }
@@ -2920,6 +3020,12 @@ public:
   const char* GetComment() {
     return OGR_Fld_GetComment(self);
   }
+
+#ifdef SWIGJAVA
+  StringAsByteArray* GetCommentAsByteArray() {
+    return OGR_Fld_GetComment(self);
+  }
+#endif
 
   void SetComment(const char* comment ) {
     OGR_Fld_SetComment( self, comment );
@@ -2956,11 +3062,17 @@ public:
   }
 
   const char * GetName() {
-    return (const char *) OGR_GFld_GetNameRef(self);
+    return OGR_GFld_GetNameRef(self);
   }
 
+#ifdef SWIGJAVA
+  StringAsByteArray* GetNameAsByteArray() {
+    return OGR_GFld_GetNameRef(self);
+  }
+#endif
+
   const char * GetNameRef() {
-    return (const char *) OGR_GFld_GetNameRef(self);
+    return OGR_GFld_GetNameRef(self);
   }
 
   void SetName( const char* name) {
@@ -3457,6 +3569,10 @@ public:
     return OGR_G_Area(self);
   }
 
+  double GeodesicLength() {
+    return OGR_G_GeodesicLength(self);
+  }
+
   double GeodesicArea() {
     return OGR_G_GeodesicArea(self);
   }
@@ -3650,6 +3766,11 @@ public:
     return (OGRGeometryShadow*) OGR_G_Polygonize(self);
   }
 
+  %newobject BuildArea;
+  OGRGeometryShadow* BuildArea() {
+    return (OGRGeometryShadow*) OGR_G_BuildArea(self);
+  }
+
   %newobject Boundary;
   OGRGeometryShadow* Boundary() {
     return (OGRGeometryShadow*) OGR_G_Boundary(self);
@@ -3691,11 +3812,15 @@ public:
   }
 
   %newobject Buffer;
-#ifndef SWIGJAVA
+#if !defined(SWIGJAVA) && !defined(SWIGPYTHON)
   %feature("kwargs") Buffer;
 #endif
   OGRGeometryShadow* Buffer( double distance, int quadsecs=30 ) {
     return (OGRGeometryShadow*) OGR_G_Buffer( self, distance, quadsecs );
+  }
+
+  OGRGeometryShadow* Buffer( double distance, char** options ) {
+    return (OGRGeometryShadow*) OGR_G_BufferEx( self, distance, options );
   }
 
 %apply Pointer NONNULL {OGRGeometryShadow* other};
@@ -3935,7 +4060,7 @@ public:
 
   %newobject Value;
   OGRGeometryShadow* Value(double dfDistance) {
-    return OGR_G_Value(self, dfDistance);
+    return (OGRGeometryShadow*)OGR_G_Value(self, dfDistance);
   }
 
   %newobject Transform;
@@ -4036,9 +4161,21 @@ public:
     return OGR_FldDomain_GetName(self);
   }
 
+#ifdef SWIGJAVA
+  StringAsByteArray* GetNameAsByteArray() {
+    return OGR_FldDomain_GetName(self);
+  }
+#endif
+
   const char * GetDescription() {
     return OGR_FldDomain_GetDescription(self);
   }
+
+#ifdef SWIGJAVA
+  StringAsByteArray* GetDescriptionAsByteArray() {
+    return OGR_FldDomain_GetDescription(self);
+  }
+#endif
 
   OGRFieldType GetFieldType() {
     return OGR_FldDomain_GetFieldType(self);
@@ -4162,6 +4299,12 @@ public:
       return OGR_GlobFldDomain_GetGlob(self);
   }
 
+#ifdef SWIGJAVA
+  StringAsByteArray* GetGlobAsByteArray() {
+    return OGR_GlobFldDomain_GetGlob(self);
+  }
+#endif
+
 } /* %extend */
 
 }; /* class OGRFieldDomainShadow */
@@ -4188,6 +4331,58 @@ OGRFieldDomainShadow* CreateCodedFieldDomain( const char *name,
 
 %newobject CreateRangeFieldDomain;
 %apply Pointer NONNULL {const char* name};
+
+#ifdef SWIGPYTHON
+%apply (double *optional_double) {(double*)};
+
+%inline %{
+static
+OGRFieldDomainShadow* CreateRangeFieldDomain( const char *name,
+                                              const char* description,
+                                              OGRFieldType type,
+                                              OGRFieldSubType subtype,
+                                              double* min,
+                                              bool minIsInclusive,
+                                              double* max,
+                                              bool maxIsInclusive) {
+  OGRField sMin;
+  if (min )
+  {
+      if( type == OFTInteger )
+          sMin.Integer = static_cast<int>(*min);
+      else if( type == OFTInteger64 )
+          sMin.Integer64 = static_cast<GIntBig>(*min);
+      else if( type == OFTReal )
+          sMin.Real = *min;
+      else
+          return NULL;
+  }
+
+  OGRField sMax;
+  if( max )
+  {
+      if( type == OFTInteger )
+          sMax.Integer = static_cast<int>(*max);
+      else if( type == OFTInteger64 )
+          sMax.Integer64 = static_cast<GIntBig>(*max);
+      else if( type == OFTReal )
+          sMax.Real = *max;
+      else
+          return NULL;
+  }
+  return (OGRFieldDomainShadow*) OGR_RangeFldDomain_Create( name,
+                                                            description,
+                                                            type,
+                                                            subtype,
+                                                            min ? &sMin : NULL,
+                                                            minIsInclusive,
+                                                            max ? &sMax : NULL,
+                                                            maxIsInclusive );
+}
+%}
+
+#else
+
 %inline %{
 static
 OGRFieldDomainShadow* CreateRangeFieldDomain( const char *name,
@@ -4197,7 +4392,7 @@ OGRFieldDomainShadow* CreateRangeFieldDomain( const char *name,
                                               double min,
                                               bool minIsInclusive,
                                               double max,
-                                              double maxIsInclusive) {
+                                              bool maxIsInclusive) {
   OGRField sMin;
   if( type == OFTInteger )
       sMin.Integer = static_cast<int>(min);
@@ -4227,6 +4422,8 @@ OGRFieldDomainShadow* CreateRangeFieldDomain( const char *name,
 }
 %}
 
+#endif
+
 %inline %{
 static
 OGRFieldDomainShadow* CreateRangeFieldDomainDateTime( const char *name,
@@ -4237,14 +4434,14 @@ OGRFieldDomainShadow* CreateRangeFieldDomainDateTime( const char *name,
                                               double maxIsInclusive) {
   OGRField sMin;
   OGRField sMax;
-  if( !OGRParseXMLDateTime(min, &sMin))
+  if( min && !OGRParseXMLDateTime(min, &sMin))
   {
     CPLError(CE_Failure, CPLE_AppDefined,
              "Invalid min: %s",
              min);
     return NULL;
   }
-  if( !OGRParseXMLDateTime(max, &sMax))
+  if( max && !OGRParseXMLDateTime(max, &sMax))
   {
     CPLError(CE_Failure, CPLE_AppDefined,
              "Invalid max: %s",
@@ -4255,9 +4452,9 @@ OGRFieldDomainShadow* CreateRangeFieldDomainDateTime( const char *name,
                                                             description,
                                                             OFTDateTime,
                                                             OFSTNone,
-                                                            &sMin,
+                                                            min ? &sMin : NULL,
                                                             minIsInclusive,
-                                                            &sMax,
+                                                            max ? &sMax : NULL,
                                                             maxIsInclusive );
 }
 %}
@@ -4435,6 +4632,9 @@ int                OGR_GT_IsNonLinear( OGRwkbGeometryType );
 
 %rename (GT_GetCollection) OGR_GT_GetCollection;
 OGRwkbGeometryType OGR_GT_GetCollection( OGRwkbGeometryType eType );
+
+%rename (GT_GetSingle) OGR_GT_GetSingle;
+OGRwkbGeometryType OGR_GT_GetSingle( OGRwkbGeometryType eType );
 
 %rename (GT_GetCurve) OGR_GT_GetCurve;
 OGRwkbGeometryType OGR_GT_GetCurve( OGRwkbGeometryType eType );

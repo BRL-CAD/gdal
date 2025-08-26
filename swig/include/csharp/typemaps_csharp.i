@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Name:     typemaps_csharp.i
  * Project:  GDAL CSharp Interface
@@ -9,23 +8,7 @@
  ******************************************************************************
  * Copyright (c) 2007, Tamas Szekeres
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  *****************************************************************************/
 
 
@@ -573,6 +556,14 @@ OPTIONAL_POD(int, int);
     }
 %}
 
+%csmethodmodifiers CPLMemDestroy "internal";
+%inline %{
+    void CPLMemDestroy(void *buffer_ptr) {
+       if (buffer_ptr)
+           CPLFree(buffer_ptr);
+    }
+%}
+
 /******************************************************************************
  * ErrorHandler callback support                                              *
  *****************************************************************************/
@@ -615,3 +606,46 @@ OPTIONAL_POD(int, int);
  * GDALGetLayerByName typemaps                                                *
  *****************************************************************************/
 %apply ( const char *utf8_path ) { const char* layer_name };
+
+/******************************************************************************
+ * SpatialReference.FindMatches                                               *
+ *****************************************************************************/
+%apply (int *hasval) {int *nvalues};
+%typemap(imtype, out="IntPtr") OSRSpatialReferenceShadow** FindMatches "SpatialReference[]"
+%typemap(cstype) OSRSpatialReferenceShadow** FindMatches %{SpatialReference[]%}
+%typemap(imtype) int** confidence_values "out IntPtr"
+%typemap(cstype) int** confidence_values %{out int[]%}
+%typemap(csin) int** confidence_values "out confValPtr"
+%typemap(in) (int** confidence_values)
+{
+  /* %typemap(in) (int** confidence_values) */
+  $1 = ($1_ltype)$input;
+}
+%typemap(csout, excode=SWIGEXCODE) OSRSpatialReferenceShadow** FindMatches {
+        /* %typemap(csout) char** FindMatches */
+        IntPtr confValPtr;
+        IntPtr cPtr = $imcall;
+        IntPtr objPtr;
+        SpatialReference[] ret = new SpatialReference[nvalues];
+        confidence_values = (confValPtr == IntPtr.Zero) ? null : new int[nvalues];
+        if (nvalues > 0) {
+	        for(int cx = 0; cx < nvalues; cx++) {
+                objPtr = System.Runtime.InteropServices.Marshal.ReadIntPtr(cPtr, cx * System.Runtime.InteropServices.Marshal.SizeOf(typeof(IntPtr)));
+                /* SpatialReference will take ownership of the unmanaged memory and will call OSRRelease() when the object is disposed.
+                   Therefore, OSRFreeSRSArray() is not called; only CPLFree() is used to release the array itself. */
+                ret[cx]= (objPtr == IntPtr.Zero) ? null : new SpatialReference(objPtr, true, null);
+                if (confValPtr != IntPtr.Zero) {
+                    confidence_values[cx] = System.Runtime.InteropServices.Marshal.ReadInt32(confValPtr, cx * System.Runtime.InteropServices.Marshal.SizeOf(typeof(Int32)));
+                }
+                
+            }
+        }
+        if (cPtr != IntPtr.Zero) {
+            $modulePINVOKE.CPLMemDestroy(cPtr);
+        }
+        if (confValPtr != IntPtr.Zero) {
+            $modulePINVOKE.CPLMemDestroy(confValPtr);
+        }
+        $excode
+        return ret;
+}

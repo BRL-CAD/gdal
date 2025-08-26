@@ -16,6 +16,7 @@ API
        :maxdepth: 1
 
        cpl
+       gdal_fwd
        raster_c_api
        vector_c_api
        gdal_alg
@@ -45,6 +46,7 @@ API
        ogrfeature_cpp
        ogrfeaturestyle_cpp
        ogrgeometry_cpp
+       ogrgeomcoordinateprecision_cpp
        ogrlayer_cpp
 
    Spatial reference system API
@@ -81,18 +83,9 @@ API
    ----------
 
    .. toctree::
-       :maxdepth: 1
+       :maxdepth: 2
 
-       python_bindings
-       python/raster_api
-       python/vector_api
-       python/spatial_ref_api
-       python/mdim_api
-       python/utilities
-       python/general
-       python/osgeo
-       python_gotchas
-       python_samples
+       python/index
 
 
    `Java API <../java/index.html>`_
@@ -117,17 +110,13 @@ API
 
        Go <https://github.com/lukeroth/gdal>
        Julia <https://github.com/JuliaGeo/GDAL.jl>
-       Lua <https://trac.osgeo.org/gdal/wiki/GdalOgrInLua>
        Original Node.js bindings <https://github.com/naturalatlas/node-gdal>
        Node.js fork with full Promise-based async and TypeScript support <https://www.npmjs.com/package/gdal-async>
        Perl <https://metacpan.org/release/Geo-GDAL-FFI>
        PHP <http://dl.maptools.org/dl/php_ogr/php_ogr_documentation.html>
        R <https://cran.r-project.org/web/packages/gdalraster/index.html>
+       Ruby <https://github.com/telus-agcg/ffi-gdal>
        Rust <https://github.com/georust/gdal>
-
-    .. warning::
-        For Perl, since GDAL 3.5 the link `Perl <https://trac.osgeo.org/gdal/wiki/GdalOgrInPerl>`__ is deprecated, use above link instead.
-
 
 
     There are also more Pythonic ways of using the vector/OGR functions with

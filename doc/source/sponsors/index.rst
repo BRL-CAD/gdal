@@ -25,13 +25,6 @@ the health of the project:
 
     .. container:: horizontal-logo
 
-        .. image:: ../../images/sponsors/logo-microsoft.png
-           :class: img-logos
-           :width: 250 px
-           :target: https://www.microsoft.com
-
-    .. container:: horizontal-logo
-
         .. image:: ../../images/sponsors/logo-planet.png
            :class: img-logos
            :width: 250 px
@@ -50,13 +43,6 @@ the health of the project:
   .. container:: horizontal-logos
 
     .. Note: they will appear in randomized order in HTML
-
-    .. container:: horizontal-logo
-
-        .. image:: ../../images/sponsors/logo-google.png
-           :class: img-logos
-           :width: 200 px
-           :target: https://www.google.com
 
     .. container:: horizontal-logo
 
@@ -83,17 +69,10 @@ the health of the project:
 
     .. container:: horizontal-logo
 
-        .. image:: ../../images/sponsors/logo-koordinates.png
+        .. image:: ../../images/sponsors/logo-linz.png
            :class: img-logos
            :width: 150 px
-           :target: https://www.koordinates.com
-
-    .. container:: horizontal-logo
-
-        .. image:: ../../images/sponsors/logo-mapgears.png
-           :class: img-logos
-           :width: 150 px
-           :target: https://www.mapgears.com
+           :target: https://www.linz.govt.nz
 
     .. container:: horizontal-logo
 
@@ -129,6 +108,10 @@ the health of the project:
 
     .. container:: horizontal-logo
 
+        `Phoenix LiDAR Systems, LLC <https://phoenixlidar.com/>`__
+
+    .. container:: horizontal-logo
+
         `PIX4D <https://www.pix4d.com/>`__
 
     .. container:: horizontal-logo
@@ -137,11 +120,19 @@ the health of the project:
 
     .. container:: horizontal-logo
 
+        `Route4Me, Inc. <https://route4me.com>`__
+
+    .. container:: horizontal-logo
+
         `Satelligence <https://satelligence.com/>`__
 
     .. container:: horizontal-logo
 
         `Space Intelligence <https://www.space-intelligence.com>`__
+
+    .. container:: horizontal-logo
+
+        `T-Kartor <https://www.t-kartor.com/>`__
 
     .. container:: horizontal-logo
 
@@ -217,6 +208,8 @@ consult with your personal tax adviser or the IRS about your particular tax situ
            :width: 150 px
            :target: https://numfocus.org
 
+We would like to also thank our :ref:`past_sponsors`.
+
 Sponsoring
 ----------
 
@@ -232,10 +225,12 @@ Related resources
 
 - `Sustainable GDAL Sponsorship Prospectus`_.
 - :ref:`Sponsoring frequently asked questions (FAQ) <sponsoring-faq>`.
+- :ref:`rfc-80`
+- :ref:`rfc-83`
 
 .. Source of the PDF is at https://docs.google.com/document/d/1yhMWeI_LgEXPUkngqOitqcKfp7ov6WsS41v5ulz-kd0/edit#
 
-.. _Sustainable GDAL Sponsorship Prospectus: https://gdal.org/sponsors/Sustainable%20GDAL%20Sponsorship%20Prospectus.pdf
+.. _Sustainable GDAL Sponsorship Prospectus: ../_static/Sustainable%20GDAL%20Sponsorship%20Prospectus.pdf
 
 ..
     Developer comment: make html includes a hack to hide the table from
@@ -244,5 +239,6 @@ Related resources
 
 .. toctree::
    :maxdepth: 0
+   :hidden:
 
    faq

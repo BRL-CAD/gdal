@@ -42,7 +42,8 @@ driver with the following main differences:
 * Contrary to the VRT driver, the GTI driver does not enable to alter
   characteristics of referenced tiles, such as their georeferencing, nodata value,
   etc. If such behavior is desired, the tiles must be for example wrapped
-  individually in a VRT file before being referenced in the GTI index.
+  individually in a VRT file (or `vrt://` connection string) before being referenced
+  in the GTI index.
 
 Connection strings
 ------------------
@@ -54,6 +55,11 @@ The GTI driver accepts different types of connection strings:
   for a GTI compatible tile index, detailed later.
 
   For example: ``tileindex.gti.gpkg``
+
+  Starting with GDAL 3.10, specifying the ``-if GTI`` option to command line utilities
+  accepting it, or ``GTI`` as the only value of the ``papszAllowedDrivers`` of
+  :cpp:func:`GDALOpenEx`, also forces the driver to recognize the passed filename
+  if its extension is just ``.gpkg`` or ``.fgb``.
 
 * any vector file in a GDAL supported format, with its filename (or connection
   string prefixed with ``GTI:``
@@ -67,6 +73,19 @@ The GTI driver accepts different types of connection strings:
   the virtual mosaic.
 
   For example: ``tileindex.gti``
+
+STAC GeoParquet support
+-----------------------
+
+.. versionadded:: 3.10
+
+The driver can support `STAC GeoParquet catalogs <https://stac-utils.github.io/stac-geoparquet/latest/spec/stac-geoparquet-spec>`_,
+provided GDAL is built with :ref:`vector.parquet` support.
+It can make use of fields (``proj:code``, ``proj:epsg``, ``proj:wkt2``, or ``proj:projson``) and ``proj:transform`` from the
+`Projection Extension Specification <https://github.com/stac-extensions/projection/>`_,
+to correctly infer the appropriate projection and resolution.
+
+Example of a valid connection string: ``GTI:/vsicurl/https://github.com/stac-utils/stac-geoparquet/raw/main/tests/data/naip.parquet``
 
 Tile index requirements
 -----------------------
@@ -158,7 +177,7 @@ PostGIS, ...), the following layer metadata items may be set:
   virtual mosaic (unless SORT_FIELD_ASC=NO is set)
 
 * ``SORT_FIELD_ASC=YES|NO``: whether the values in SORT_FIELD should be sorted
-  in ascendent or descent order. Defaults to YES (ascendent)
+  in ascending or descending order. Defaults to YES (ascending)
 
 * ``BLOCKXSIZE=<int>`` and ``BLOCKYSIZE=<int>``: Block size of bands of the
   virtual mosaic. Defaults to 256x256.
@@ -258,7 +277,7 @@ mentioned in the previous section.
 .. code-block:: xml
 
     <GDALTileIndexDataset>
-        <IndexDataset>PG:dbname=my_db</IndexDataset>   <!-- required for stanalone XML GTI files. Ignored if embedded in the xml:GTI metadata domain of the layer  -->
+        <IndexDataset>PG:dbname=my_db</IndexDataset>   <!-- required for standalone XML GTI files. Ignored if embedded in the xml:GTI metadata domain of the layer  -->
         <IndexLayer>my_layer</IndexLayer>              <!-- optional, but required if there are multiple layers in IndexDataset -->
         <Filter>pub_date >= '2023/12/01'</Filter>      <!-- optional -->
         <SortField>pub_date</SortField>                <!-- optional -->
@@ -362,19 +381,21 @@ You can refer to the documentation of the :ref:`VRT <raster.vrt>` driver for
 their syntax and semantics.
 
 
-How to build a GTI comptatible index ?
+How to build a GTI compatible index ?
 ----------------------------------------
 
-The :ref:`gdaltindex` program may be used to generate both a vector tile index,
+The :ref:`gdaltindex` program, or starting with GDAL 3.11,
+:ref:`gdal_driver_gti_create`, may be used to generate both a vector tile index,
 and optionally a wrapping .gti XML file.
 
-A GTI comptatible index may also be created by any programmatic means, provided
+A GTI compatible index may also be created by any programmatic means, provided
 the above format specifications are met.
 
 
 Open options
 ------------
 
+|about-open-options|
 The following open options are available. Most of them can be
 also defined as layer metadata items or in the .gti XML file
 
@@ -407,7 +428,7 @@ also defined as layer metadata items or in the .gti XML file
       :choices: YES, NO
       :default: YES
 
-      Whether the values in SORT_FIELD should be sorted in ascendent or descent order
+      Whether the values in SORT_FIELD should be sorted in ascending or descending order
 
 -  .. oo:: FILTER
       :choices: <string>
@@ -423,6 +444,12 @@ also defined as layer metadata items or in the .gti XML file
       :choices: <float>
 
       Resolution along Y axis in SRS units / pixel.
+
+-  .. oo:: SRS
+      :choices: <string>
+
+      Override/sets the Spatial Reference System in one of the formats supported
+      by :cpp:func:`OGRSpatialReference::SetFromUserInput`.
 
 -  .. oo:: MINX
       :choices: <float>
@@ -443,3 +470,33 @@ also defined as layer metadata items or in the .gti XML file
       :choices: <float>
 
       Maximum Y value for the virtual mosaic extent
+
+Multi-threading optimizations
+-----------------------------
+
+Starting with GDAL 3.10, the :oo:`NUM_THREADS` open option can
+be set to control specifically the multi-threading of GTI datasets.
+It defaults to ``ALL_CPUS``, and when set, overrides :config:`GDAL_NUM_THREADS`
+or :config:`GTI_NUM_THREADS`. It applies to band-level and dataset-level
+RasterIO(), if more than 1 million pixels are requested and if the mosaic is
+made of only non-overlapping tiles.
+
+-  .. oo:: NUM_THREADS
+      :choices: integer, ALL_CPUS
+      :default: ALL_CPUS
+
+      Determines the number of threads used when an operation reads from
+      multiple sources.
+
+This can also be specified globally with the :config:`GTI_NUM_THREADS`
+configuration option.
+
+-  .. config:: GTI_NUM_THREADS
+      :choices: integer, ALL_CPUS
+      :default: ALL_CPUS
+
+      Determines the number of threads used when an operation reads from
+      multiple sources.
+
+Note that the number of threads actually used is also limited by the
+:config:`GDAL_MAX_DATASET_POOL_SIZE` configuration option.

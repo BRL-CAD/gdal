@@ -32,12 +32,19 @@ projects/earthengine-public/assets/COPERNICUS/S2.
 Open options
 ------------
 
+|about-open-options|
 The following open options are available:
 
 -  .. oo:: COLLECTION
 
       To specify the collection if not specified
       in the connection string.
+
+-  .. oo:: VSI_PATH_FOR_AUTH
+      :since: 3.10
+
+      /vsigs/... path onto which a GOOGLE_APPLICATION_CREDENTIALS path specific
+      option is set
 
 Authentication methods
 ----------------------
@@ -47,7 +54,9 @@ The following authentication methods can be used:
 -  Authentication Bearer header passed through the EEDA_BEARER or
    :config:`EEDA_BEARER_FILE` configuration options.
 -  Service account private key file, through the
-   :config:`GOOGLE_APPLICATION_CREDENTIALS` configuration option.
+   :config:`GOOGLE_APPLICATION_CREDENTIALS` configuration option, or set
+   as a path-specific option whose value is set in the VSI_PATH_FOR_AUTH
+   open option.
 -  OAuth2 Service Account authentication through the
    :config:`EEDA_PRIVATE_KEY`/
    :config:`EEDA_PRIVATE_KEY_FILE` +
@@ -61,8 +70,8 @@ The following authentication methods can be used:
 Configuration options
 ---------------------
 
-The following :ref:`configuration options <configoptions>` are
-available:
+|about-config-options|
+The following configuration options are available:
 
 -  :copy-config:`EEDA_BEARER`
 
@@ -141,7 +150,7 @@ The following attributes will always be present:
     +---------------------+-----------+--------------------------------------------------------------+-------------------------------+
     | band_crs            | String    | CRS as EPSG:XXXX or WKT (only set if equal among all bands)  | No                            |
     +---------------------+-----------+--------------------------------------------------------------+-------------------------------+
-    | other_properties    | String    | Serialized JSon dictionary with key/value pairs where key is | No                            |
+    | other_properties    | String    | Serialized JSON dictionary with key/value pairs where key is | No                            |
     |                     |           | not a standalone field                                       |                               |
     +---------------------+-----------+--------------------------------------------------------------+-------------------------------+
 

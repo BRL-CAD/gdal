@@ -8,23 +8,7 @@
  * Copyright (c) 1999, 2001, Frank Warmerdam
  * Copyright (c) 2009-2013, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_conv.h"
@@ -838,7 +822,7 @@ OGRFeature *S57Reader::AssembleFeature(DDFRecord *poRecord,
     /* -------------------------------------------------------------------- */
     /*      Create the new feature object.                                  */
     /* -------------------------------------------------------------------- */
-    OGRFeature *poFeature = new OGRFeature(poFDefn);
+    auto poFeature = std::make_unique<OGRFeature>(poFDefn);
 
     /* -------------------------------------------------------------------- */
     /*      Assign a few standard feature attributes.                        */
@@ -859,20 +843,20 @@ OGRFeature *S57Reader::AssembleFeature(DDFRecord *poRecord,
     /* -------------------------------------------------------------------- */
     if (nOptionFlags & S57M_LNAM_REFS)
     {
-        GenerateLNAMAndRefs(poRecord, poFeature);
+        GenerateLNAMAndRefs(poRecord, poFeature.get());
     }
 
     /* -------------------------------------------------------------------- */
     /*      Generate primitive references if requested.                     */
     /* -------------------------------------------------------------------- */
     if (nOptionFlags & S57M_RETURN_LINKAGES)
-        GenerateFSPTAttributes(poRecord, poFeature);
+        GenerateFSPTAttributes(poRecord, poFeature.get());
 
     /* -------------------------------------------------------------------- */
     /*      Apply object class specific attributes, if supported.           */
     /* -------------------------------------------------------------------- */
     if (poRegistrar != nullptr)
-        ApplyObjectClassAttributes(poRecord, poFeature);
+        ApplyObjectClassAttributes(poRecord, poFeature.get());
 
     /* -------------------------------------------------------------------- */
     /*      Find and assign spatial component.                              */
@@ -882,20 +866,21 @@ OGRFeature *S57Reader::AssembleFeature(DDFRecord *poRecord,
     if (nPRIM == PRIM_P)
     {
         if (nOBJL == 129) /* SOUNDG */
-            AssembleSoundingGeometry(poRecord, poFeature);
+            AssembleSoundingGeometry(poRecord, poFeature.get());
         else
-            AssemblePointGeometry(poRecord, poFeature);
+            AssemblePointGeometry(poRecord, poFeature.get());
     }
     else if (nPRIM == PRIM_L)
     {
-        AssembleLineGeometry(poRecord, poFeature);
+        if (!AssembleLineGeometry(poRecord, poFeature.get()))
+            return nullptr;
     }
     else if (nPRIM == PRIM_A)
     {
-        AssembleAreaGeometry(poRecord, poFeature);
+        AssembleAreaGeometry(poRecord, poFeature.get());
     }
 
-    return poFeature;
+    return poFeature.release();
 }
 
 /************************************************************************/
@@ -1831,6 +1816,8 @@ bool S57Reader::FetchLine(DDFRecord *poSRecord, int iStartVertex,
 
             const char *pachData =
                 poSG2D->GetSubfieldData(poYCOO, &nBytesRemaining, 0);
+            if (!pachData)
+                return false;
 
             for (int i = 0; i < nVCount; i++)
             {
@@ -1873,12 +1860,16 @@ bool S57Reader::FetchLine(DDFRecord *poSRecord, int iStartVertex,
 
                 const char *pachData =
                     poSG2D->GetSubfieldData(poXCOO, &nBytesRemaining, i);
+                if (!pachData)
+                    return false;
 
                 const double dfX =
                     poXCOO->ExtractIntData(pachData, nBytesRemaining, nullptr) /
                     static_cast<double>(nCOMF);
 
                 pachData = poSG2D->GetSubfieldData(poYCOO, &nBytesRemaining, i);
+                if (!pachData)
+                    return false;
 
                 const double dfY =
                     poXCOO->ExtractIntData(pachData, nBytesRemaining, nullptr) /
@@ -2077,6 +2068,8 @@ static int GetIntSubfield(DDFField *poField, const char *pszSubfield,
 
     const char *pachData =
         poField->GetSubfieldData(poSFDefn, &nBytesRemaining, iSubfieldIndex);
+    if (!pachData)
+        return 0;
 
     return poSFDefn->ExtractIntData(pachData, nBytesRemaining, nullptr);
 }
@@ -2085,12 +2078,12 @@ static int GetIntSubfield(DDFField *poField, const char *pszSubfield,
 /*                        AssembleLineGeometry()                        */
 /************************************************************************/
 
-void S57Reader::AssembleLineGeometry(DDFRecord *poFRecord,
+bool S57Reader::AssembleLineGeometry(DDFRecord *poFRecord,
                                      OGRFeature *poFeature)
 
 {
-    OGRLineString *poLine = new OGRLineString();
-    OGRMultiLineString *poMLS = new OGRMultiLineString();
+    auto poLine = std::make_unique<OGRLineString>();
+    auto poMLS = std::make_unique<OGRMultiLineString>();
 
     /* -------------------------------------------------------------------- */
     /*      Loop collecting edges.                                          */
@@ -2105,7 +2098,8 @@ void S57Reader::AssembleLineGeometry(DDFRecord *poFRecord,
 
         DDFField *poFSPT = poFRecord->GetField(iField);
 
-        if (!EQUAL(poFSPT->GetFieldDefn()->GetName(), "FSPT"))
+        const auto poFieldDefn = poFSPT->GetFieldDefn();
+        if (!poFieldDefn || !EQUAL(poFieldDefn->GetName(), "FSPT"))
             continue;
 
         /* --------------------------------------------------------------------
@@ -2230,8 +2224,8 @@ void S57Reader::AssembleLineGeometry(DDFRecord *poFRecord,
                      std::abs(dlastfY - dfY) > 0.00000001)
             {
                 // we need to start a new linestring.
-                poMLS->addGeometryDirectly(poLine);
-                poLine = new OGRLineString();
+                poMLS->addGeometry(std::move(poLine));
+                poLine = std::make_unique<OGRLineString>();
                 poLine->addPoint(dfX, dfY);
             }
             else
@@ -2261,9 +2255,7 @@ void S57Reader::AssembleLineGeometry(DDFRecord *poFRecord,
                     if (poXCOO == nullptr || poYCOO == nullptr)
                     {
                         CPLDebug("S57", "XCOO or YCOO are NULL");
-                        delete poLine;
-                        delete poMLS;
-                        return;
+                        return true;
                     }
 
                     const int nVCount = poSG2D->GetRepeatCount();
@@ -2291,6 +2283,8 @@ void S57Reader::AssembleLineGeometry(DDFRecord *poFRecord,
                     {
                         const char *pachData = poSG2D->GetSubfieldData(
                             poXCOO, &nBytesRemaining, i);
+                        if (!pachData)
+                            return false;
 
                         dfX = poXCOO->ExtractIntData(pachData, nBytesRemaining,
                                                      nullptr) /
@@ -2298,6 +2292,8 @@ void S57Reader::AssembleLineGeometry(DDFRecord *poFRecord,
 
                         pachData = poSG2D->GetSubfieldData(poYCOO,
                                                            &nBytesRemaining, i);
+                        if (!pachData)
+                            return false;
 
                         dfY = poXCOO->ExtractIntData(pachData, nBytesRemaining,
                                                      nullptr) /
@@ -2344,19 +2340,15 @@ void S57Reader::AssembleLineGeometry(DDFRecord *poFRecord,
     /* -------------------------------------------------------------------- */
     if (poMLS->getNumGeometries() > 0)
     {
-        poMLS->addGeometryDirectly(poLine);
-        poFeature->SetGeometryDirectly(poMLS);
+        poMLS->addGeometry(std::move(poLine));
+        poFeature->SetGeometry(std::move(poMLS));
     }
     else if (poLine->getNumPoints() >= 2)
     {
-        poFeature->SetGeometryDirectly(poLine);
-        delete poMLS;
+        poFeature->SetGeometry(std::move(poLine));
     }
-    else
-    {
-        delete poLine;
-        delete poMLS;
-    }
+
+    return true;
 }
 
 /************************************************************************/
@@ -2378,7 +2370,8 @@ void S57Reader::AssembleAreaGeometry(DDFRecord *poFRecord,
     {
         DDFField *poFSPT = poFRecord->GetField(iFSPT);
 
-        if (!EQUAL(poFSPT->GetFieldDefn()->GetName(), "FSPT"))
+        const auto poFieldDefn = poFSPT->GetFieldDefn();
+        if (!poFieldDefn || !EQUAL(poFieldDefn->GetName(), "FSPT"))
             continue;
 
         const int nEdgeCount = poFSPT->GetRepeatCount();
@@ -2709,6 +2702,8 @@ bool S57Reader::ApplyRecordUpdate(DDFRecord *poTarget, DDFRecord *poUpdate)
     unsigned char *pachRVER =
         reinterpret_cast<unsigned char *>(const_cast<char *>(
             poKey->GetSubfieldData(poRVER_SFD, &nBytesRemaining, 0)));
+    if (!pachRVER)
+        return false;
     CPLAssert(nBytesRemaining >= static_cast<int>(sizeof(nRVER)));
     memcpy(&nRVER, pachRVER, sizeof(nRVER));
     CPL_LSBPTR16(&nRVER);
@@ -3385,7 +3380,7 @@ bool S57Reader::FindAndApplyUpdates(const char *pszPath)
     if (pszPath == nullptr)
         pszPath = pszModuleName;
 
-    if (!EQUAL(CPLGetExtension(pszPath), "000"))
+    if (!EQUAL(CPLGetExtensionSafe(pszPath).c_str(), "000"))
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Can't apply updates to a base file with a different\n"
@@ -3428,8 +3423,8 @@ bool S57Reader::FindAndApplyUpdates(const char *pszPath)
         DDFModule oUpdateModule;
 
         // trying current dir first
-        char *pszUpdateFilename =
-            CPLStrdup(CPLResetExtension(pszPath, extension.c_str()));
+        char *pszUpdateFilename = CPLStrdup(
+            CPLResetExtensionSafe(pszPath, extension.c_str()).c_str());
 
         VSILFILE *file = VSIFOpenL(pszUpdateFilename, "r");
         if (file)
@@ -3446,14 +3441,16 @@ bool S57Reader::FindAndApplyUpdates(const char *pszPath)
         }
         else  // File is store on Primar generated CD.
         {
-            char *pszBaseFileDir = CPLStrdup(CPLGetDirname(pszPath));
-            char *pszFileDir = CPLStrdup(CPLGetDirname(pszBaseFileDir));
+            char *pszBaseFileDir =
+                CPLStrdup(CPLGetDirnameSafe(pszPath).c_str());
+            char *pszFileDir =
+                CPLStrdup(CPLGetDirnameSafe(pszBaseFileDir).c_str());
 
             CPLString remotefile(pszFileDir);
             remotefile.append("/");
             remotefile.append(dirname);
             remotefile.append("/");
-            remotefile.append(CPLGetBasename(pszPath));
+            remotefile.append(CPLGetBasenameSafe(pszPath).c_str());
             remotefile.append(".");
             remotefile.append(extension);
             bSuccess =

@@ -7,27 +7,12 @@
  ******************************************************************************
  * Copyright (c) 2023, TileDB, Inc
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "tiledbheaders.h"
 
+#include "cpl_float.h"
 #include "cpl_json.h"
 #include "cpl_time.h"
 #include "ogr_p.h"
@@ -38,7 +23,6 @@
 #include <limits>
 
 constexpr int SECONDS_PER_DAY = 3600 * 24;
-constexpr const char *GEOMETRY_DATASET_TYPE = "geometry";
 
 /************************************************************************/
 /* ==================================================================== */
@@ -246,8 +230,9 @@ GDALDataset *OGRTileDBDataset::Open(GDALOpenInfo *poOpenInfo,
     {
         auto poLayer = std::make_unique<OGRTileDBLayer>(
             poDS.get(), osLayerFilename.c_str(),
-            osLayerName.has_value() ? (*osLayerName).c_str()
-                                    : CPLGetBasename(osLayerFilename.c_str()),
+            osLayerName.has_value()
+                ? (*osLayerName).c_str()
+                : CPLGetBasenameSafe(osLayerFilename.c_str()).c_str(),
             wkbUnknown, nullptr);
         poLayer->m_bUpdatable = poOpenInfo->eAccess == GA_Update;
         if (!poLayer->InitFromStorage(poDS->m_ctx.get(), nTimestamp,
@@ -359,7 +344,7 @@ OGRTileDBDataset::ICreateLayer(const char *pszName,
     {
         CPLError(CE_Failure, CPLE_NotSupported,
                  "CreateLayer() failed: no more than one layer per dataset "
-                 "supported on a array object. Create a dataset with the "
+                 "supported on an array object. Create a dataset with the "
                  "CREATE_GROUP=YES creation option or open such group "
                  "to enable multiple layer creation.");
         return nullptr;
@@ -375,7 +360,8 @@ OGRTileDBDataset::ICreateLayer(const char *pszName,
     std::string osFilename = GetDescription();
     if (!m_osGroupName.empty())
     {
-        osFilename = CPLFormFilename(m_osGroupName.c_str(), "layers", nullptr);
+        osFilename =
+            CPLFormFilenameSafe(m_osGroupName.c_str(), "layers", nullptr);
         if (!STARTS_WITH(m_osGroupName.c_str(), "s3://") &&
             !STARTS_WITH(m_osGroupName.c_str(), "gcs://"))
         {
@@ -383,7 +369,7 @@ OGRTileDBDataset::ICreateLayer(const char *pszName,
             if (VSIStatL(osFilename.c_str(), &sStat) != 0)
                 VSIMkdir(osFilename.c_str(), 0755);
         }
-        osFilename = CPLFormFilename(osFilename.c_str(), pszName, nullptr);
+        osFilename = CPLFormFilenameSafe(osFilename.c_str(), pszName, nullptr);
     }
     auto poLayer = std::make_unique<OGRTileDBLayer>(
         this, osFilename.c_str(), pszName, eGType, poSpatialRef);
@@ -799,6 +785,23 @@ bool OGRTileDBLayer::InitFromStorage(tiledb::Context *poCtx,
                 }
                 break;
             }
+
+#ifdef HAS_TILEDB_GEOM_WKB_WKT
+            case TILEDB_GEOM_WKT:
+            {
+                eType = OFTString;
+                fieldValues.push_back(std::make_shared<std::string>());
+                break;
+            }
+
+            case TILEDB_GEOM_WKB:
+            {
+                eType = OFTBinary;
+                fieldValues.push_back(std::make_shared<std::vector<uint8_t>>());
+                break;
+            }
+#endif
+
             case TILEDB_CHAR:
             case TILEDB_INT8:
             case TILEDB_UINT32:
@@ -827,10 +830,6 @@ bool OGRTileDBLayer::InitFromStorage(tiledb::Context *poCtx,
             case TILEDB_TIME_FS:
             case TILEDB_TIME_AS:
             case TILEDB_ANY:
-#ifdef HAS_TILEDB_GEOM_WKB_WKT
-            case TILEDB_GEOM_WKB:  // TODO: take that into account
-            case TILEDB_GEOM_WKT:
-#endif
             {
                 // TODO ?
                 const char *pszTypeName = "";
@@ -964,6 +963,24 @@ bool OGRTileDBLayer::InitFromStorage(tiledb::Context *poCtx,
     {
         osGeomColumn.assign(static_cast<const char *>(v_r), v_num);
     }
+#ifdef HAS_TILEDB_GEOM_WKB_WKT
+    else
+    {
+        // If GEOMETRY_ATTRIBUTE_NAME isn't defined, identify the first attribute
+        // of type TILEDB_GEOM_WKB
+        osGeomColumn.clear();
+        for (unsigned i = 0; i < m_schema->attribute_num(); ++i)
+        {
+            auto attr = m_schema->attribute(i);
+            if (attr.type() == TILEDB_GEOM_WKB &&
+                attr.cell_val_num() == TILEDB_VAR_NUM)
+            {
+                if (osGeomColumn.empty())
+                    osGeomColumn = attr.name();
+            }
+        }
+    }
+#endif
 
     bool bFoundWkbGeometry = false;
     CPLJSONArray oAttributes;
@@ -1004,12 +1021,29 @@ bool OGRTileDBLayer::InitFromStorage(tiledb::Context *poCtx,
             continue;
         }
         if (attr.name() == osGeomColumn &&
-            (attr.type() == TILEDB_UINT8 || attr.type() == TILEDB_BLOB) &&
+            (attr.type() == TILEDB_UINT8 || attr.type() == TILEDB_BLOB
+#ifdef HAS_TILEDB_GEOM_WKB_WKT
+             || attr.type() == TILEDB_GEOM_WKB
+#endif
+             ) &&
             attr.cell_val_num() == TILEDB_VAR_NUM)
         {
             bFoundWkbGeometry = true;
             continue;
         }
+#ifdef HAS_TILEDB_GEOM_WKB_WKT
+        else if (attr.type() == TILEDB_GEOM_WKB &&
+                 attr.cell_val_num() == TILEDB_VAR_NUM)
+        {
+            CPLError(CE_Warning, CPLE_AppDefined,
+                     "Attribute %s has type GeomWKB, but another one (%s) is "
+                     "already used as the OGR geometry column. Dealing with %s "
+                     "has a Binary field",
+                     attr.name().c_str(), osGeomColumn.c_str(),
+                     attr.name().c_str());
+        }
+#endif
+
         const bool bIsSingle = attr.cell_val_num() == 1;
         if (attr.cell_val_num() > 1 && attr.cell_val_num() != TILEDB_VAR_NUM)
         {
@@ -1251,6 +1285,19 @@ void OGRTileDBLayer::SetReadBuffers(bool bGrowVariableSizeArrays)
                                             m_anGeometryOffsets->data(),
                                             m_anGeometryOffsets->size());
             }
+#ifdef HAS_TILEDB_GEOM_WKB_WKT
+            else if (colType == TILEDB_GEOM_WKB)
+            {
+                m_query->set_offsets_buffer(pszGeomColName,
+                                            *m_anGeometryOffsets);
+                // We could use API expected std::byte, but this requires
+                // TileDB 2.22 because of https://github.com/TileDB-Inc/TileDB/pull/4826
+                m_query->set_data_buffer(
+                    pszGeomColName,
+                    static_cast<void *>(m_abyGeometries->data()),
+                    m_abyGeometries->size());
+            }
+#endif
             else
             {
                 CPLAssert(false);
@@ -3359,17 +3406,18 @@ GIntBig OGRTileDBLayer::GetFeatureCount(int bForce)
 }
 
 /************************************************************************/
-/*                          GetExtent()                                 */
+/*                         IGetExtent()                                 */
 /************************************************************************/
 
-OGRErr OGRTileDBLayer::GetExtent(OGREnvelope *psExtent, int bForce)
+OGRErr OGRTileDBLayer::IGetExtent(int iGeomField, OGREnvelope *psExtent,
+                                  bool bForce)
 {
     if (m_oLayerExtent.IsInit())
     {
         *psExtent = m_oLayerExtent;
         return OGRERR_NONE;
     }
-    return OGRLayer::GetExtent(psExtent, bForce);
+    return OGRLayer::IGetExtent(iGeomField, psExtent, bForce);
 }
 
 /************************************************************************/
@@ -3500,10 +3548,21 @@ void OGRTileDBLayer::InitializeSchemaAndArray()
         if (pszGeomColName)
         {
             const char *pszWkbBlobType =
-                CPLGetConfigOption("TILEDB_WKB_GEOMETRY_TYPE", "BLOB");
+                CPLGetConfigOption("TILEDB_WKB_GEOMETRY_TYPE",
+#ifdef HAS_TILEDB_GEOM_WKB_WKT
+                                   "GEOM_WKB"
+#else
+                                   "BLOB"
+#endif
+                );
             auto wkbGeometryAttr = tiledb::Attribute::create(
                 *m_ctx, pszGeomColName,
-                EQUAL(pszWkbBlobType, "UINT8") ? TILEDB_UINT8 : TILEDB_BLOB);
+#ifdef HAS_TILEDB_GEOM_WKB_WKT
+                EQUAL(pszWkbBlobType, "GEOM_WKB") ? TILEDB_GEOM_WKB :
+#endif
+                EQUAL(pszWkbBlobType, "UINT8") ? TILEDB_UINT8
+                                               : TILEDB_BLOB);
+
             wkbGeometryAttr.set_filter_list(*m_filterList);
             wkbGeometryAttr.set_cell_val_num(TILEDB_VAR_NUM);
             m_schema->add_attribute(wkbGeometryAttr);
@@ -3711,14 +3770,16 @@ void OGRTileDBLayer::InitializeSchemaAndArray()
                                   m_osFIDColumn.c_str());
         }
 
-        if (pszGeomColName)
+        if (pszGeomColName &&
+            CPLTestBool(CPLGetConfigOption(
+                "OGR_TILEDB_WRITE_GEOMETRY_ATTRIBUTE_NAME", "YES")))
         {
             m_array->put_metadata("GEOMETRY_ATTRIBUTE_NAME", TILEDB_STRING_UTF8,
                                   static_cast<int>(strlen(pszGeomColName)),
                                   pszGeomColName);
         }
 
-        m_array->put_metadata("dataset_type", TILEDB_STRING_UTF8,
+        m_array->put_metadata(DATASET_TYPE_ATTRIBUTE_NAME, TILEDB_STRING_UTF8,
                               static_cast<int>(strlen(GEOMETRY_DATASET_TYPE)),
                               GEOMETRY_DATASET_TYPE);
 
@@ -4231,12 +4292,13 @@ void OGRTileDBLayer::FlushArrays()
         if (pszGeomColName)
         {
             m_anGeometryOffsets->pop_back();
-            if (m_schema->attribute(pszGeomColName).type() == TILEDB_UINT8)
+            const auto eTileDBType = m_schema->attribute(pszGeomColName).type();
+            if (eTileDBType == TILEDB_UINT8)
             {
                 query.set_data_buffer(pszGeomColName, *m_abyGeometries);
                 query.set_offsets_buffer(pszGeomColName, *m_anGeometryOffsets);
             }
-            else if (m_schema->attribute(pszGeomColName).type() == TILEDB_BLOB)
+            else if (eTileDBType == TILEDB_BLOB)
             {
                 query.set_data_buffer(
                     pszGeomColName,
@@ -4246,6 +4308,18 @@ void OGRTileDBLayer::FlushArrays()
                                          m_anGeometryOffsets->data(),
                                          m_anGeometryOffsets->size());
             }
+#ifdef HAS_TILEDB_GEOM_WKB_WKT
+            else if (eTileDBType == TILEDB_GEOM_WKB)
+            {
+                query.set_offsets_buffer(pszGeomColName, *m_anGeometryOffsets);
+                // We could use API expected std::byte, but this requires
+                // TileDB 2.22 because of https://github.com/TileDB-Inc/TileDB/pull/4826
+                query.set_data_buffer(
+                    pszGeomColName,
+                    static_cast<void *>(m_abyGeometries->data()),
+                    m_abyGeometries->size());
+            }
+#endif
             else
             {
                 CPLAssert(false);

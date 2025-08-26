@@ -18,8 +18,8 @@ on top of the raster layer (see OGR\_\* creation options in the below
 section).
 
 The driver supports reading georeferencing encoded in either of the 2
-current existing ways : according to the OGC encoding best practice, or
-according to the Adobe Supplement to ISO 32000.
+current existing ways : according to the Adobe Supplement to ISO 32000,
+or to a so-called OGC encoding "best practice" (which is not recommended at all).
 
 Multipage documents are exposed as subdatasets, one subdataset par page
 of the document.
@@ -54,6 +54,9 @@ content in the EMBEDDED_METADATA metadata domain.
 
 Configuration options
 ---------------------
+
+|about-config-options|
+The following configuration options are supported:
 
 -  .. config:: GDAL_PDF_DPI
       :default: 150
@@ -117,6 +120,7 @@ Configuration options
 Open Options
 ~~~~~~~~~~~~
 
+|about-open-options|
 Above configuration options are also available as open options.
 
 -  .. oo:: RENDERING_OPTIONS
@@ -189,7 +193,7 @@ at the first access to a raster block, the whole page will be rasterized
 (with Poppler), which can be a slow operation.
 
 Note: some raster-only PDF files (such as some
-USGS GeoPDF files), that are regularly tiled are exposed as tiled
+USGS PDF files), that are regularly tiled are exposed as tiled
 dataset by the GDAL PDF driver, and can be rendered with any backends.
 
 Only a few of the possible Datums available in the OGC best practice
@@ -207,14 +211,15 @@ PDF documents can be created from other GDAL raster datasets, that have
 1 band (graylevel or with color table), 3 bands (RGB) or 4 bands (RGBA).
 
 Georeferencing information will be written by default according to the
-ISO32000 specification. It is also possible to write it according to the
-OGC Best Practice conventions (but limited to a few datum and projection
-types).
+ISO32000 specification.
 
 Note: PDF write support does not require linking to any backend.
 
 Creation Options
 ~~~~~~~~~~~~~~~~
+
+|about-creation-options|
+The following creation options are available:
 
 -  .. co:: COMPRESS
       :choices: NONE, DEFLATE, JPEG, JPEG2000
@@ -374,10 +379,12 @@ Creation Options
       Margin below image in user units.
 
 -  .. co:: GEO_ENCODING
-      :choices: NONE, ISO32000, OGC_BP, BOTH
+      :choices: NONE, ISO32000
       :default: ISO32000
 
       Set the Geo encoding method to use.
+
+      Support for deprecated OGC_BP and BOTH options has been removed in GDAL 3.11
 
 -  .. co:: NEATLINE
       :choices: <polygon_definition_in_wkt>
@@ -529,8 +536,7 @@ mode in order to set or update the following elements :
 -  xml:XMP metadata (with SetMetadata(md, "xml:XMP"))
 
 For geotransform or GCPs, the Geo encoding method used by default is
-ISO32000. OGC_BP can be selected by setting the GDAL_PDF_GEO_ENCODING
-configuration option to OGC_BP.
+ISO32000.
 
 Updated elements are written at the end of the file, following the
 incremental update method described in the PDF specification.
@@ -551,7 +557,7 @@ datatype = GDT_Unknown and :co:`COMPOSITION_FILE` must be the single creation
 option.
 
 The XML schema against which the composition file must validate is
-`pdfcomposition.xsd <https://raw.githubusercontent.com/OSGeo/gdal/master/data/pdfcomposition.xsd>`__
+`pdfcomposition.xsd <https://raw.githubusercontent.com/OSGeo/gdal/master/frmts/pdf/data/pdfcomposition.xsd>`__
 
 Example on how to use the API:
 
@@ -721,8 +727,20 @@ Only GDAL builds against static builds of PDFium have been tested.
 Building PDFium can be challenging, and particular builds must be used to
 work properly with GDAL.
 
-With GDAL >= 3.9
+With GDAL >= 3.11
++++++++++++++++++
+
+The scripts in the `<https://github.com/rouault/pdfium_build_gdal_3_11>`__
+repository must be used to build a patched version of PDFium.
+
+With GDAL = 3.10
 ++++++++++++++++
+
+The scripts in the `<https://github.com/rouault/pdfium_build_gdal_3_10>`__
+repository must be used to build a patched version of PDFium.
+
+With GDAL = 3.9
++++++++++++++++
 
 The scripts in the `<https://github.com/rouault/pdfium_build_gdal_3_9>`__
 repository must be used to build a patched version of PDFium.
@@ -796,14 +814,14 @@ See also
 
 Specifications :
 
--  `OGC GeoPDF Encoding Best Practice Version 2.2
-   (08-139r3) <http://portal.opengeospatial.org/files/?artifact_id=40537>`__
 -  `Adobe Supplement to ISO
    32000 <http://www.adobe.com/devnet/acrobat/pdfs/adobe_supplement_iso32000.pdf>`__
 -  `PDF Reference, version
    1.7 <http://www.adobe.com/devnet/acrobat/pdfs/pdf_reference_1-7.pdf>`__
 -  `Acrobat(R) JavaScript Scripting
    Reference <http://partners.adobe.com/public/developer/en/acrobat/sdk/AcroJS.pdf>`__
+-  `OGC PDF Georegistration Encoding Best Practice Version 2.2
+   (08-139r3) <http://portal.opengeospatial.org/files/?artifact_id=40537>`__ (not recommended)
 
 Libraries :
 

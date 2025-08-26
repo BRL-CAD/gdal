@@ -47,6 +47,7 @@ Driver capabilities
 Open options
 ------------
 
+|about-open-options|
 For open options specific to variable resolution, see following chapter.
 
 Other open options are:
@@ -258,8 +259,10 @@ file, which is by default,
 found in the GDAL data definition files. This template contains
 variables, present as ${KEYNAME} or ${KEYNAME:default_value} in the XML
 file, that can be substituted by providing a creation option whose name
-is the VAR\_ string prefixed to the key name. Currently those creation
-options are:
+is the VAR\_ string prefixed to the key name.
+
+|about-creation-options|
+The following creation options are supported:
 
 -  .. co:: VAR_INDIVIDUAL_NAME
       :default: unknown
@@ -342,7 +345,7 @@ The other following creation options are available:
 
       Path to a XML file that can serve as a template.
       This will typically be a customized version of the base
-      bag_template.xml file. The file can contain other substituable
+      bag_template.xml file. The file can contain other substitutable
       variables than the ones mentioned above by using a similar syntax.
 
 -  .. co:: VAR_xxxx
@@ -445,7 +448,7 @@ Usage examples
       $ gdal_translate data/test_vr.bag -oo MODE=RESAMPLED_GRID -oo RES_FILTER_MIN=4 -oo RES_FILTER_MAX=8 out.tif
 
 -  Converting a GeoTIFF file to a BAG dataset, and provide a custom
-   value for the ABSTRACT substituable variable.
+   value for the ABSTRACT substitutable variable.
 
    ::
 

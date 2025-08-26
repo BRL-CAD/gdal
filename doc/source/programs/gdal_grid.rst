@@ -489,12 +489,12 @@ and then use :ref:`gdalbuildvrt` -separate and then :ref:`gdal_translate`:
     gdalbuildvrt -separate 123.vrt 1.tif 2.tif 3.tif
     gdal_translate 123.vrt 123.tif
 
-Or just :ref:`gdal_merge`, to combine the one-band files into a single one:
+Or just use :ref:`gdal_merge`, to combine the one-band files into a single one:
 
 .. code-block:: bash
 
     gdal_grid ... a.tif; gdal_grid ... b.tif; gdal_grid ... c.tif
-    gdal_merge.py -separate a.tif b.tif c.tif -o d.tif
+    gdal_merge -separate a.tif b.tif c.tif -o d.tif
 
 
 C API
@@ -505,24 +505,29 @@ This utility is also callable from C with :cpp:func:`GDALGrid`.
 Examples
 --------
 
-The following would create raster TIFF file from VRT datasource described in
-`Reading comma separated values`_ section using the inverse distance to a power method.
-Values to interpolate will be read from Z value of geometry record.
+.. example::
+   :title: Create a raster from a VRT datasource using inverse distance to a power
 
-::
+   .. code-block:: bash
 
-    gdal_grid -a invdist:power=2.0:smoothing=1.0 -txe 85000 89000 -tye 894000 890000 \
-        -outsize 400 400 -of GTiff -ot Float64 -l dem dem.vrt dem.tiff
+       gdal_grid -a invdist:power=2.0:smoothing=1.0 -txe 85000 89000 -tye 894000 890000 \
+           -outsize 400 400 -of GTiff -ot Float64 -l dem dem.vrt dem.tiff
 
-The next command does the same thing as the previous one, but reads values to
-interpolate from the attribute field specified with **-zfield** option
-instead of geometry record. So in this case X and Y coordinates are being
-taken from geometry and Z is being taken from the *"Elevation"* field.
-The :config:`GDAL_NUM_THREADS` is also set to parallelize the computation.
+   This example creates a raster TIFF file from the VRT datasource described in
+   `Reading comma separated values`_ section using the inverse distance to a power method.
+   Values to interpolate will be read from Z value of geometry record.
 
-::
+.. example::
+   :title: Read values to interpolate from an attribute field
 
-    gdal_grid -zfield "Elevation" -a invdist:power=2.0:smoothing=1.0 -txe 85000 89000 \
-        -tye 894000 890000 -outsize 400 400 -of GTiff -ot Float64 -l dem dem.vrt \
-        dem.tiff --config GDAL_NUM_THREADS ALL_CPUS
+   .. code-block:: bash
 
+       gdal_grid -zfield "Elevation" -a invdist:power=2.0:smoothing=1.0 -txe 85000 89000 \
+           -tye 894000 890000 -outsize 400 400 -of GTiff -ot Float64 -l dem dem.vrt \
+           dem.tiff --config GDAL_NUM_THREADS ALL_CPUS
+
+   This command does the same thing as the previous one, but reads values to
+   interpolate from the attribute field specified with **-zfield** option
+   instead of geometry record. So in this case X and Y coordinates are being
+   taken from geometry and Z is being taken from the *"Elevation"* field.
+   The :config:`GDAL_NUM_THREADS` is also set to parallelize the computation.

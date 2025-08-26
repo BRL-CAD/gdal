@@ -8,23 +8,7 @@
  * Copyright (c) 2000, Frank Warmerdam
  * Copyright (c) 2008-2013, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_string.h"
@@ -223,15 +207,15 @@ static bool PartialRefreshFromSourceTimestamp(
                        nMinSize, anOvrIndices))
         return false;
 
-    VSIStatBufL sStatVRTOvr;
+    VSIStatBufL sStatOvr;
     std::string osVRTOvr(std::string(poDS->GetDescription()) + ".ovr");
-    if (VSIStatL(osVRTOvr.c_str(), &sStatVRTOvr) != 0)
+    if (VSIStatL(osVRTOvr.c_str(), &sStatOvr) != 0)
     {
         CPLError(CE_Failure, CPLE_AppDefined, "Cannot find %s\n",
                  osVRTOvr.c_str());
         return false;
     }
-    if (sStatVRTOvr.st_mtime == 0)
+    if (sStatOvr.st_mtime == 0)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "Cannot get modification time of %s\n", osVRTOvr.c_str());
@@ -263,7 +247,7 @@ static bool PartialRefreshFromSourceTimestamp(
                 if (VSIStatL(poSource->GetSourceDatasetName().c_str(),
                              &sStatSource) == 0)
                 {
-                    if (sStatSource.st_mtime > sStatVRTOvr.st_mtime)
+                    if (sStatSource.st_mtime > sStatOvr.st_mtime)
                     {
                         double dfXOff, dfYOff, dfXSize, dfYSize;
                         poSource->GetDstWindow(dfXOff, dfYOff, dfXSize,
@@ -311,20 +295,32 @@ static bool PartialRefreshFromSourceTimestamp(
             }
         }
     }
+#ifdef GTI_DRIVER_DISABLED_OR_PLUGIN
+    else if (poDS->GetDriver() &&
+             EQUAL(poDS->GetDriver()->GetDescription(), "GTI"))
+    {
+        CPLError(CE_Failure, CPLE_NotSupported,
+                 "--partial-refresh-from-source-timestamp only works on a GTI "
+                 "dataset if the GTI driver is not built as a plugin, "
+                 "but in core library");
+        return false;
+    }
+#else
     else if (auto poGTIDS = GDALDatasetCastToGTIDataset(poDS))
     {
-        regions = GTIGetSourcesMoreRecentThan(poGTIDS, sStatVRTOvr.st_mtime);
+        regions = GTIGetSourcesMoreRecentThan(poGTIDS, sStatOvr.st_mtime);
         for (const auto &region : regions)
         {
             dfTotalPixels +=
                 static_cast<double>(region.nDstXSize) * region.nDstYSize;
         }
     }
+#endif
     else
     {
         CPLError(CE_Failure, CPLE_AppDefined,
                  "--partial-refresh-from-source-timestamp only works on a VRT "
-                 "dataset");
+                 "or GTI dataset");
         return false;
     }
 
@@ -485,6 +481,7 @@ static bool PartialRefreshFromSourceExtent(
         }
         double dfNextCurPixels =
             dfCurPixels + static_cast<double>(region.nXSize) * region.nYSize;
+        // coverity[divide_by_zero]
         void *pScaledProgress = GDALCreateScaledProgress(
             dfCurPixels / dfTotalPixels, dfNextCurPixels / dfTotalPixels,
             pfnProgress, pProgressArg);
@@ -597,8 +594,8 @@ MAIN_START(nArgc, papszArgv)
     std::string osResampling;
     argParser.add_argument("-r")
         .store_into(osResampling)
-        .metavar("nearest|average|rms|gauss|cubic|cubicspline|lanczos|average_"
-                 "magphase|mode")
+        .metavar("nearest|average|rms|gauss|bilinear|cubic|cubicspline|lanczos|"
+                 "average_magphase|mode")
         .help(_("Select a resampling algorithm."));
 
     bool bReadOnly = false;
@@ -696,7 +693,23 @@ MAIN_START(nArgc, papszArgv)
     {
         for (const auto &level : *levels)
         {
+            if (CPLGetValueType(level.c_str()) != CPL_VALUE_INTEGER)
+            {
+                CPLError(
+                    CE_Failure, CPLE_IllegalArg,
+                    "Value '%s' is not a positive integer subsampling factor",
+                    level.c_str());
+                std::exit(1);
+            }
             anLevels.push_back(atoi(level.c_str()));
+            if (anLevels.back() <= 0)
+            {
+                CPLError(
+                    CE_Failure, CPLE_IllegalArg,
+                    "Value '%s' is not a positive integer subsampling factor",
+                    level.c_str());
+                std::exit(1);
+            }
             if (anLevels.back() == 1)
             {
                 printf(
@@ -740,18 +753,37 @@ MAIN_START(nArgc, papszArgv)
     if (!bReadOnly)
     {
         CPLPushErrorHandler(GDALAddoErrorHandler);
+        if (bClean &&
+            aosOpenOptions.FetchNameValue("IGNORE_COG_LAYOUT_BREAK") == nullptr)
+        {
+            GDALDriverH hDrv = GDALIdentifyDriver(osFilename.c_str(), nullptr);
+            if (hDrv && EQUAL(GDALGetDescription(hDrv), "GTiff"))
+            {
+                // Cleaning does not break COG layout
+                aosOpenOptions.SetNameValue("IGNORE_COG_LAYOUT_BREAK", "YES");
+            }
+        }
+
         CPLSetCurrentErrorHandlerCatchDebug(FALSE);
         hDataset =
             GDALOpenEx(osFilename.c_str(), GDAL_OF_RASTER | GDAL_OF_UPDATE,
                        nullptr, aosOpenOptions.List(), nullptr);
         CPLPopErrorHandler();
-        if (hDataset != nullptr)
+        const bool bIsCOG =
+            (aoErrors.size() == 1 &&
+             aoErrors[0].m_osMsg.find("C(loud) O(ptimized) G(eoTIFF) layout") !=
+                 std::string::npos &&
+             aosOpenOptions.FetchNameValue("IGNORE_COG_LAYOUT_BREAK") ==
+                 nullptr);
+        if (hDataset != nullptr || bIsCOG)
         {
             for (size_t i = 0; i < aoErrors.size(); i++)
             {
                 CPLError(aoErrors[i].m_eErr, aoErrors[i].m_errNum, "%s",
                          aoErrors[i].m_osMsg.c_str());
             }
+            if (bIsCOG)
+                exit(1);
         }
     }
 

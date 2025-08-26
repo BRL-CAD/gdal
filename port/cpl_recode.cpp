@@ -29,6 +29,7 @@
 #include <cstring>
 
 #include "cpl_conv.h"
+#include "cpl_character_sets.h"
 
 #include "utf8.h"
 
@@ -91,27 +92,11 @@ char CPL_DLL *CPLRecode(const char *pszSource, const char *pszSrcEncoding,
          EQUAL(pszDstEncoding, CPL_ENC_ISO8859_1)))
         return CPLStrdup(pszSource);
 
-    /* -------------------------------------------------------------------- */
-    /*      For ZIP file handling                                           */
-    /*      (CP437 might be missing even on some iconv, like on Mac)        */
-    /* -------------------------------------------------------------------- */
-    if (EQUAL(pszSrcEncoding, "CP437") &&
-        EQUAL(pszDstEncoding, CPL_ENC_UTF8))  //
+    // A few hard coded CPxxx/ISO-8859-x to UTF-8 tables
+    if (EQUAL(pszDstEncoding, CPL_ENC_UTF8) &&
+        CPLGetConversionTableToUTF8(pszSrcEncoding))
     {
-        bool bIsAllPrintableASCII = true;
-        const size_t nCharCount = strlen(pszSource);
-        for (size_t i = 0; i < nCharCount; i++)
-        {
-            if (pszSource[i] < 32 || pszSource[i] > 126)
-            {
-                bIsAllPrintableASCII = false;
-                break;
-            }
-        }
-        if (bIsAllPrintableASCII)
-        {
-            return CPLStrdup(pszSource);
-        }
+        return CPLRecodeStub(pszSource, pszSrcEncoding, pszDstEncoding);
     }
 
 #ifdef CPL_RECODE_ICONV
@@ -1183,10 +1168,46 @@ void CPLClearRecodeWarningFlags()
 int CPLStrlenUTF8(const char *pszUTF8Str)
 {
     int nCharacterCount = 0;
-    for (int i = 0; pszUTF8Str[i] != '\0'; ++i)
+    for (size_t i = 0; pszUTF8Str[i] != '\0'; ++i)
     {
         if ((pszUTF8Str[i] & 0xc0) != 0x80)
+        {
+            if (nCharacterCount == INT_MAX)
+            {
+                CPLError(CE_Failure, CPLE_AppDefined,
+                         "CPLStrlenUTF8(): nCharacterCount > INT_MAX. Use "
+                         "CPLStrlenUTF8Ex() instead");
+                break;
+            }
             ++nCharacterCount;
+        }
+    }
+    return nCharacterCount;
+}
+
+/************************************************************************/
+/*                         CPLStrlenUTF8Ex()                            */
+/************************************************************************/
+
+/**
+ * Return the number of UTF-8 characters of a nul-terminated string.
+ *
+ * This is different from strlen() which returns the number of bytes.
+ *
+ * @param pszUTF8Str a nul-terminated UTF-8 string
+ *
+ * @return the number of UTF-8 characters.
+ */
+
+size_t CPLStrlenUTF8Ex(const char *pszUTF8Str)
+{
+    size_t nCharacterCount = 0;
+    for (size_t i = 0; pszUTF8Str[i] != '\0'; ++i)
+    {
+        if ((pszUTF8Str[i] & 0xc0) != 0x80)
+        {
+            ++nCharacterCount;
+        }
     }
     return nCharacterCount;
 }

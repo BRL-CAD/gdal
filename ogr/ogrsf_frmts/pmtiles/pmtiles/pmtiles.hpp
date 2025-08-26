@@ -417,7 +417,7 @@ inline zxy tileid_to_zxy(uint64_t tileid) {
 	throw std::overflow_error("tile zoom exceeds 64-bit limit");
 }
 
-inline uint64_t zxy_to_tileid(uint8_t z, uint32_t x, uint32_t y) {
+inline uint64_t zxy_to_tileid(uint32_t z, uint32_t x, uint32_t y) {
 	if (z > 31) {
 		throw std::overflow_error("tile zoom exceeds 64-bit limit");
 	}
@@ -425,7 +425,7 @@ inline uint64_t zxy_to_tileid(uint8_t z, uint32_t x, uint32_t y) {
 		throw std::overflow_error("tile x/y outside zoom level bounds");
 	}
 	uint64_t acc = 0;
-	for (uint8_t t_z = 0; t_z < z; t_z++) acc += (1LL << t_z) * (1LL << t_z);
+	for (uint32_t t_z = 0; t_z < z; t_z++) acc += (1LL << t_z) * (1LL << t_z);
 	int64_t n = 1LL << z;
 	int64_t rx, ry, s, d = 0;
 	int64_t tx = x;
@@ -575,6 +575,9 @@ inline std::tuple<std::string, std::string, int> make_root_leaves(const std::fun
 		std::tie(root_bytes, leaves_bytes, num_leaves) = build_root_leaves(mycompress, compression, entries, leaf_size);
 		if (root_bytes.length() < 16384 - 127) {
 			return std::make_tuple(root_bytes, leaves_bytes, num_leaves);
+		}
+		if (leaf_size > std::numeric_limits<int>::max() / 2) {
+			return std::make_tuple(compressed, "", 0);
 		}
 		leaf_size *= 2;
 	}

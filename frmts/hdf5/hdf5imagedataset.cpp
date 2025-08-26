@@ -8,23 +8,7 @@
  * Copyright (c) 2005, Frank Warmerdam <warmerdam@pobox.com>
  * Copyright (c) 2007-2013, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "hdf5_api.h"
@@ -38,9 +22,10 @@
 #include "hdf5dataset.h"
 #include "hdf5drivercore.h"
 #include "ogr_spatialref.h"
-#include "../mem/memdataset.h"
+#include "memdataset.h"
 
 #include <algorithm>
+#include <limits>
 
 class HDF5ImageDataset final : public HDF5Dataset
 {
@@ -134,9 +119,9 @@ class HDF5ImageDataset final : public HDF5Dataset
 
     CPLErr IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize,
                      int nYSize, void *pData, int nBufXSize, int nBufYSize,
-                     GDALDataType eBufType, int nBandCount, int *panBandMap,
-                     GSpacing nPixelSpace, GSpacing nLineSpace,
-                     GSpacing nBandSpace,
+                     GDALDataType eBufType, int nBandCount,
+                     BANDMAP_TYPE panBandMap, GSpacing nPixelSpace,
+                     GSpacing nLineSpace, GSpacing nBandSpace,
                      GDALRasterIOExtraArg *psExtraArg) override;
 
     const char *GetMetadataItem(const char *pszName,
@@ -799,13 +784,11 @@ CPLErr HDF5ImageRasterBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
 /*                             IRasterIO()                              */
 /************************************************************************/
 
-CPLErr HDF5ImageDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
-                                   int nXSize, int nYSize, void *pData,
-                                   int nBufXSize, int nBufYSize,
-                                   GDALDataType eBufType, int nBandCount,
-                                   int *panBandMap, GSpacing nPixelSpace,
-                                   GSpacing nLineSpace, GSpacing nBandSpace,
-                                   GDALRasterIOExtraArg *psExtraArg)
+CPLErr HDF5ImageDataset::IRasterIO(
+    GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize, int nYSize,
+    void *pData, int nBufXSize, int nBufYSize, GDALDataType eBufType,
+    int nBandCount, BANDMAP_TYPE panBandMap, GSpacing nPixelSpace,
+    GSpacing nLineSpace, GSpacing nBandSpace, GDALRasterIOExtraArg *psExtraArg)
 
 {
 #ifdef HDF5_HAVE_FLOAT16
@@ -989,9 +972,7 @@ GDALDataset *HDF5ImageDataset::Open(GDALOpenInfo *poOpenInfo)
     // Confirm the requested access is supported.
     if (poOpenInfo->eAccess == GA_Update)
     {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "The HDF5ImageDataset driver does not support update access "
-                 "to existing datasets.");
+        ReportUpdateNotSupportedByDriver("HDF5");
         return nullptr;
     }
 
@@ -1078,6 +1059,18 @@ GDALDataset *HDF5ImageDataset::Open(GDALOpenInfo *poOpenInfo)
         static_cast<hsize_t *>(CPLCalloc(poDS->ndims, sizeof(hsize_t)));
     poDS->dimensions = H5Sget_simple_extent_dims(poDS->dataspace_id, poDS->dims,
                                                  poDS->maxdims);
+    for (int i = 0; i < poDS->dimensions; ++i)
+    {
+        if (poDS->dims[i] >
+            static_cast<hsize_t>(std::numeric_limits<int>::max()))
+        {
+            CPLError(CE_Failure, CPLE_NotSupported,
+                     "At least one dimension size exceeds INT_MAX !");
+            delete poDS;
+            return nullptr;
+        }
+    }
+
     auto datatype = H5Dget_type(poDS->dataset_id);
     poDS->native = H5Tget_native_type(datatype, H5T_DIR_ASCEND);
     H5Tclose(datatype);

@@ -9,23 +9,7 @@
  * Copyright (c) 2002, Andrey Kiselev <dron@remotesensing.org>
  * Copyright (c) 2007-2010, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_string.h"
@@ -174,12 +158,14 @@ typedef struct
 } BMPInfoHeader;
 
 // Info header size in bytes:
-const unsigned int BIH_WIN4SIZE = 40;  // for BMPT_WIN4
-#if 0                                  /* Unused */
-const unsigned int  BIH_WIN5SIZE = 57; // for BMPT_WIN5
+constexpr unsigned int BIH_WIN4SIZE = 40;  // for BMPT_WIN4
+#if 0
+/* Unused */
+constexpr unsigned int  BIH_WIN5SIZE = 57; // for BMPT_WIN5
 #endif
-const unsigned int BIH_OS21SIZE = 12;  // for BMPT_OS21
-const unsigned int BIH_OS22SIZE = 64;  // for BMPT_OS22
+constexpr unsigned int BIH_OS21SIZE = 12;       // for BMPT_OS21
+constexpr unsigned int BIH_OS22SIZE = 64;       // for BMPT_OS22
+constexpr unsigned int BIH_BITMAPV5SIZE = 124;  // for BITMAPV5HEADER
 
 // We will use plain byte array instead of this structure, but declaration
 // provided for reference
@@ -244,7 +230,7 @@ class BMPDataset final : public GDALPamDataset
 
   protected:
     CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                     GDALDataType, int, int *, GSpacing nPixelSpace,
+                     GDALDataType, int, BANDMAP_TYPE, GSpacing nPixelSpace,
                      GSpacing nLineSpace, GSpacing nBandSpace,
                      GDALRasterIOExtraArg *psExtraArg) override;
 
@@ -324,7 +310,7 @@ BMPRasterBand::BMPRasterBand(BMPDataset *poDSIn, int nBandIn)
              nBand, nBlockXSize, nBlockYSize, nScanSize);
 #endif
 
-    pabyScan = static_cast<GByte *>(VSIMalloc(nScanSize));
+    pabyScan = static_cast<GByte *>(VSI_MALLOC_VERBOSE(nScanSize));
 }
 
 /************************************************************************/
@@ -1053,7 +1039,7 @@ CPLErr BMPDataset::SetGeoTransform(double *padfTransform)
 CPLErr BMPDataset::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                              int nXSize, int nYSize, void *pData, int nBufXSize,
                              int nBufYSize, GDALDataType eBufType,
-                             int nBandCount, int *panBandMap,
+                             int nBandCount, BANDMAP_TYPE panBandMap,
                              GSpacing nPixelSpace, GSpacing nLineSpace,
                              GSpacing nBandSpace,
                              GDALRasterIOExtraArg *psExtraArg)
@@ -1089,7 +1075,7 @@ int BMPDataset::Identify(GDALOpenInfo *poOpenInfo)
            sizeof(uint32_t));
     CPL_LSBPTR32(&nInfoHeaderSize);
     // Check against the maximum known size
-    if (nInfoHeaderSize > BIH_OS22SIZE)
+    if (nInfoHeaderSize > BIH_BITMAPV5SIZE)
         return FALSE;
 
     return TRUE;
@@ -1654,7 +1640,15 @@ GDALDataset *BMPDataset::Create(const char *pszFilename, int nXSize, int nYSize,
     /* -------------------------------------------------------------------- */
     for (int iBand = 1; iBand <= poDS->nBands; iBand++)
     {
-        poDS->SetBand(iBand, new BMPRasterBand(poDS, iBand));
+        auto band = new BMPRasterBand(poDS, iBand);
+        poDS->SetBand(iBand, band);
+        if (band->pabyScan == nullptr)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, "Image with (%d) too large.",
+                     poDS->nRasterXSize);
+            delete poDS;
+            return nullptr;
+        }
     }
 
     /* -------------------------------------------------------------------- */
@@ -1663,7 +1657,7 @@ GDALDataset *BMPDataset::Create(const char *pszFilename, int nXSize, int nYSize,
     if (CPLFetchBool(papszOptions, "WORLDFILE", false))
         poDS->bGeoTransformValid = TRUE;
 
-    return (GDALDataset *)poDS;
+    return poDS;
 }
 
 /************************************************************************/

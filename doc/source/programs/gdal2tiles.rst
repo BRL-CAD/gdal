@@ -1,7 +1,7 @@
 .. _gdal2tiles:
 
 ================================================================================
-gdal2tiles.py
+gdal2tiles
 ================================================================================
 
 .. only:: html
@@ -16,7 +16,7 @@ Synopsis
 .. code-block::
 
 
-    gdal2tiles.py [--help] [--help-general]
+    gdal2tiles [--help] [--help-general]
                   [-p <profile>] [-r resampling] [-s <srs>] [-z <zoom>]
                   [-e] [-a nodata] [-v] [-q] [-h] [-k] [-n] [-u <url>]
                   [-w <webviewer>] [-t <title>] [-c <copyright>]
@@ -53,6 +53,10 @@ can publish a picture without proper georeferencing too.
 
     Config options of the input drivers may have an effect on the output of gdal2tiles. An example driver config option is GDAL_PDF_DPI, which can be found at :ref:`configoptions`
 
+.. note::
+
+    gdal2tiles is a Python utility, and is only available if GDAL Python bindings are available.
+
 
 .. program:: gdal2tiles
 
@@ -68,7 +72,7 @@ can publish a picture without proper georeferencing too.
 
 .. option:: -r <RESAMPLING>, --resampling=<RESAMPLING>
 
-  Resampling method (average, near, bilinear, cubic, cubicspline, lanczos, antialias, mode, max, min, med, q1, q3) - default 'average'.
+  Resampling method (average, near, bilinear, cubic, cubicspline, lanczos, mode, max, min, med, q1, q3) - default 'average'.
 
 .. option:: -s <SRS>, --s_srs=<SRS>
 
@@ -149,7 +153,7 @@ can publish a picture without proper georeferencing too.
 .. option:: --excluded-values=<EXCLUDED_VALUES>
 
   Comma-separated tuple of values (thus typically "R,G,B"), that are ignored
-  as contributing source * pixels during resampling. The number of values in
+  as contributing source pixels during resampling. The number of values in
   the tuple must be the same as the number of bands, excluding the alpha band.
   Several tuples of excluded values may be specified using the "(R1,G1,B2),(R2,G2,B2)" syntax.
   Only taken into account by Average currently.
@@ -229,10 +233,6 @@ Options for generated HTML viewers a la Google Maps
   Bing Maps API key from https://www.bingmapsportal.com/
 
 
-.. note::
-
-    gdal2tiles.py is a Python script that needs to be run against Python GDAL binding.
-
 MapML options
 +++++++++++++
 
@@ -264,7 +264,7 @@ WEBP options
 WEBP tiledriver support is new to GDAL 3.6. It is enabled by using --tiledriver=WEBP.
 
 
-The following configuration options are available to further customize the webp output:
+The following configuration options are available to further customize the WebP output:
 
 .. option:: --webp-quality=<QUALITY>
 
@@ -288,7 +288,7 @@ JPEG tiledriver support is new to GDAL 3.9. It is enabled by using --tiledriver=
 Note that JPEG does not support transparency, hence edge tiles will display black
 pixels in areas not covered by the source raster.
 
-The following configuration options are available to further customize the webp output:
+The following configuration options are available to further customize the JPEG output:
 
 .. option:: ---jpeg-quality=JPEG_QUALITY
 
@@ -298,22 +298,25 @@ The following configuration options are available to further customize the webp 
 Examples
 --------
 
-Basic example:
+.. example::
+   :title: Basic example
 
-.. code-block::
+   .. code-block:: bash
 
-  gdal2tiles.py --zoom=2-5 input.tif output_folder
-
-
-MapML generation:
-
-.. code-block::
-
-  gdal2tiles.py --zoom=16-18 -w mapml -p APSTILE --url "https://example.com" input.tif output_folder
+      gdal2tiles --zoom=2-5 input.tif output_folder
 
 
-MPI example:
+.. example::
+   :title: MapML generation
 
-.. code-block::
+   .. code-block:: bash
 
-  mpiexec -n $NB_PROCESSES gdal2tiles.py --mpi --config GDAL_CACHEMAX 500 --zoom=2-5 input.tif output_folder
+      gdal2tiles --zoom=16-18 -w mapml -p APSTILE --url "https://example.com" input.tif output_folder
+
+
+.. example::
+   :title: MPI example
+
+    .. code-block:: bash
+
+       mpiexec -n $NB_PROCESSES gdal2tiles --mpi --config GDAL_CACHEMAX 500 --zoom=2-5 input.tif output_folder

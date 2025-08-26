@@ -166,9 +166,7 @@ terminated with an error.
 Note that this can make it very difficult to translate a mixed geometry
 layer from another format into Shapefile format using ogr2ogr, since
 ogr2ogr has no support for separating out geometries from a source
-layer. See the
-`FAQ <http://trac.osgeo.org/gdal/wiki/FAQVector#HowdoItranslateamixedgeometryfiletoshapefileformat>`__
-for a solution.
+layer.
 
 Shapefile feature attributes are stored in an associated .dbf file, and
 so attributes suffer a number of limitations:
@@ -276,7 +274,8 @@ layers). Creation and editing involves the creation of temporary files.
 Open options
 ------------
 
-The following open options are available.
+|about-open-options|
+The following open options are supported:
 
 -  .. oo:: ENCODING
       :choices: <encoding_name>, ""
@@ -344,6 +343,9 @@ None
 Layer creation options
 ----------------------
 
+|about-layer-creation-options|
+The following layer creation options are supported:
+
 -  .. lco:: SHPT
       :choices: <type>
 
@@ -407,8 +409,8 @@ Layer creation options
 Configuration options
 ---------------------
 
-The following :ref:`configuration options <configoptions>` are
-available:
+|about-config-options|
+The following configuration options are available:
 
 - .. config:: SHAPE_REWIND_ON_WRITE
      :choices: YES, NO
@@ -480,5 +482,3 @@ See Also
 --------
 
 -  `Shapelib Page <http://shapelib.maptools.org/>`__
--  `User Notes on OGR Shapefile
-   Driver <http://trac.osgeo.org/gdal/wiki/UserDocs/Shapefiles>`__

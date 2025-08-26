@@ -20,8 +20,8 @@ IMAGE_STRUCTURE domain.
 
 EXIF metadata can be read from JPEG files (but this will not result in a
 georeferenced image even if the EXIF_GPSLatitude and EXIF_GPSLongitude
-tags are set). But if an ESRI world file exists with the .jgw,
-.jpgw/.jpegw or .wld suffixes, it will be read and used to establish the
+tags are set). But if an ESRI :ref:`world file <raster.wld>` exists with the
+.jgw, .jpgw/.jpegw or .wld suffixes, it will be read and used to establish the
 geotransform for the image. If available a MapInfo .tab file will also
 be used for georeferencing. Overviews can be built for JPEG files as an
 external .ovr file.
@@ -89,6 +89,7 @@ This metadata tag can be used as creation options.
 Configuration options
 ---------------------
 
+|about-config-options|
 The following configuration options are available :
 
 -  .. config:: GDAL_JPEG_TO_RGB
@@ -123,6 +124,7 @@ The following configuration options are available :
 Open Options
 ------------
 
+|about-open-options|
 The following open options are available:
 
 -  .. oo:: USE_INTERNAL_OVERVIEWS
@@ -160,11 +162,15 @@ YCbCrK colorspace is not supported in creation. If the source
 dataset has a nodata mask, it will be appended as a zlib compressed mask
 to the JPEG file.
 
+|about-creation-options|
+The following creation options are supported:
+
 -  .. co:: WORLDFILE
       :choices: YES
 
       Force the generation of an associated ESRI world
-      file (with the extension .wld).
+      file (with the extension .wld). See :ref:`World Files <raster.wld>`
+      section for details.
 
 -  .. co:: QUALITY
       :choices: 1-100

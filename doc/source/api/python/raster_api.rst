@@ -1,7 +1,12 @@
+..
+   The documentation displayed on this page is automatically generated from
+   Python docstrings. See https://gdal.org/development/dev_documentation.html
+   for information on updating this content.
+
 .. _python_raster_api:
 
-Python Raster API
-=================
+Raster API
+==========
 
 This page contains classes, methods, functions that relate to the GDAL :ref:`raster_data_model`:
 

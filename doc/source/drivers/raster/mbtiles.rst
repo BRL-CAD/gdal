@@ -63,7 +63,8 @@ Driver capabilities
 Configuration options
 ---------------------
 
-The following open options are available:
+|about-config-options|
+The following configuration option is available:
 
 -  .. config:: MBTILES_BAND_COUNT
 
@@ -73,6 +74,7 @@ The following open options are available:
 Opening options
 ---------------
 
+|about-open-options|
 The following open options are available:
 
 -  Raster and vector:
@@ -215,7 +217,7 @@ Tile formats
 
 MBTiles can store tiles in PNG, JPEG or WEBP (since 3.8). Support for
 those tile formats depend if the underlying drivers are available
-in GDAL. By default, GDAL will PNG tiles.
+in GDAL. By default, GDAL will produce PNG tiles.
 
 It is possible to select the tile format by setting the creation/open
 option TILE_FORMAT to one of PNG, PNG8, JPEG or WEBP. When using JPEG,
@@ -252,6 +254,7 @@ with the :config:`GDAL_NUM_THREADS` configuration option.
 Creation options
 ----------------
 
+|about-creation-options|
 The following creation options are available:
 
 -  Raster and vector:
@@ -355,7 +358,7 @@ The following creation options are available:
 
    -  .. co:: CONF
 
-         Layer configuration as a JSon serialized string.
+         Layer configuration as a JSON serialized string.
 
    -  .. co:: SIMPLIFICATION
          :choices: <float>
@@ -439,7 +442,7 @@ Layer configuration (vector)
 ----------------------------
 
 The above mentioned CONF dataset creation option can be set to a string
-whose value is a JSon serialized document such as the below one:
+whose value is a JSON serialized document such as the below one:
 
 ::
 
@@ -467,6 +470,9 @@ case.
 
 Layer creation options (vector)
 -------------------------------
+
+|about-layer-creation-options|
+The following layer creation options are available:
 
 -  .. lco:: MINZOOM
       :choices: <integer>

@@ -58,6 +58,9 @@ Attributes are written as a HTML table.
 Dataset creation options
 ------------------------
 
+|about-dataset-creation-options|
+The following dataset creation options are supported:
+
 -  .. dsco:: HEAD
 
       Filename or inline XML content for head element.
@@ -111,7 +114,7 @@ Dataset creation options
 
       Max value for extent.xmax value.
 
--  .. dsco:: EXTENT_YMAX_MINi
+-  .. dsco:: EXTENT_YMAX_MIN
 
       Min value for extent.ymax value.
 

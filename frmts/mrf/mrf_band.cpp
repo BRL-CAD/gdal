@@ -58,6 +58,7 @@
 #include "ogr_spatialref.h"
 
 #include <vector>
+#include <algorithm>
 #include <cassert>
 #include <zlib.h>
 #if defined(ZSTD_SUPPORT)
@@ -129,10 +130,13 @@ static int isAllVal(GDALDataType gt, void *b, size_t bytecount, double ndv)
     switch (gt)
     {
         TEST_T(GDT_Byte, GByte);
+        TEST_T(GDT_Int8, GInt8);
         TEST_T(GDT_UInt16, GUInt16);
         TEST_T(GDT_Int16, GInt16);
         TEST_T(GDT_UInt32, GUInt32);
         TEST_T(GDT_Int32, GInt32);
+        TEST_T(GDT_UInt64, GUInt64);
+        TEST_T(GDT_Int64, GInt64);
         TEST_T(GDT_Float32, float);
         TEST_T(GDT_Float64, double);
         default:
@@ -187,11 +191,7 @@ static int ZPack(const buf_mgr &src, buf_mgr &dst, int flags)
     stream.next_out = (Bytef *)dst.buffer;
     stream.avail_out = (uInt)dst.size;
 
-    int level = flags & ZFLAG_LMASK;
-    if (level > 9)
-        level = 9;
-    if (level < 1)
-        level = 1;
+    int level = std::clamp(flags & ZFLAG_LMASK, 1, 9);
     int wb = MAX_WBITS;
     // if gz flag is set, ignore raw request
     if (flags & ZFLAG_GZ)
@@ -205,7 +205,10 @@ static int ZPack(const buf_mgr &src, buf_mgr &dst, int flags)
 
     err = deflateInit2(&stream, level, Z_DEFLATED, wb, memlevel, strategy);
     if (err != Z_OK)
+    {
+        deflateEnd(&stream);
         return err;
+    }
 
     err = deflate(&stream, Z_FINISH);
     if (err != Z_STREAM_END)
@@ -278,11 +281,12 @@ static void *DeflateBlock(buf_mgr &src, size_t extrasize, int flags)
         CPLFree(dbuff);  // Safe to call with NULL
         return nullptr;
     }
-    if (dst.size > src.size)
+
+    if (src.size + extrasize < dst.size)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
-                 "DeflateBlock(): dst.size > src.size");
-        CPLFree(dbuff);  // Safe to call with NULL
+                 "DeflateBlock(): too small buffer");
+        CPLFree(dbuff);
         return nullptr;
     }
 
@@ -573,7 +577,7 @@ CPLErr MRFRasterBand::FillBlock(void *buffer)
     size_t bsb = blockSizeBytes();
 
     // use memset for speed for bytes, or if nodata is zeros
-    if (eDataType == GDT_Byte || 0.0L == ndv)
+    if (0.0 == ndv || eDataType == GDT_Byte || eDataType == GDT_Int8)
     {
         memset(buffer, int(ndv), bsb);
         return CE_None;
@@ -590,6 +594,10 @@ CPLErr MRFRasterBand::FillBlock(void *buffer)
             return bf(GUInt32);
         case GDT_Int32:
             return bf(GInt32);
+        case GDT_UInt64:
+            return bf(GUInt64);
+        case GDT_Int64:
+            return bf(GInt64);
         case GDT_Float32:
             return bf(float);
         case GDT_Float64:
@@ -819,12 +827,16 @@ CPLErr MRFRasterBand::FetchBlock(int xblk, int yblk, void *buffer)
 
     buf_mgr filedst = {static_cast<char *>(outbuff), poMRFDS->pbsize};
     auto start_time = steady_clock::now();
-    Compress(filedst, filesrc);
+    if (Compress(filedst, filesrc) != CE_None)
+    {
+        return CE_Failure;
+    }
 
     // Where the output is, in case we deflate
     void *usebuff = outbuff;
     if (dodeflate)
     {
+        CPLAssert(poMRFDS->pbsize <= filedst.size);
         usebuff = DeflateBlock(filedst, poMRFDS->pbsize - filedst.size,
                                deflate_flags);
         if (!usebuff)
@@ -1272,10 +1284,13 @@ CPLErr MRFRasterBand::IWriteBlock(int xblk, int yblk, void *buffer)
 
         // Compress functions need to return the compressed size in
         // the bytes in buffer field
-        Compress(dst, src);
+        if (Compress(dst, src) != CE_None)
+            return CE_Failure;
+
         void *usebuff = dst.buffer;
         if (dodeflate)
         {
+            CPLAssert(dst.size <= poMRFDS->pbsize);
             usebuff =
                 DeflateBlock(dst, poMRFDS->pbsize - dst.size, deflate_flags);
             if (!usebuff)

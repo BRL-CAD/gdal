@@ -9,23 +9,7 @@
  * Copyright (c) 2000, Frank Warmerdam
  * Copyright (c) 2007-2010, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -46,15 +30,22 @@
 
 #include "cpl_conv.h"
 #include "cpl_error.h"
+#include "cpl_float.h"
 #include "cpl_progress.h"
 #include "cpl_vsi.h"
 #include "gdal.h"
 #include "gdal_thread_pool.h"
 #include "gdalwarper.h"
 
+#ifdef USE_NEON_OPTIMIZATIONS
+#include "include_sse2neon.h"
+#define USE_SSE2
+
+#include "gdalsse_priv.h"
+
 // Restrict to 64bit processors because they are guaranteed to have SSE2,
 // or if __AVX2__ is defined.
-#if defined(__x86_64) || defined(_M_X64) || defined(__AVX2__)
+#elif defined(__x86_64) || defined(_M_X64) || defined(__AVX2__)
 #define USE_SSE2
 
 #include "gdalsse_priv.h"
@@ -112,11 +103,10 @@ static CPLErr GDALResampleChunk_NearT(const GDALOverviewResampleArgs &args,
     T *const pDstBuffer = *ppDstBuffer;
 
     int *panSrcXOff =
-        static_cast<int *>(VSI_MALLOC_VERBOSE(nDstXWidth * sizeof(int)));
+        static_cast<int *>(VSI_MALLOC2_VERBOSE(nDstXWidth, sizeof(int)));
 
     if (panSrcXOff == nullptr)
     {
-        VSIFree(panSrcXOff);
         return CE_Failure;
     }
 
@@ -170,35 +160,60 @@ static CPLErr GDALResampleChunk_Near(const GDALOverviewResampleArgs &args,
     *peDstBufferDataType = args.eWrkDataType;
     switch (args.eWrkDataType)
     {
+        // For nearest resampling, as no computation is done, only the
+        // size of the data type matters.
         case GDT_Byte:
+        case GDT_Int8:
         {
+            CPLAssert(GDALGetDataTypeSizeBytes(args.eWrkDataType) == 1);
             return GDALResampleChunk_NearT(
-                args, static_cast<const GByte *>(pChunk),
-                reinterpret_cast<GByte **>(ppDstBuffer));
+                args, static_cast<const uint8_t *>(pChunk),
+                reinterpret_cast<uint8_t **>(ppDstBuffer));
         }
 
+        case GDT_Int16:
         case GDT_UInt16:
+        case GDT_Float16:
         {
+            CPLAssert(GDALGetDataTypeSizeBytes(args.eWrkDataType) == 2);
             return GDALResampleChunk_NearT(
-                args, static_cast<const GUInt16 *>(pChunk),
-                reinterpret_cast<GUInt16 **>(ppDstBuffer));
+                args, static_cast<const uint16_t *>(pChunk),
+                reinterpret_cast<uint16_t **>(ppDstBuffer));
         }
 
+        case GDT_CInt16:
+        case GDT_CFloat16:
+        case GDT_Int32:
+        case GDT_UInt32:
         case GDT_Float32:
         {
+            CPLAssert(GDALGetDataTypeSizeBytes(args.eWrkDataType) == 4);
             return GDALResampleChunk_NearT(
-                args, static_cast<const float *>(pChunk),
-                reinterpret_cast<float **>(ppDstBuffer));
+                args, static_cast<const uint32_t *>(pChunk),
+                reinterpret_cast<uint32_t **>(ppDstBuffer));
         }
 
+        case GDT_CInt32:
+        case GDT_CFloat32:
+        case GDT_Int64:
+        case GDT_UInt64:
         case GDT_Float64:
         {
+            CPLAssert(GDALGetDataTypeSizeBytes(args.eWrkDataType) == 8);
             return GDALResampleChunk_NearT(
-                args, static_cast<const double *>(pChunk),
-                reinterpret_cast<double **>(ppDstBuffer));
+                args, static_cast<const uint64_t *>(pChunk),
+                reinterpret_cast<uint64_t **>(ppDstBuffer));
         }
 
-        default:
+        case GDT_CFloat64:
+        {
+            return GDALResampleChunk_NearT(
+                args, static_cast<const std::complex<double> *>(pChunk),
+                reinterpret_cast<std::complex<double> **>(ppDstBuffer));
+        }
+
+        case GDT_Unknown:
+        case GDT_TypeCount:
             break;
     }
     CPLAssert(false);
@@ -328,7 +343,7 @@ inline GUInt16 ComputeIntegerRMS_4values<GUInt16, double>(double sumSquares)
 /*                   QuadraticMeanByteSSE2OrAVX2()                      */
 /************************************************************************/
 
-#ifdef __SSE4_1__
+#if defined(__SSE4_1__) || defined(__AVX__) || defined(USE_NEON_OPTIMIZATIONS)
 #define sse2_packus_epi32 _mm_packus_epi32
 #else
 inline __m128i sse2_packus_epi32(__m128i a, __m128i b)
@@ -343,7 +358,7 @@ inline __m128i sse2_packus_epi32(__m128i a, __m128i b)
 }
 #endif
 
-#ifdef __SSSE3__
+#if defined(__SSSE3__) || defined(USE_NEON_OPTIMIZATIONS)
 #define sse2_hadd_epi16 _mm_hadd_epi16
 #else
 inline __m128i sse2_hadd_epi16(__m128i a, __m128i b)
@@ -594,14 +609,14 @@ inline __m128d sse2_hadd_pd(__m128d a, __m128d b)
 }
 #endif
 
-inline __m128d SQUARE(__m128d x)
+inline __m128d SQUARE_PD(__m128d x)
 {
     return _mm_mul_pd(x, x);
 }
 
 #ifdef __AVX2__
 
-inline __m256d SQUARE(__m256d x)
+inline __m256d SQUARE_PD(__m256d x)
 {
     return _mm256_mul_pd(x, x);
 }
@@ -719,10 +734,12 @@ QuadraticMeanUInt16SSE2(int nDstXWidth, int nChunkXSize,
 
 #ifdef __AVX2__
         // Multiplication of 32 bit values previously converted to 64 bit double
-        const auto firstLineLoDbl = SQUARE(_mm256_cvtepi32_pd(firstLineLo));
-        const auto firstLineHiDbl = SQUARE(_mm256_cvtepi32_pd(firstLineHi));
-        const auto secondLineLoDbl = SQUARE(_mm256_cvtepi32_pd(secondLineLo));
-        const auto secondLineHiDbl = SQUARE(_mm256_cvtepi32_pd(secondLineHi));
+        const auto firstLineLoDbl = SQUARE_PD(_mm256_cvtepi32_pd(firstLineLo));
+        const auto firstLineHiDbl = SQUARE_PD(_mm256_cvtepi32_pd(firstLineHi));
+        const auto secondLineLoDbl =
+            SQUARE_PD(_mm256_cvtepi32_pd(secondLineLo));
+        const auto secondLineHiDbl =
+            SQUARE_PD(_mm256_cvtepi32_pd(secondLineHi));
 
         // Vertical addition of squares
         const auto sumSquaresLo =
@@ -740,7 +757,7 @@ QuadraticMeanUInt16SSE2(int nDstXWidth, int nChunkXSize,
         auto rms = _mm256_cvttpd_epi32(_mm256_sqrt_pd(sumDivWeight));
         const auto rmsDouble = _mm256_cvtepi32_pd(rms);
         const auto right = _mm256_sub_pd(
-            sumDivWeight, _mm256_add_pd(SQUARE(rmsDouble), rmsDouble));
+            sumDivWeight, _mm256_add_pd(SQUARE_PD(rmsDouble), rmsDouble));
 
         auto mask =
             _mm256_castpd_ps(_mm256_cmp_pd(zeroDot5, right, _CMP_LT_OS));
@@ -757,19 +774,19 @@ QuadraticMeanUInt16SSE2(int nDstXWidth, int nChunkXSize,
         rms = _mm_packus_epi32(rms, rms /* could be anything */);
 #else
         // Multiplication of 32 bit values previously converted to 64 bit double
-        const auto firstLineLoLo = SQUARE(_mm_cvtepi32_pd(firstLineLo));
+        const auto firstLineLoLo = SQUARE_PD(_mm_cvtepi32_pd(firstLineLo));
         const auto firstLineLoHi =
-            SQUARE(_mm_cvtepi32_pd(_mm_srli_si128(firstLineLo, 8)));
-        const auto firstLineHiLo = SQUARE(_mm_cvtepi32_pd(firstLineHi));
+            SQUARE_PD(_mm_cvtepi32_pd(_mm_srli_si128(firstLineLo, 8)));
+        const auto firstLineHiLo = SQUARE_PD(_mm_cvtepi32_pd(firstLineHi));
         const auto firstLineHiHi =
-            SQUARE(_mm_cvtepi32_pd(_mm_srli_si128(firstLineHi, 8)));
+            SQUARE_PD(_mm_cvtepi32_pd(_mm_srli_si128(firstLineHi, 8)));
 
-        const auto secondLineLoLo = SQUARE(_mm_cvtepi32_pd(secondLineLo));
+        const auto secondLineLoLo = SQUARE_PD(_mm_cvtepi32_pd(secondLineLo));
         const auto secondLineLoHi =
-            SQUARE(_mm_cvtepi32_pd(_mm_srli_si128(secondLineLo, 8)));
-        const auto secondLineHiLo = SQUARE(_mm_cvtepi32_pd(secondLineHi));
+            SQUARE_PD(_mm_cvtepi32_pd(_mm_srli_si128(secondLineLo, 8)));
+        const auto secondLineHiLo = SQUARE_PD(_mm_cvtepi32_pd(secondLineHi));
         const auto secondLineHiHi =
-            SQUARE(_mm_cvtepi32_pd(_mm_srli_si128(secondLineHi, 8)));
+            SQUARE_PD(_mm_cvtepi32_pd(_mm_srli_si128(secondLineHi, 8)));
 
         // Vertical addition of squares
         const auto sumSquaresLoLo = _mm_add_pd(firstLineLoLo, secondLineLoLo);
@@ -793,9 +810,9 @@ QuadraticMeanUInt16SSE2(int nDstXWidth, int nChunkXSize,
         const auto rmsLoDouble = _mm_cvtepi32_pd(rmsLo);
         const auto rmsHiDouble = _mm_cvtepi32_pd(rmsHi);
         const auto rightLo = _mm_sub_pd(
-            sumDivWeightLo, _mm_add_pd(SQUARE(rmsLoDouble), rmsLoDouble));
+            sumDivWeightLo, _mm_add_pd(SQUARE_PD(rmsLoDouble), rmsLoDouble));
         const auto rightHi = _mm_sub_pd(
-            sumDivWeightHi, _mm_add_pd(SQUARE(rmsHiDouble), rmsHiDouble));
+            sumDivWeightHi, _mm_add_pd(SQUARE_PD(rmsHiDouble), rmsHiDouble));
 
         const auto maskLo = _mm_castpd_ps(_mm_cmplt_pd(zeroDot5, rightLo));
         const auto maskHi = _mm_castpd_ps(_mm_cmplt_pd(zeroDot5, rightHi));
@@ -922,7 +939,7 @@ static int AverageUInt16SSE2(int nDstXWidth, int nChunkXSize,
 #define unpackhi_ps _mm256_unpackhi_ps
 #define storeu_ps _mm256_storeu_ps
 
-inline __m256 SQUARE(__m256 x)
+inline __m256 SQUARE_PS(__m256 x)
 {
     return _mm256_mul_ps(x, x);
 }
@@ -958,7 +975,7 @@ inline __m128 sse2_hadd_ps(__m128 a, __m128 b)
 #define unpackhi_ps _mm_unpackhi_ps
 #define storeu_ps _mm_storeu_ps
 
-inline __m128 SQUARE(__m128 x)
+inline __m128 SQUARE_PS(__m128 x)
 {
     return _mm_mul_ps(x, x);
 }
@@ -1033,10 +1050,10 @@ QuadraticMeanFloatSSE2(int nDstXWidth, int nChunkXSize,
         secondLineOdd = mul_ps(secondLineOdd, invMax);
 
         // Compute squares
-        firstLineEven = SQUARE(firstLineEven);
-        firstLineOdd = SQUARE(firstLineOdd);
-        secondLineEven = SQUARE(secondLineEven);
-        secondLineOdd = SQUARE(secondLineOdd);
+        firstLineEven = SQUARE_PS(firstLineEven);
+        firstLineOdd = SQUARE_PS(firstLineOdd);
+        secondLineEven = SQUARE_PS(secondLineEven);
+        secondLineOdd = SQUARE_PS(secondLineOdd);
 
         const auto sumSquares = add_ps(add_ps(firstLineEven, firstLineOdd),
                                        add_ps(secondLineEven, secondLineOdd));
@@ -1184,11 +1201,10 @@ GDALResampleChunk_AverageOrRMS_T(const GDALOverviewResampleArgs &args,
     };
 
     PrecomputedXValue *pasSrcX = static_cast<PrecomputedXValue *>(
-        VSI_MALLOC_VERBOSE(nDstXWidth * sizeof(PrecomputedXValue)));
+        VSI_MALLOC2_VERBOSE(nDstXWidth, sizeof(PrecomputedXValue)));
 
     if (pasSrcX == nullptr)
     {
-        VSIFree(pasSrcX);
         return CE_Failure;
     }
 
@@ -2076,9 +2092,39 @@ static CPLErr GDALResampleChunk_Gauss(const GDALOverviewResampleArgs &args,
 /*                      GDALResampleChunk_Mode()                        */
 /************************************************************************/
 
+template <class T> static inline bool IsSame(T a, T b)
+{
+    return a == b;
+}
+
+template <> bool IsSame<float>(float a, float b)
+{
+    return a == b || (std::isnan(a) && std::isnan(b));
+}
+
+template <> bool IsSame<double>(double a, double b)
+{
+    return a == b || (std::isnan(a) && std::isnan(b));
+}
+
+template <>
+bool IsSame<std::complex<float>>(std::complex<float> a, std::complex<float> b)
+{
+    return a == b || (std::isnan(a.real()) && std::isnan(a.imag()) &&
+                      std::isnan(b.real()) && std::isnan(b.imag()));
+}
+
+template <>
+bool IsSame<std::complex<double>>(std::complex<double> a,
+                                  std::complex<double> b)
+{
+    return a == b || (std::isnan(a.real()) && std::isnan(a.imag()) &&
+                      std::isnan(b.real()) && std::isnan(b.imag()));
+}
+
 template <class T>
-static CPLErr GDALResampleChunk_Mode_T(const GDALOverviewResampleArgs &args,
-                                       const T *pChunk, T *const pDstBuffer)
+static CPLErr GDALResampleChunk_ModeT(const GDALOverviewResampleArgs &args,
+                                      const T *pChunk, T *const pDstBuffer)
 
 {
     const double dfXRatioDstToSrc = args.dfXRatioDstToSrc;
@@ -2095,19 +2141,25 @@ static CPLErr GDALResampleChunk_Mode_T(const GDALOverviewResampleArgs &args,
     const int nDstYOff = args.nDstYOff;
     const int nDstYOff2 = args.nDstYOff2;
     const bool bHasNoData = args.bHasNoData;
-    const double dfNoDataValue = args.dfNoDataValue;
     const GDALColorTable *poColorTable = args.poColorTable;
-    const GDALDataType eSrcDataType = args.eSrcDataType;
     const int nDstXSize = nDstXOff2 - nDstXOff;
 
     T tNoDataValue;
-    if (!bHasNoData || !GDALIsValueInRange<T>(dfNoDataValue))
+    if constexpr (std::is_same<T, std::complex<float>>::value ||
+                  std::is_same<T, std::complex<double>>::value)
+    {
+        using BaseT = typename T::value_type;
+        tNoDataValue =
+            std::complex<BaseT>(std::numeric_limits<BaseT>::quiet_NaN(),
+                                std::numeric_limits<BaseT>::quiet_NaN());
+    }
+    else if (!bHasNoData || !GDALIsValueInRange<T>(args.dfNoDataValue))
         tNoDataValue = 0;
     else
-        tNoDataValue = static_cast<T>(dfNoDataValue);
+        tNoDataValue = static_cast<T>(args.dfNoDataValue);
 
     size_t nMaxNumPx = 0;
-    T *padfVals = nullptr;
+    T *paVals = nullptr;
     int *panSums = nullptr;
 
     const int nChunkRightXOff = nChunkXOff + nChunkXSize;
@@ -2190,8 +2242,13 @@ static CPLErr GDALResampleChunk_Mode_T(const GDALOverviewResampleArgs &args,
             if (nSrcXOff2 > nChunkRightXOff)
                 nSrcXOff2 = nChunkRightXOff;
 
-            if (eSrcDataType != GDT_Byte ||
-                (poColorTable && poColorTable->GetColorEntryCount() > 256))
+            bool bRegularProcessing = false;
+            if constexpr (!std::is_same<T, GByte>::value)
+                bRegularProcessing = true;
+            else if (poColorTable && poColorTable->GetColorEntryCount() > 256)
+                bRegularProcessing = true;
+
+            if (bRegularProcessing)
             {
                 // Not sure how much sense it makes to run a majority
                 // filter on floating point data, but here it is for the sake
@@ -2206,7 +2263,7 @@ static CPLErr GDALResampleChunk_Mode_T(const GDALOverviewResampleArgs &args,
                 {
                     CPLError(CE_Failure, CPLE_NotSupported,
                              "Too big downsampling factor");
-                    CPLFree(padfVals);
+                    CPLFree(paVals);
                     CPLFree(panSums);
                     return CE_Failure;
                 }
@@ -2217,19 +2274,19 @@ static CPLErr GDALResampleChunk_Mode_T(const GDALOverviewResampleArgs &args,
                 size_t iMaxVal = 0;
                 bool biMaxValdValid = false;
 
-                if (padfVals == nullptr || nNumPx > nMaxNumPx)
+                if (paVals == nullptr || nNumPx > nMaxNumPx)
                 {
-                    T *padfValsNew = static_cast<T *>(
-                        VSI_REALLOC_VERBOSE(padfVals, nNumPx * sizeof(T)));
+                    T *paValsNew = static_cast<T *>(
+                        VSI_REALLOC_VERBOSE(paVals, nNumPx * sizeof(T)));
                     int *panSumsNew = static_cast<int *>(
                         VSI_REALLOC_VERBOSE(panSums, nNumPx * sizeof(int)));
-                    if (padfValsNew != nullptr)
-                        padfVals = padfValsNew;
+                    if (paValsNew != nullptr)
+                        paVals = paValsNew;
                     if (panSumsNew != nullptr)
                         panSums = panSumsNew;
-                    if (padfValsNew == nullptr || panSumsNew == nullptr)
+                    if (paValsNew == nullptr || panSumsNew == nullptr)
                     {
-                        CPLFree(padfVals);
+                        CPLFree(paVals);
                         CPLFree(panSums);
                         return CE_Failure;
                     }
@@ -2246,12 +2303,12 @@ static CPLErr GDALResampleChunk_Mode_T(const GDALOverviewResampleArgs &args,
                         if (pabySrcScanlineNodataMask == nullptr ||
                             pabySrcScanlineNodataMask[iX + iTotYOff])
                         {
-                            const T dfVal = paSrcScanline[iX + iTotYOff];
+                            const T val = paSrcScanline[iX + iTotYOff];
                             size_t i = 0;  // Used after for.
 
                             // Check array for existing entry.
                             for (; i < iMaxInd; ++i)
-                                if (padfVals[i] == dfVal &&
+                                if (IsSame(paVals[i], val) &&
                                     ++panSums[i] > panSums[iMaxVal])
                                 {
                                     iMaxVal = i;
@@ -2262,7 +2319,7 @@ static CPLErr GDALResampleChunk_Mode_T(const GDALOverviewResampleArgs &args,
                             // Add to arr if entry not already there.
                             if (i == iMaxInd)
                             {
-                                padfVals[iMaxInd] = dfVal;
+                                paVals[iMaxInd] = val;
                                 panSums[iMaxInd] = 1;
 
                                 if (!biMaxValdValid)
@@ -2280,9 +2337,10 @@ static CPLErr GDALResampleChunk_Mode_T(const GDALOverviewResampleArgs &args,
                 if (!biMaxValdValid)
                     paDstScanline[iDstPixel - nDstXOff] = tNoDataValue;
                 else
-                    paDstScanline[iDstPixel - nDstXOff] = padfVals[iMaxVal];
+                    paDstScanline[iDstPixel - nDstXOff] = paVals[iMaxVal];
             }
-            else  // if( eSrcDataType == GDT_Byte && nEntryCount < 256 )
+            else if constexpr (std::is_same<T, GByte>::value)
+            // ( eSrcDataType == GDT_Byte && nEntryCount < 256 )
             {
                 // So we go here for a paletted or non-paletted byte band.
                 // The input values are then between 0 and 255.
@@ -2325,7 +2383,7 @@ static CPLErr GDALResampleChunk_Mode_T(const GDALOverviewResampleArgs &args,
         }
     }
 
-    CPLFree(padfVals);
+    CPLFree(paVals);
     CPLFree(panSums);
 
     return CE_None;
@@ -2343,38 +2401,91 @@ static CPLErr GDALResampleChunk_Mode(const GDALOverviewResampleArgs &args,
         return CE_Failure;
     }
 
+    CPLAssert(args.eSrcDataType == args.eWrkDataType);
+
     *peDstBufferDataType = args.eWrkDataType;
     switch (args.eWrkDataType)
     {
+        // For mode resampling, as no computation is done, only the
+        // size of the data type matters... except for Byte where we have
+        // special processing. And for floating point values
         case GDT_Byte:
         {
-            return GDALResampleChunk_Mode_T<GByte>(
-                args, static_cast<const GByte *>(pChunk),
-                static_cast<GByte *>(*ppDstBuffer));
+            return GDALResampleChunk_ModeT(args,
+                                           static_cast<const GByte *>(pChunk),
+                                           static_cast<GByte *>(*ppDstBuffer));
         }
 
-        case GDT_UInt16:
+        case GDT_Int8:
         {
-            return GDALResampleChunk_Mode_T<GUInt16>(
-                args, static_cast<const GUInt16 *>(pChunk),
-                static_cast<GUInt16 *>(*ppDstBuffer));
+            return GDALResampleChunk_ModeT(args,
+                                           static_cast<const int8_t *>(pChunk),
+                                           static_cast<int8_t *>(*ppDstBuffer));
+        }
+
+        case GDT_Int16:
+        case GDT_UInt16:
+        case GDT_Float16:
+        {
+            CPLAssert(GDALGetDataTypeSizeBytes(args.eWrkDataType) == 2);
+            return GDALResampleChunk_ModeT(
+                args, static_cast<const uint16_t *>(pChunk),
+                static_cast<uint16_t *>(*ppDstBuffer));
+        }
+
+        case GDT_CInt16:
+        case GDT_CFloat16:
+        case GDT_Int32:
+        case GDT_UInt32:
+        {
+            CPLAssert(GDALGetDataTypeSizeBytes(args.eWrkDataType) == 4);
+            return GDALResampleChunk_ModeT(
+                args, static_cast<const uint32_t *>(pChunk),
+                static_cast<uint32_t *>(*ppDstBuffer));
         }
 
         case GDT_Float32:
         {
-            return GDALResampleChunk_Mode_T<float>(
-                args, static_cast<const float *>(pChunk),
-                static_cast<float *>(*ppDstBuffer));
+            CPLAssert(GDALGetDataTypeSizeBytes(args.eWrkDataType) == 4);
+            return GDALResampleChunk_ModeT(args,
+                                           static_cast<const float *>(pChunk),
+                                           static_cast<float *>(*ppDstBuffer));
+        }
+
+        case GDT_CInt32:
+        case GDT_Int64:
+        case GDT_UInt64:
+        {
+            CPLAssert(GDALGetDataTypeSizeBytes(args.eWrkDataType) == 8);
+            return GDALResampleChunk_ModeT(
+                args, static_cast<const uint64_t *>(pChunk),
+                static_cast<uint64_t *>(*ppDstBuffer));
         }
 
         case GDT_Float64:
         {
-            return GDALResampleChunk_Mode_T<double>(
-                args, static_cast<const double *>(pChunk),
-                static_cast<double *>(*ppDstBuffer));
+            CPLAssert(GDALGetDataTypeSizeBytes(args.eWrkDataType) == 8);
+            return GDALResampleChunk_ModeT(args,
+                                           static_cast<const double *>(pChunk),
+                                           static_cast<double *>(*ppDstBuffer));
         }
 
-        default:
+        case GDT_CFloat32:
+        {
+            return GDALResampleChunk_ModeT(
+                args, static_cast<const std::complex<float> *>(pChunk),
+                static_cast<std::complex<float> *>(*ppDstBuffer));
+        }
+
+        case GDT_CFloat64:
+        {
+            return GDALResampleChunk_ModeT(
+                args, static_cast<const std::complex<double> *>(pChunk),
+                static_cast<std::complex<double> *>(*ppDstBuffer));
+        }
+
+        case GDT_Unknown:
+        case GDT_TypeCount:
             break;
     }
 
@@ -3031,11 +3142,15 @@ static CPLErr GDALResampleChunk_ConvolutionT(
                    : dfNoDataValue;
     // cppcheck-suppress unreadVariable
     const int isIntegerDT = GDALDataTypeIsInteger(dstDataType);
-    const auto nNodataValueInt64 = static_cast<GInt64>(dfNoDataValue);
+    const bool bNoDataValueInt64Valid =
+        isIntegerDT && GDALIsValueExactAs<GInt64>(dfNoDataValue);
+    const auto nNodataValueInt64 =
+        bNoDataValueInt64Valid ? static_cast<GInt64>(dfNoDataValue) : 0;
+    constexpr int nWrkDataTypeSize = static_cast<int>(sizeof(Twork));
 
     // TODO: we should have some generic function to do this.
-    Twork fDstMin = -std::numeric_limits<Twork>::max();
-    Twork fDstMax = std::numeric_limits<Twork>::max();
+    Twork fDstMin = cpl::NumericLimits<Twork>::lowest();
+    Twork fDstMax = cpl::NumericLimits<Twork>::max();
     if (dstDataType == GDT_Byte)
     {
         fDstMin = std::numeric_limits<GByte>::min();
@@ -3068,10 +3183,24 @@ static CPLErr GDALResampleChunk_ConvolutionT(
         // cppcheck-suppress unreadVariable
         fDstMax = static_cast<Twork>(std::numeric_limits<GInt32>::max());
     }
+    else if (dstDataType == GDT_UInt64)
+    {
+        // cppcheck-suppress unreadVariable
+        fDstMin = static_cast<Twork>(std::numeric_limits<uint64_t>::min());
+        // cppcheck-suppress unreadVariable
+        fDstMax = static_cast<Twork>(std::numeric_limits<uint64_t>::max());
+    }
+    else if (dstDataType == GDT_Int64)
+    {
+        // cppcheck-suppress unreadVariable
+        fDstMin = static_cast<Twork>(std::numeric_limits<int64_t>::min());
+        // cppcheck-suppress unreadVariable
+        fDstMax = static_cast<Twork>(std::numeric_limits<int64_t>::max());
+    }
 
     auto replaceValIfNodata = [bHasNoData, isIntegerDT, fDstMin, fDstMax,
-                               nNodataValueInt64, dfNoDataValue,
-                               dfReplacementVal](Twork fVal)
+                               bNoDataValueInt64Valid, nNodataValueInt64,
+                               dfNoDataValue, dfReplacementVal](Twork fVal)
     {
         if (!bHasNoData)
             return fVal;
@@ -3085,7 +3214,8 @@ static CPLErr GDALResampleChunk_ConvolutionT(
             fClamped = fDstMax;
         if (isIntegerDT)
         {
-            if (nNodataValueInt64 == static_cast<GInt64>(std::round(fClamped)))
+            if (bNoDataValueInt64Valid &&
+                nNodataValueInt64 == static_cast<GInt64>(std::round(fClamped)))
             {
                 // Do not use the nodata value
                 return static_cast<Twork>(dfReplacementVal);
@@ -3585,11 +3715,11 @@ static CPLErr GDALResampleChunk_ConvolutionT(
 
         if (pafWrkScanline)
         {
-            GDALCopyWords(pafWrkScanline, eWrkDataType, 4,
-                          static_cast<GByte *>(pDstBuffer) +
-                              static_cast<size_t>(iDstLine - nDstYOff) *
-                                  nDstXSize * nDstDataTypeSize,
-                          dstDataType, nDstDataTypeSize, nDstXSize);
+            GDALCopyWords64(pafWrkScanline, eWrkDataType, nWrkDataTypeSize,
+                            static_cast<GByte *>(pDstBuffer) +
+                                static_cast<size_t>(iDstLine - nDstYOff) *
+                                    nDstXSize * nDstDataTypeSize,
+                            dstDataType, nDstDataTypeSize, nDstXSize);
         }
     }
 
@@ -4101,33 +4231,38 @@ GDALResampleFunction GDALGetResampleFunction(const char *pszResampling,
 GDALDataType GDALGetOvrWorkDataType(const char *pszResampling,
                                     GDALDataType eSrcDataType)
 {
-    if ((STARTS_WITH_CI(pszResampling, "NEAR") ||
-         STARTS_WITH_CI(pszResampling, "AVER") || EQUAL(pszResampling, "RMS") ||
-         EQUAL(pszResampling, "CUBIC") || EQUAL(pszResampling, "CUBICSPLINE") ||
-         EQUAL(pszResampling, "LANCZOS") || EQUAL(pszResampling, "BILINEAR") ||
-         EQUAL(pszResampling, "MODE")) &&
-        eSrcDataType == GDT_Byte)
+    if (STARTS_WITH_CI(pszResampling, "NEAR") || EQUAL(pszResampling, "MODE"))
     {
-        return GDT_Byte;
+        return eSrcDataType;
     }
-    else if ((STARTS_WITH_CI(pszResampling, "NEAR") ||
-              STARTS_WITH_CI(pszResampling, "AVER") ||
+    else if (eSrcDataType == GDT_Byte &&
+             (STARTS_WITH_CI(pszResampling, "AVER") ||
               EQUAL(pszResampling, "RMS") || EQUAL(pszResampling, "CUBIC") ||
               EQUAL(pszResampling, "CUBICSPLINE") ||
               EQUAL(pszResampling, "LANCZOS") ||
-              EQUAL(pszResampling, "BILINEAR") ||
-              EQUAL(pszResampling, "MODE")) &&
-             eSrcDataType == GDT_UInt16)
+              EQUAL(pszResampling, "BILINEAR") || EQUAL(pszResampling, "MODE")))
+    {
+        return GDT_Byte;
+    }
+    else if (eSrcDataType == GDT_UInt16 &&
+             (STARTS_WITH_CI(pszResampling, "AVER") ||
+              EQUAL(pszResampling, "RMS") || EQUAL(pszResampling, "CUBIC") ||
+              EQUAL(pszResampling, "CUBICSPLINE") ||
+              EQUAL(pszResampling, "LANCZOS") ||
+              EQUAL(pszResampling, "BILINEAR") || EQUAL(pszResampling, "MODE")))
     {
         return GDT_UInt16;
     }
     else if (EQUAL(pszResampling, "GAUSS"))
         return GDT_Float64;
 
-    if (eSrcDataType == GDT_Float64)
-        return GDT_Float64;
-
-    return GDT_Float32;
+    if (eSrcDataType == GDT_Byte || eSrcDataType == GDT_Int8 ||
+        eSrcDataType == GDT_UInt16 || eSrcDataType == GDT_Int16 ||
+        eSrcDataType == GDT_Float32)
+    {
+        return GDT_Float32;
+    }
+    return GDT_Float64;
 }
 
 namespace
@@ -4201,6 +4336,8 @@ CPLErr GDALRegenerateOverviews(GDALRasterBandH hSrcBand, int nOverviewCount,
 /************************************************************************/
 /*                     GDALRegenerateOverviewsEx()                      */
 /************************************************************************/
+
+constexpr int RADIUS_TO_DIAMETER = 2;
 
 /**
  * \brief Generate downsampled overviews.
@@ -4360,10 +4497,13 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
     poSrcBand->GetBlockSize(&nFRXBlockSize, &nFRYBlockSize);
 
     const GDALDataType eSrcDataType = poSrcBand->GetRasterDataType();
+    const bool bUseGenericResampleFn = STARTS_WITH_CI(pszResampling, "NEAR") ||
+                                       EQUAL(pszResampling, "MODE") ||
+                                       !GDALDataTypeIsComplex(eSrcDataType);
     const GDALDataType eWrkDataType =
-        GDALDataTypeIsComplex(eSrcDataType)
-            ? GDT_CFloat32
-            : GDALGetOvrWorkDataType(pszResampling, eSrcDataType);
+        bUseGenericResampleFn
+            ? GDALGetOvrWorkDataType(pszResampling, eSrcDataType)
+            : GDT_CFloat32;
 
     const int nWidth = poSrcBand->GetXSize();
     const int nHeight = poSrcBand->GetYSize();
@@ -4390,9 +4530,27 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
     {
         // Make sure that round(nChunkYOff / nMaxOvrFactor) < round((nChunkYOff
         // + nFullResYChunk) / nMaxOvrFactor)
-        nFullResYChunk = std::max(nFullResYChunk, 2 * nMaxOvrFactor);
+        if (nMaxOvrFactor > INT_MAX / RADIUS_TO_DIAMETER)
+        {
+            return GINTBIG_MAX;
+        }
+        nFullResYChunk =
+            std::max(nFullResYChunk, RADIUS_TO_DIAMETER * nMaxOvrFactor);
+        if ((nKernelRadius > 0 &&
+             nMaxOvrFactor > INT_MAX / (RADIUS_TO_DIAMETER * nKernelRadius)) ||
+            nFullResYChunk >
+                INT_MAX - RADIUS_TO_DIAMETER * nKernelRadius * nMaxOvrFactor)
+        {
+            return GINTBIG_MAX;
+        }
         nMaxChunkYSizeQueried =
-            nFullResYChunk + 2 * nKernelRadius * nMaxOvrFactor;
+            nFullResYChunk + RADIUS_TO_DIAMETER * nKernelRadius * nMaxOvrFactor;
+        if (GDALGetDataTypeSizeBytes(eWrkDataType) >
+            std::numeric_limits<int64_t>::max() /
+                (static_cast<int64_t>(nMaxChunkYSizeQueried) * nWidth))
+        {
+            return GINTBIG_MAX;
+        }
         return static_cast<GIntBig>(GDALGetDataTypeSizeBytes(eWrkDataType)) *
                nMaxChunkYSizeQueried * nWidth;
     };
@@ -4435,7 +4593,7 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
     else if (pszChunkYSize == nullptr)
     {
         // Try to get as close as possible to nChunkMaxSize
-        while (nChunkSize * 2 < nChunkMaxSize)
+        while (nChunkSize < nChunkMaxSize / 2)
         {
             nFullResYChunk *= 2;
             nChunkSize = UpdateChunkHeightAndGetChunkSize();
@@ -4465,6 +4623,7 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
         int nDstWidth = 0;
         GDALOverviewResampleArgs args{};
         const void *pChunk = nullptr;
+        bool bUseGenericResampleFn = false;
 
         // Output values of resampling function
         CPLErr eErr = CE_Failure;
@@ -4494,7 +4653,7 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
     {
         OvrJob *poJob = static_cast<OvrJob *>(pData);
 
-        if (poJob->args.eWrkDataType != GDT_CFloat32)
+        if (poJob->bUseGenericResampleFn)
         {
             poJob->eErr = poJob->pfnResampleFn(poJob->args, poJob->pChunk,
                                                &(poJob->pDstBuffer),
@@ -4539,6 +4698,7 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
         auto poOldestJob = jobList.front().get();
         {
             std::unique_lock<std::mutex> oGuard(poOldestJob->mutex);
+            // coverity[missing_lock:FALSE]
             while (!poOldestJob->bFinished)
             {
                 poOldestJob->cv.wait(oGuard);
@@ -4817,6 +4977,7 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
 
             auto poJob = std::make_unique<OvrJob>();
             poJob->pfnResampleFn = pfnResampleFn;
+            poJob->bUseGenericResampleFn = bUseGenericResampleFn;
             poJob->args.eOvrDataType = poDstBand->GetRasterDataType();
             poJob->args.nOvrXSize = poDstBand->GetXSize();
             poJob->args.nOvrYSize = poDstBand->GetYSize();
@@ -4832,7 +4993,7 @@ CPLErr GDALRegenerateOverviewsEx(GDALRasterBandH hSrcBand, int nOverviewCount,
             poJob->nSrcHeight = nHeight;
             poJob->args.nChunkXOff = 0;
             poJob->args.nChunkXSize = nWidth;
-            poJob->args.nChunkYOff = nChunkYOff;
+            poJob->args.nChunkYOff = nChunkYOffQueried;
             poJob->args.nChunkYSize = nChunkYSizeQueried;
             poJob->nDstWidth = nDstWidth;
             poJob->args.nDstXOff = 0;
@@ -5030,13 +5191,14 @@ CPLErr GDALRegenerateOverviewsMultiBand(
 
     for (int iOverview = 0; iOverview < nOverviews; ++iOverview)
     {
-        const int nDstWidth = papapoOverviewBands[0][iOverview]->GetXSize();
-        const int nDstHeight = papapoOverviewBands[0][iOverview]->GetYSize();
+        const auto poOvrFirstBand = papapoOverviewBands[0][iOverview];
+        const int nDstWidth = poOvrFirstBand->GetXSize();
+        const int nDstHeight = poOvrFirstBand->GetYSize();
         for (int iBand = 1; iBand < nBands; ++iBand)
         {
-            if (papapoOverviewBands[iBand][iOverview]->GetXSize() !=
-                    nDstWidth ||
-                papapoOverviewBands[iBand][iOverview]->GetYSize() != nDstHeight)
+            const auto poOvrBand = papapoOverviewBands[iBand][iOverview];
+            if (poOvrBand->GetXSize() != nDstWidth ||
+                poOvrBand->GetYSize() != nDstHeight)
             {
                 CPLError(
                     CE_Failure, CPLE_NotSupported,
@@ -5044,8 +5206,7 @@ CPLErr GDALRegenerateOverviewsMultiBand(
                     "of the same level must have the same dimensions");
                 return CE_Failure;
             }
-            if (papapoOverviewBands[iBand][iOverview]->GetRasterDataType() !=
-                eDataType)
+            if (poOvrBand->GetRasterDataType() != eDataType)
             {
                 CPLError(
                     CE_Failure, CPLE_NotSupported,
@@ -5075,6 +5236,7 @@ CPLErr GDALRegenerateOverviewsMultiBand(
 
     const GDALDataType eWrkDataType =
         GDALGetOvrWorkDataType(pszResampling, eDataType);
+    const int nWrkDataTypeSize = GDALGetDataTypeSizeBytes(eWrkDataType);
 
     const bool bIsMask = papoSrcBands[0]->IsMaskBand();
 
@@ -5115,8 +5277,37 @@ CPLErr GDALRegenerateOverviewsMultiBand(
                                    : std::unique_ptr<CPLJobQueue>(nullptr);
 
     // Only configurable for debug / testing
-    const int nChunkMaxSize =
-        atoi(CPLGetConfigOption("GDAL_OVR_CHUNK_MAX_SIZE", "10485760"));
+    const GIntBig nChunkMaxSize = []() -> GIntBig
+    {
+        const char *pszVal =
+            CPLGetConfigOption("GDAL_OVR_CHUNK_MAX_SIZE", nullptr);
+        if (pszVal)
+        {
+            GIntBig nRet = 0;
+            CPLParseMemorySize(pszVal, &nRet, nullptr);
+            return std::max<GIntBig>(100, nRet);
+        }
+        return 10 * 1024 * 1024;
+    }();
+
+    // Only configurable for debug / testing
+    const GIntBig nChunkMaxSizeForTempFile = []() -> GIntBig
+    {
+        const char *pszVal = CPLGetConfigOption(
+            "GDAL_OVR_CHUNK_MAX_SIZE_FOR_TEMP_FILE", nullptr);
+        if (pszVal)
+        {
+            GIntBig nRet = 0;
+            CPLParseMemorySize(pszVal, &nRet, nullptr);
+            return std::max<GIntBig>(100, nRet);
+        }
+        const auto nUsableRAM = CPLGetUsablePhysicalRAM();
+        if (nUsableRAM > 0)
+            return nUsableRAM / 10;
+        // Select a value to be able to at least downsample by 2 for a RGB
+        // 1024x1024 tiled output: (2 * 1024 + 2) * (2 * 1024 + 2) * 3 = 12 MB
+        return 100 * 1024 * 1024;
+    }();
 
     // Second pass to do the real job.
     double dfCurPixelCount = 0;
@@ -5125,11 +5316,6 @@ CPLErr GDALRegenerateOverviewsMultiBand(
          ++iOverview)
     {
         int iSrcOverview = -1;  // -1 means the source bands.
-
-        int nDstChunkXSize = 0;
-        int nDstChunkYSize = 0;
-        papapoOverviewBands[0][iOverview]->GetBlockSize(&nDstChunkXSize,
-                                                        &nDstChunkYSize);
 
         const int nDstTotalWidth =
             papapoOverviewBands[0][iOverview]->GetXSize();
@@ -5176,42 +5362,322 @@ CPLErr GDALRegenerateOverviewsMultiBand(
         const double dfYRatioDstToSrc =
             static_cast<double>(nSrcHeight) / nDstTotalHeight;
 
-        int nOvrFactor = std::max(static_cast<int>(0.5 + dfXRatioDstToSrc),
-                                  static_cast<int>(0.5 + dfYRatioDstToSrc));
-        if (nOvrFactor == 0)
-            nOvrFactor = 1;
+        const int nOvrFactor =
+            std::max(1, std::max(static_cast<int>(0.5 + dfXRatioDstToSrc),
+                                 static_cast<int>(0.5 + dfYRatioDstToSrc)));
+
+        int nDstChunkXSize = 0;
+        int nDstChunkYSize = 0;
+        papapoOverviewBands[0][iOverview]->GetBlockSize(&nDstChunkXSize,
+                                                        &nDstChunkYSize);
+
+        const char *pszDST_CHUNK_X_SIZE =
+            CSLFetchNameValue(papszOptions, "DST_CHUNK_X_SIZE");
+        const char *pszDST_CHUNK_Y_SIZE =
+            CSLFetchNameValue(papszOptions, "DST_CHUNK_Y_SIZE");
+        if (pszDST_CHUNK_X_SIZE && pszDST_CHUNK_Y_SIZE)
+        {
+            nDstChunkXSize = std::max(1, atoi(pszDST_CHUNK_X_SIZE));
+            nDstChunkYSize = std::max(1, atoi(pszDST_CHUNK_Y_SIZE));
+            CPLDebug("GDAL", "Using dst chunk size %d x %d", nDstChunkXSize,
+                     nDstChunkYSize);
+        }
+
+        constexpr int PIXEL_MARGIN = 2;
 
         // Try to extend the chunk size so that the memory needed to acquire
         // source pixels goes up to 10 MB.
         // This can help for drivers that support multi-threaded reading
-        const int nFullResYChunk =
-            2 + static_cast<int>(nDstChunkYSize * dfYRatioDstToSrc);
-        const int nFullResYChunkQueried =
-            nFullResYChunk + 2 * nKernelRadius * nOvrFactor;
+        const int nFullResYChunk = static_cast<int>(std::min<double>(
+            nSrcHeight, PIXEL_MARGIN + nDstChunkYSize * dfYRatioDstToSrc));
+        const int nFullResYChunkQueried = static_cast<int>(std::min<int64_t>(
+            nSrcHeight,
+            nFullResYChunk + static_cast<int64_t>(RADIUS_TO_DIAMETER) *
+                                 nKernelRadius * nOvrFactor));
         while (nDstChunkXSize < nDstWidth)
         {
-            const int nFullResXChunk =
-                2 + static_cast<int>(2 * nDstChunkXSize * dfXRatioDstToSrc);
+            constexpr int INCREASE_FACTOR = 2;
+
+            const int nFullResXChunk = static_cast<int>(std::min<double>(
+                nSrcWidth, PIXEL_MARGIN + INCREASE_FACTOR * nDstChunkXSize *
+                                              dfXRatioDstToSrc));
 
             const int nFullResXChunkQueried =
-                nFullResXChunk + 2 * nKernelRadius * nOvrFactor;
+                static_cast<int>(std::min<int64_t>(
+                    nSrcWidth,
+                    nFullResXChunk + static_cast<int64_t>(RADIUS_TO_DIAMETER) *
+                                         nKernelRadius * nOvrFactor));
 
             if (static_cast<GIntBig>(nFullResXChunkQueried) *
-                    nFullResYChunkQueried * nBands *
-                    GDALGetDataTypeSizeBytes(eWrkDataType) >
-                nChunkMaxSize)
+                    nFullResYChunkQueried >
+                nChunkMaxSize / (nBands * nWrkDataTypeSize))
             {
                 break;
             }
 
-            nDstChunkXSize *= 2;
+            nDstChunkXSize *= INCREASE_FACTOR;
         }
         nDstChunkXSize = std::min(nDstChunkXSize, nDstWidth);
 
-        const int nFullResXChunk =
-            2 + static_cast<int>(nDstChunkXSize * dfXRatioDstToSrc);
-        const int nFullResXChunkQueried =
-            nFullResXChunk + 2 * nKernelRadius * nOvrFactor;
+        const int nFullResXChunk = static_cast<int>(std::min<double>(
+            nSrcWidth, PIXEL_MARGIN + nDstChunkXSize * dfXRatioDstToSrc));
+        const int nFullResXChunkQueried = static_cast<int>(std::min<int64_t>(
+            nSrcWidth,
+            nFullResXChunk + static_cast<int64_t>(RADIUS_TO_DIAMETER) *
+                                 nKernelRadius * nOvrFactor));
+
+        // Make sure that the RAM requirements to acquire the source data does
+        // not exceed nChunkMaxSizeForTempFile
+        // If so, reduce the destination chunk size, generate overviews in a
+        // temporary dataset, and copy that temporary dataset over the target
+        // overview bands (to avoid issues with lossy compression)
+        const bool bOverflowFullResXChunkYChunkQueried =
+            nFullResYChunkQueried > INT_MAX / (nBands * nWrkDataTypeSize) ||
+            nFullResXChunkQueried >
+                std::numeric_limits<int64_t>::max() /
+                    (nFullResYChunkQueried * nBands * nWrkDataTypeSize);
+        const auto nMemRequirement =
+            bOverflowFullResXChunkYChunkQueried
+                ? 0
+                : static_cast<GIntBig>(nFullResXChunkQueried) *
+                      nFullResYChunkQueried * nBands * nWrkDataTypeSize;
+        if (bOverflowFullResXChunkYChunkQueried ||
+            (nMemRequirement > nChunkMaxSizeForTempFile &&
+             !(pszDST_CHUNK_X_SIZE && pszDST_CHUNK_Y_SIZE)))
+        {
+            // Compute a smaller destination chunk size
+            const auto nOverShootFactor =
+                nMemRequirement / nChunkMaxSizeForTempFile;
+            constexpr int MIN_OVERSHOOT_FACTOR = 4;
+            const auto nSqrtOverShootFactor =
+                std::max<GIntBig>(MIN_OVERSHOOT_FACTOR,
+                                  static_cast<GIntBig>(std::ceil(std::sqrt(
+                                      static_cast<double>(nOverShootFactor)))));
+            constexpr int DEFAULT_CHUNK_SIZE = 256;
+            constexpr int GTIFF_BLOCK_SIZE_MULTIPLE = 16;
+            const int nReducedDstChunkXSize =
+                bOverflowFullResXChunkYChunkQueried
+                    ? DEFAULT_CHUNK_SIZE
+                    : std::max(1, static_cast<int>(nDstChunkXSize /
+                                                   nSqrtOverShootFactor) &
+                                      ~(GTIFF_BLOCK_SIZE_MULTIPLE - 1));
+            const int nReducedDstChunkYSize =
+                bOverflowFullResXChunkYChunkQueried
+                    ? DEFAULT_CHUNK_SIZE
+                    : std::max(1, static_cast<int>(nDstChunkYSize /
+                                                   nSqrtOverShootFactor) &
+                                      ~(GTIFF_BLOCK_SIZE_MULTIPLE - 1));
+            if (nReducedDstChunkXSize < nDstChunkXSize ||
+                nReducedDstChunkYSize < nDstChunkYSize)
+            {
+                CPLStringList aosOptions(papszOptions);
+                aosOptions.SetNameValue(
+                    "DST_CHUNK_X_SIZE",
+                    CPLSPrintf("%d", nReducedDstChunkXSize));
+                aosOptions.SetNameValue(
+                    "DST_CHUNK_Y_SIZE",
+                    CPLSPrintf("%d", nReducedDstChunkYSize));
+
+                const bool bTmpDSMemRequirementOverflow =
+                    nDstTotalHeight >
+                        INT_MAX /
+                            (nBands * GDALGetDataTypeSizeBytes(eDataType)) ||
+                    nDstTotalWidth > std::numeric_limits<int64_t>::max() /
+                                         (nDstTotalHeight * nBands *
+                                          GDALGetDataTypeSizeBytes(eDataType));
+                const auto nTmpDSMemRequirement =
+                    bTmpDSMemRequirementOverflow
+                        ? 0
+                        : static_cast<GIntBig>(nDstTotalWidth) *
+                              nDstTotalHeight * nBands *
+                              GDALGetDataTypeSizeBytes(eDataType);
+                std::unique_ptr<GDALDataset> poTmpDS;
+                // Config option mostly/only for autotest purposes
+                const char *pszGDAL_OVR_TEMP_DRIVER =
+                    CPLGetConfigOption("GDAL_OVR_TEMP_DRIVER", "");
+                if ((!bTmpDSMemRequirementOverflow &&
+                     nTmpDSMemRequirement <= nChunkMaxSizeForTempFile &&
+                     !EQUAL(pszGDAL_OVR_TEMP_DRIVER, "GTIFF")) ||
+                    EQUAL(pszGDAL_OVR_TEMP_DRIVER, "MEM"))
+                {
+                    auto poTmpDrv =
+                        GetGDALDriverManager()->GetDriverByName("MEM");
+                    if (!poTmpDrv)
+                    {
+                        eErr = CE_Failure;
+                        break;
+                    }
+                    poTmpDS.reset(poTmpDrv->Create("", nDstTotalWidth,
+                                                   nDstTotalHeight, nBands,
+                                                   eDataType, nullptr));
+                }
+                else
+                {
+                    auto poTmpDrv =
+                        GetGDALDriverManager()->GetDriverByName("GTiff");
+                    if (!poTmpDrv)
+                    {
+                        eErr = CE_Failure;
+                        break;
+                    }
+                    std::string osTmpFilename;
+                    auto poDstDS = papapoOverviewBands[0][0]->GetDataset();
+                    if (poDstDS)
+                    {
+                        osTmpFilename = poDstDS->GetDescription();
+                        VSIStatBufL sStatBuf;
+                        if (!osTmpFilename.empty() &&
+                            VSIStatL(osTmpFilename.c_str(), &sStatBuf) == 0)
+                            osTmpFilename += "_tmp_ovr.tif";
+                    }
+                    if (osTmpFilename.empty())
+                    {
+                        osTmpFilename = CPLGenerateTempFilenameSafe(nullptr);
+                        osTmpFilename += ".tif";
+                    }
+                    CPLDebug("GDAL",
+                             "Creating temporary file %s of %d x %d x %d",
+                             osTmpFilename.c_str(), nDstTotalWidth,
+                             nDstTotalHeight, nBands);
+                    CPLStringList aosCO;
+                    if ((nReducedDstChunkXSize % GTIFF_BLOCK_SIZE_MULTIPLE) ==
+                            0 &&
+                        (nReducedDstChunkYSize % GTIFF_BLOCK_SIZE_MULTIPLE) ==
+                            0)
+                    {
+                        aosCO.SetNameValue("TILED", "YES");
+                        aosCO.SetNameValue(
+                            "BLOCKXSIZE",
+                            CPLSPrintf("%d", nReducedDstChunkXSize));
+                        aosCO.SetNameValue(
+                            "BLOCKYSIZE",
+                            CPLSPrintf("%d", nReducedDstChunkYSize));
+                    }
+                    if (const char *pszCOList = poTmpDrv->GetMetadataItem(
+                            GDAL_DMD_CREATIONOPTIONLIST))
+                    {
+                        aosCO.SetNameValue("COMPRESS", strstr(pszCOList, "ZSTD")
+                                                           ? "ZSTD"
+                                                           : "LZW");
+                    }
+                    poTmpDS.reset(poTmpDrv->Create(
+                        osTmpFilename.c_str(), nDstTotalWidth, nDstTotalHeight,
+                        nBands, eDataType, aosCO.List()));
+                    if (poTmpDS)
+                    {
+                        poTmpDS->MarkSuppressOnClose();
+                        VSIUnlink(osTmpFilename.c_str());
+                    }
+                }
+                if (!poTmpDS)
+                {
+                    eErr = CE_Failure;
+                    break;
+                }
+
+                std::vector<GDALRasterBand **> apapoOverviewBands(nBands);
+                for (int i = 0; i < nBands; ++i)
+                {
+                    apapoOverviewBands[i] = static_cast<GDALRasterBand **>(
+                        CPLMalloc(sizeof(GDALRasterBand *)));
+                    apapoOverviewBands[i][0] = poTmpDS->GetRasterBand(i + 1);
+                }
+
+                const double dfExtraPixels =
+                    static_cast<double>(nSrcXSize) / nToplevelSrcWidth *
+                    papapoOverviewBands[0][iOverview]->GetXSize() *
+                    static_cast<double>(nSrcYSize) / nToplevelSrcHeight *
+                    papapoOverviewBands[0][iOverview]->GetYSize();
+
+                void *pScaledProgressData = GDALCreateScaledProgress(
+                    dfCurPixelCount / dfTotalPixelCount,
+                    (dfCurPixelCount + dfExtraPixels) / dfTotalPixelCount,
+                    pfnProgress, pProgressData);
+
+                // Generate overviews in temporary dataset
+                eErr = GDALRegenerateOverviewsMultiBand(
+                    nBands, papoSrcBands, 1, apapoOverviewBands.data(),
+                    pszResampling, GDALScaledProgress, pScaledProgressData,
+                    aosOptions.List());
+
+                GDALDestroyScaledProgress(pScaledProgressData);
+
+                dfCurPixelCount += dfExtraPixels;
+
+                for (int i = 0; i < nBands; ++i)
+                {
+                    CPLFree(apapoOverviewBands[i]);
+                }
+
+                // Copy temporary dataset to destination overview bands
+
+                if (eErr == CE_None)
+                {
+                    // Check if all papapoOverviewBands[][iOverview] bands point
+                    // to the same dataset. If so, we can use
+                    // GDALDatasetCopyWholeRaster()
+                    GDALDataset *poDstOvrBandDS =
+                        papapoOverviewBands[0][iOverview]->GetDataset();
+                    if (poDstOvrBandDS)
+                    {
+                        if (poDstOvrBandDS->GetRasterCount() != nBands ||
+                            poDstOvrBandDS->GetRasterBand(1) !=
+                                papapoOverviewBands[0][iOverview])
+                        {
+                            poDstOvrBandDS = nullptr;
+                        }
+                        else
+                        {
+                            for (int i = 1; poDstOvrBandDS && i < nBands; ++i)
+                            {
+                                GDALDataset *poThisDstOvrBandDS =
+                                    papapoOverviewBands[i][iOverview]
+                                        ->GetDataset();
+                                if (poThisDstOvrBandDS == nullptr ||
+                                    poThisDstOvrBandDS != poDstOvrBandDS ||
+                                    poThisDstOvrBandDS->GetRasterBand(i + 1) !=
+                                        papapoOverviewBands[i][iOverview])
+                                {
+                                    poDstOvrBandDS = nullptr;
+                                }
+                            }
+                        }
+                    }
+                    if (poDstOvrBandDS)
+                    {
+                        eErr = GDALDatasetCopyWholeRaster(
+                            GDALDataset::ToHandle(poTmpDS.get()),
+                            GDALDataset::ToHandle(poDstOvrBandDS), nullptr,
+                            nullptr, nullptr);
+                    }
+                    else
+                    {
+                        for (int i = 0; eErr == CE_None && i < nBands; ++i)
+                        {
+                            eErr = GDALRasterBandCopyWholeRaster(
+                                GDALRasterBand::ToHandle(
+                                    poTmpDS->GetRasterBand(i + 1)),
+                                GDALRasterBand::ToHandle(
+                                    papapoOverviewBands[i][iOverview]),
+                                nullptr, nullptr, nullptr);
+                        }
+                    }
+                }
+
+                // Flush the data to overviews.
+                for (int iBand = 0; iBand < nBands; ++iBand)
+                {
+                    if (papapoOverviewBands[iBand][iOverview]->FlushCache(
+                            false) != CE_None)
+                        eErr = CE_Failure;
+                }
+
+                if (eErr != CE_None)
+                    break;
+
+                continue;
+            }
+        }
 
         // Structure describing a resampling job
         struct OvrJob
@@ -5276,6 +5742,7 @@ CPLErr GDALRegenerateOverviewsMultiBand(
             auto poOldestJob = jobList.front().get();
             {
                 std::unique_lock<std::mutex> oGuard(poOldestJob->mutex);
+                // coverity[missing_lock:FALSE]
                 while (!poOldestJob->bFinished)
                 {
                     poOldestJob->cv.wait(oGuard);
@@ -5294,8 +5761,9 @@ CPLErr GDALRegenerateOverviewsMultiBand(
         // Queue of jobs
         std::list<std::unique_ptr<OvrJob>> jobList;
 
-        std::vector<void *> apaChunk(nBands);
-        std::vector<GByte *> apabyChunkNoDataMask(nBands);
+        std::vector<std::unique_ptr<void, VSIFreeReleaser>> apaChunk(nBands);
+        std::vector<std::unique_ptr<GByte, VSIFreeReleaser>>
+            apabyChunkNoDataMask(nBands);
 
         // Iterate on destination overview, block by block.
         for (int nDstYOff = nDstYOffStart;
@@ -5318,7 +5786,8 @@ CPLErr GDALRegenerateOverviewsMultiBand(
             CPLAssert(nYCount <= nFullResYChunk);
 
             int nChunkYOffQueried = nChunkYOff - nKernelRadius * nOvrFactor;
-            int nChunkYSizeQueried = nYCount + 2 * nKernelRadius * nOvrFactor;
+            int nChunkYSizeQueried =
+                nYCount + RADIUS_TO_DIAMETER * nKernelRadius * nOvrFactor;
             if (nChunkYOffQueried < 0)
             {
                 nChunkYSizeQueried += nChunkYOffQueried;
@@ -5359,7 +5828,7 @@ CPLErr GDALRegenerateOverviewsMultiBand(
 
                 int nChunkXOffQueried = nChunkXOff - nKernelRadius * nOvrFactor;
                 int nChunkXSizeQueried =
-                    nXCount + 2 * nKernelRadius * nOvrFactor;
+                    nXCount + RADIUS_TO_DIAMETER * nKernelRadius * nOvrFactor;
                 if (nChunkXOffQueried < 0)
                 {
                     nChunkXSizeQueried += nChunkXOffQueried;
@@ -5406,14 +5875,15 @@ CPLErr GDALRegenerateOverviewsMultiBand(
                     eErr = WaitAndFinalizeOldestJob(jobList);
                 }
 
-                // (Re)allocate buffers if needed
-                for (int iBand = 0; iBand < nBands; ++iBand)
+                // Read the source buffers for all the bands.
+                for (int iBand = 0; iBand < nBands && eErr == CE_None; ++iBand)
                 {
+                    // (Re)allocate buffers if needed
                     if (apaChunk[iBand] == nullptr)
                     {
-                        apaChunk[iBand] = VSI_MALLOC3_VERBOSE(
+                        apaChunk[iBand].reset(VSI_MALLOC3_VERBOSE(
                             nFullResXChunkQueried, nFullResYChunkQueried,
-                            GDALGetDataTypeSizeBytes(eWrkDataType));
+                            nWrkDataTypeSize));
                         if (apaChunk[iBand] == nullptr)
                         {
                             eErr = CE_Failure;
@@ -5422,40 +5892,41 @@ CPLErr GDALRegenerateOverviewsMultiBand(
                     if (bUseNoDataMask &&
                         apabyChunkNoDataMask[iBand] == nullptr)
                     {
-                        apabyChunkNoDataMask[iBand] =
+                        apabyChunkNoDataMask[iBand].reset(
                             static_cast<GByte *>(VSI_MALLOC2_VERBOSE(
-                                nFullResXChunkQueried, nFullResYChunkQueried));
+                                nFullResXChunkQueried, nFullResYChunkQueried)));
                         if (apabyChunkNoDataMask[iBand] == nullptr)
                         {
                             eErr = CE_Failure;
                         }
                     }
-                }
 
-                // Read the source buffers for all the bands.
-                for (int iBand = 0; iBand < nBands && eErr == CE_None; ++iBand)
-                {
-                    GDALRasterBand *poSrcBand = nullptr;
-                    if (iSrcOverview == -1)
-                        poSrcBand = papoSrcBands[iBand];
-                    else
-                        poSrcBand = papapoOverviewBands[iBand][iSrcOverview];
-                    eErr = poSrcBand->RasterIO(
-                        GF_Read, nChunkXOffQueried, nChunkYOffQueried,
-                        nChunkXSizeQueried, nChunkYSizeQueried, apaChunk[iBand],
-                        nChunkXSizeQueried, nChunkYSizeQueried, eWrkDataType, 0,
-                        0, nullptr);
-
-                    if (bUseNoDataMask && eErr == CE_None)
+                    if (eErr == CE_None)
                     {
-                        auto poMaskBand = poSrcBand->IsMaskBand()
-                                              ? poSrcBand
-                                              : poSrcBand->GetMaskBand();
-                        eErr = poMaskBand->RasterIO(
+                        GDALRasterBand *poSrcBand = nullptr;
+                        if (iSrcOverview == -1)
+                            poSrcBand = papoSrcBands[iBand];
+                        else
+                            poSrcBand =
+                                papapoOverviewBands[iBand][iSrcOverview];
+                        eErr = poSrcBand->RasterIO(
                             GF_Read, nChunkXOffQueried, nChunkYOffQueried,
                             nChunkXSizeQueried, nChunkYSizeQueried,
-                            apabyChunkNoDataMask[iBand], nChunkXSizeQueried,
-                            nChunkYSizeQueried, GDT_Byte, 0, 0, nullptr);
+                            apaChunk[iBand].get(), nChunkXSizeQueried,
+                            nChunkYSizeQueried, eWrkDataType, 0, 0, nullptr);
+
+                        if (bUseNoDataMask && eErr == CE_None)
+                        {
+                            auto poMaskBand = poSrcBand->IsMaskBand()
+                                                  ? poSrcBand
+                                                  : poSrcBand->GetMaskBand();
+                            eErr = poMaskBand->RasterIO(
+                                GF_Read, nChunkXOffQueried, nChunkYOffQueried,
+                                nChunkXSizeQueried, nChunkYSizeQueried,
+                                apabyChunkNoDataMask[iBand].get(),
+                                nChunkXSizeQueried, nChunkYSizeQueried,
+                                GDT_Byte, 0, 0, nullptr);
+                        }
                     }
                 }
 
@@ -5475,9 +5946,9 @@ CPLErr GDALRegenerateOverviewsMultiBand(
                     poJob->args.dfXRatioDstToSrc = dfXRatioDstToSrc;
                     poJob->args.dfYRatioDstToSrc = dfYRatioDstToSrc;
                     poJob->args.eWrkDataType = eWrkDataType;
-                    poJob->pChunk = apaChunk[iBand];
+                    poJob->pChunk = apaChunk[iBand].get();
                     poJob->args.pabyChunkNodataMask =
-                        apabyChunkNoDataMask[iBand];
+                        apabyChunkNoDataMask[iBand].get();
                     poJob->args.nChunkXOff = nChunkXOffQueried;
                     poJob->args.nChunkXSize = nChunkXSizeQueried;
                     poJob->args.nChunkYOff = nChunkYOffQueried;
@@ -5494,13 +5965,11 @@ CPLErr GDALRegenerateOverviewsMultiBand(
 
                     if (poJobQueue)
                     {
-                        poJob->oSrcMaskBufferHolder.reset(
-                            new PointerHolder(apabyChunkNoDataMask[iBand]));
-                        apabyChunkNoDataMask[iBand] = nullptr;
+                        poJob->oSrcMaskBufferHolder.reset(new PointerHolder(
+                            apabyChunkNoDataMask[iBand].release()));
 
                         poJob->oSrcBufferHolder.reset(
-                            new PointerHolder(apaChunk[iBand]));
-                        apaChunk[iBand] = nullptr;
+                            new PointerHolder(apaChunk[iBand].release()));
 
                         poJobQueue->SubmitJob(JobResampleFunc, poJob.get());
                         jobList.emplace_back(std::move(poJob));
@@ -5529,10 +5998,9 @@ CPLErr GDALRegenerateOverviewsMultiBand(
         // Flush the data to overviews.
         for (int iBand = 0; iBand < nBands; ++iBand)
         {
-            CPLFree(apaChunk[iBand]);
-            papapoOverviewBands[iBand][iOverview]->FlushCache(false);
-
-            CPLFree(apabyChunkNoDataMask[iBand]);
+            if (papapoOverviewBands[iBand][iOverview]->FlushCache(false) !=
+                CE_None)
+                eErr = CE_Failure;
         }
     }
 
@@ -5542,6 +6010,100 @@ CPLErr GDALRegenerateOverviewsMultiBand(
     if (eErr == CE_None)
         pfnProgress(1.0, nullptr, pProgressData);
 
+    return eErr;
+}
+
+/************************************************************************/
+/*            GDALRegenerateOverviewsMultiBand()                        */
+/************************************************************************/
+
+/**
+ * \brief Variant of GDALRegenerateOverviews, specially dedicated for generating
+ * compressed pixel-interleaved overviews (JPEG-IN-TIFF for example)
+ *
+ * This function will generate one or more overview images from a base
+ * image using the requested downsampling algorithm.  Its primary use
+ * is for generating overviews via GDALDataset::BuildOverviews(), but it
+ * can also be used to generate downsampled images in one file from another
+ * outside the overview architecture.
+ *
+ * The output bands need to exist in advance and share the same characteristics
+ * (type, dimensions)
+ *
+ * The resampling algorithms supported for the moment are "NEAREST", "AVERAGE",
+ * "RMS", "GAUSS", "CUBIC", "CUBICSPLINE", "LANCZOS" and "BILINEAR"
+ *
+ * It does not support color tables or complex data types.
+ *
+ * The pseudo-algorithm used by the function is :
+ *    for each overview
+ *       iterate on lines of the source by a step of deltay
+ *           iterate on columns of the source  by a step of deltax
+ *               read the source data of size deltax * deltay for all the bands
+ *               generate the corresponding overview block for all the bands
+ *
+ * This function will honour properly NODATA_VALUES tuples (special dataset
+ * metadata) so that only a given RGB triplet (in case of a RGB image) will be
+ * considered as the nodata value and not each value of the triplet
+ * independently per band.
+ *
+ * The GDAL_NUM_THREADS configuration option can be set
+ * to "ALL_CPUS" or a integer value to specify the number of threads to use for
+ * overview computation.
+ *
+ * @param apoSrcBands the list of source bands to downsample
+ * @param aapoOverviewBands bidimension array of bands. First dimension is
+ *                          indexed by bands. Second dimension is indexed by
+ *                          overview levels. All aapoOverviewBands[i] arrays
+ *                          must have the same size (i.e. same number of
+ *                          overviews)
+ * @param pszResampling Resampling algorithm ("NEAREST", "AVERAGE", "RMS",
+ * "GAUSS", "CUBIC", "CUBICSPLINE", "LANCZOS" or "BILINEAR").
+ * @param pfnProgress progress report function.
+ * @param pProgressData progress function callback data.
+ * @param papszOptions NULL terminated list of options as
+ *                     key=value pairs, or NULL
+ *                     The XOFF, YOFF, XSIZE and YSIZE
+ *                     options can be specified to express that overviews should
+ *                     be regenerated only in the specified subset of the source
+ *                     dataset.
+ * @return CE_None on success or CE_Failure on failure.
+ * @since 3.10
+ */
+
+CPLErr GDALRegenerateOverviewsMultiBand(
+    const std::vector<GDALRasterBand *> &apoSrcBands,
+    const std::vector<std::vector<GDALRasterBand *>> &aapoOverviewBands,
+    const char *pszResampling, GDALProgressFunc pfnProgress,
+    void *pProgressData, CSLConstList papszOptions)
+{
+    CPLAssert(apoSrcBands.size() == aapoOverviewBands.size());
+    for (size_t i = 1; i < aapoOverviewBands.size(); ++i)
+    {
+        CPLAssert(aapoOverviewBands[i].size() == aapoOverviewBands[0].size());
+    }
+
+    if (aapoOverviewBands.empty())
+        return CE_None;
+
+    std::vector<GDALRasterBand **> apapoOverviewBands;
+    for (auto &apoOverviewBands : aapoOverviewBands)
+    {
+        auto papoOverviewBands = static_cast<GDALRasterBand **>(
+            CPLMalloc(apoOverviewBands.size() * sizeof(GDALRasterBand *)));
+        for (size_t i = 0; i < apoOverviewBands.size(); ++i)
+        {
+            papoOverviewBands[i] = apoOverviewBands[i];
+        }
+        apapoOverviewBands.push_back(papoOverviewBands);
+    }
+    const CPLErr eErr = GDALRegenerateOverviewsMultiBand(
+        static_cast<int>(apoSrcBands.size()), apoSrcBands.data(),
+        static_cast<int>(aapoOverviewBands[0].size()),
+        apapoOverviewBands.data(), pszResampling, pfnProgress, pProgressData,
+        papszOptions);
+    for (GDALRasterBand **papoOverviewBands : apapoOverviewBands)
+        CPLFree(papoOverviewBands);
     return eErr;
 }
 
@@ -5587,13 +6149,13 @@ CPLErr CPL_STDCALL GDALComputeBandStats(GDALRasterBandH hSrcBand,
     if (bComplex)
     {
         pafData = static_cast<float *>(
-            VSI_MALLOC_VERBOSE(nWidth * 2 * sizeof(float)));
+            VSI_MALLOC2_VERBOSE(nWidth, 2 * sizeof(float)));
         eWrkType = GDT_CFloat32;
     }
     else
     {
         pafData =
-            static_cast<float *>(VSI_MALLOC_VERBOSE(nWidth * sizeof(float)));
+            static_cast<float *>(VSI_MALLOC2_VERBOSE(nWidth, sizeof(float)));
         eWrkType = GDT_Float32;
     }
 

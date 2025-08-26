@@ -1,7 +1,12 @@
+..
+   The documentation displayed on this page is automatically generated from
+   Python docstrings. See https://gdal.org/development/dev_documentation.html
+   for information on updating this content.
+
 .. _python_vector_api:
 
-Python Vector API
-=================
+Vector API
+==========
 
 This page contains classes, methods, functions that relate to the GDAL :ref:`vector_data_model`. The :py:class:`Driver` and :py:class:`Dataset` classes, which applies to both vector and raster data, are documented with the :ref:`python_raster_api`.
 

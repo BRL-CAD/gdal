@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Name:     cpl.i
  * Project:  GDAL Python Interface
@@ -9,23 +8,7 @@
  ******************************************************************************
  * Copyright (c) 2005, Kevin Ruland
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  *****************************************************************************/
 
 %include constraints.i
@@ -144,6 +127,8 @@ void CPL_STDCALL PyCPLErrorHandler(CPLErr eErrClass, CPLErrorNum err_no, const c
     CPLErrorHandler pfnHandler = NULL;
     if( pszCallbackName == NULL || EQUAL(pszCallbackName,"CPLQuietErrorHandler") )
       pfnHandler = CPLQuietErrorHandler;
+    else if( EQUAL(pszCallbackName,"CPLQuietWarningsErrorHandler") )
+      pfnHandler = CPLQuietWarningsErrorHandler;
     else if( EQUAL(pszCallbackName,"CPLDefaultErrorHandler") )
       pfnHandler = CPLDefaultErrorHandler;
     else if( EQUAL(pszCallbackName,"CPLLoggingErrorHandler") )
@@ -192,6 +177,7 @@ void CPL_STDCALL PyCPLErrorHandler(CPLErr eErrClass, CPLErrorNum err_no, const c
 %rename (RmdirRecursive) VSIRmdirRecursive;
 %rename (AbortPendingUploads) VSIAbortPendingUploads;
 %rename (Rename) VSIRename;
+%rename (Move) wrapper_VSIMove;
 %rename (GetActualURL) VSIGetActualURL;
 %rename (GetSignedURL) wrapper_VSIGetSignedURL;
 %rename (GetFileSystemsPrefixes) VSIGetFileSystemsPrefixes;
@@ -519,7 +505,7 @@ char** wrapper_GetConfigOptions() {
 
     papszOpts = CSLMerge(papszOpts, papszTLOpts);
 
-    CPLFree(papszTLOpts);
+    CSLDestroy(papszTLOpts);
 
     return papszOpts;
 };
@@ -682,11 +668,22 @@ VSI_RETVAL VSIRmdir(const char *utf8_path );
 VSI_RETVAL VSIMkdirRecursive(const char *utf8_path, int mode );
 VSI_RETVAL VSIRmdirRecursive(const char *utf8_path );
 
-%apply (const char* utf8_path) {(const char* pszOld)};
-%apply (const char* utf8_path) {(const char* pszNew)};
-VSI_RETVAL VSIRename(const char * pszOld, const char *pszNew );
-%clear (const char* pszOld);
-%clear (const char* pszNew);
+%apply (const char* utf8_path) {(const char* old_path)};
+%apply (const char* utf8_path) {(const char* new_path)};
+VSI_RETVAL VSIRename(const char * old_path, const char *new_path );
+#if !defined(SWIGJAVA)
+%feature( "kwargs" ) wrapper_VSIMove;
+#endif
+%inline {
+VSI_RETVAL wrapper_VSIMove(const char * old_path, const char *new_path, char** options = NULL,
+                           GDALProgressFunc callback=NULL,
+                           void* callback_data=NULL)
+{
+    return VSIMove(old_path, new_path, options, callback, callback_data);
+}
+}
+%clear (const char* old_path);
+%clear (const char* new_path);
 
 #if defined(SWIGPYTHON)
 %rename (Sync) wrapper_VSISync;
@@ -738,6 +735,31 @@ int wrapper_VSICopyFile(const char* pszSource,
         pszSource, pszTarget, fpSource,
         nSourceSize < 0 ? static_cast<vsi_l_offset>(-1) : static_cast<vsi_l_offset>(nSourceSize),
         options, callback, callback_data );
+}
+
+#if defined(SWIGPYTHON)
+void CopyFileRestartable(const char* pszSource,
+                         const char* pszTarget,
+                         const char* pszInputPayload,
+                         int* pnRetCode,
+                         char** ppszOutputPayload,
+                         char** options = NULL,
+                         GDALProgressFunc callback=NULL,
+                         void* callback_data=NULL)
+{
+    *pnRetCode = VSICopyFileRestartable(pszSource, pszTarget, pszInputPayload,
+                                        ppszOutputPayload, options, callback,
+                                        callback_data);
+}
+#endif
+
+}
+
+%rename (MoveFile) wrapper_MoveFile;
+%inline {
+int wrapper_MoveFile(const char* pszSource, const char* pszTarget)
+{
+    return CPLMoveFile(pszTarget, pszSource);
 }
 }
 
@@ -885,12 +907,39 @@ VSILFILE   *wrapper_VSIFOpenExL( const char *utf8_path, const char *pszMode, int
 %clear char **;
 
 int VSIFEofL( VSILFILE* fp );
+int VSIFErrorL( VSILFILE* fp );
+void VSIFClearErrL( VSILFILE* fp );
 int VSIFFlushL( VSILFILE* fp );
 
 VSI_RETVAL VSIFCloseL( VSILFILE* fp );
 
+// Wrap VSIFSeekL to allow negative offsets
+%rename (VSIFSeekL) wrapper_VSIFSeekL;
+%inline {
 #if defined(SWIGPYTHON)
-int     VSIFSeekL( VSILFILE* fp, GIntBig offset, int whence);
+int wrapper_VSIFSeekL( VSILFILE* fp, GIntBig offset, int whence) {
+#else
+VSI_RETVAL wrapper_VSIFSeekL( VSILFILE* fp, long offset, int whence) {
+#endif
+if (offset < 0) {
+    switch (whence) {
+        case SEEK_END: VSIFSeekL(fp, 0, SEEK_END);
+        case SEEK_CUR:
+            offset = VSIFTellL(fp) + offset;
+            whence = SEEK_SET;
+            break;
+        default:
+            VSIError(VSIE_FileError, "Cannot use negative offset with SEEK_SET");
+            return -1;
+    }
+}
+
+return VSIFSeekL(fp, offset, whence);
+}
+}
+
+
+#if defined(SWIGPYTHON)
 GIntBig    VSIFTellL( VSILFILE* fp );
 int     VSIFTruncateL( VSILFILE* fp, GIntBig length );
 
@@ -902,7 +951,6 @@ int     VSISupportsSparseFiles( const char* utf8_path );
 
 int     VSIFGetRangeStatusL( VSILFILE* fp, GIntBig offset, GIntBig length );
 #else
-VSI_RETVAL VSIFSeekL( VSILFILE* fp, long offset, int whence);
 long    VSIFTellL( VSILFILE* fp );
 VSI_RETVAL VSIFTruncateL( VSILFILE* fp, long length );
 #endif
@@ -926,6 +974,8 @@ int     VSIFWriteL( const char *, int, int, VSILFILE *fp );
 
 /* VSIFReadL() handled specially in python/gdal_python.i */
 
+const char* CPLReadLineL(VSILFILE* fp);
+
 void VSICurlClearCache();
 void VSICurlPartialClearCache( const char* utf8_path );
 
@@ -944,3 +994,83 @@ int CPLGetNumCPUs();
 
 %rename (GetUsablePhysicalRAM) CPLGetUsablePhysicalRAM;
 GIntBig CPLGetUsablePhysicalRAM();
+
+#if defined(SWIGPYTHON)
+
+%apply Pointer NONNULL {const char *pszFilename};
+%apply Pointer NONNULL {const char *pszUploadId};
+
+%inline {
+void MultipartUploadGetCapabilities(
+    const char *pszFilename, int* pnRetCode, int *pbNonSequentialUploadSupported,
+    int *pbParallelUploadSupported, int *pbSupportsAbort, size_t *pnMinPartSize,
+    size_t *pnMaxPartSize, int *pnMaxPartCount)
+{
+    *pnRetCode = VSIMultipartUploadGetCapabilities(pszFilename,
+                        pbNonSequentialUploadSupported,
+                        pbParallelUploadSupported,
+                        pbSupportsAbort,
+                        pnMinPartSize,
+                        pnMaxPartSize,
+                        pnMaxPartCount);
+}
+}
+
+%inline {
+retStringAndCPLFree* MultipartUploadStart(const char *pszFilename, char** options = NULL)
+{
+    return VSIMultipartUploadStart(pszFilename, options);
+}
+}
+
+%apply (size_t nLen, char *pBuf ) { (size_t nDataLength, const char *pData)};
+
+%inline {
+retStringAndCPLFree* MultipartUploadAddPart(const char *pszFilename,
+                             const char *pszUploadId,
+                             int nPartNumber,
+                             GUIntBig nFileOffset,
+                             size_t nDataLength, const char *pData,
+                             char** options = NULL)
+{
+    return VSIMultipartUploadAddPart(pszFilename, pszUploadId,
+                                     nPartNumber, nFileOffset,
+                                     pData, nDataLength,
+                                     options);
+}
+}
+
+%apply (char **dict) { char ** partIds };
+
+%inline {
+bool MultipartUploadEnd(const char *pszFilename,
+                        const char *pszUploadId,
+                        char** partIds,
+                        GUIntBig nTotalSize,
+                        char** options = NULL)
+
+{
+    return VSIMultipartUploadEnd(pszFilename, pszUploadId,
+                                 CSLCount(partIds), partIds,
+                                 nTotalSize,
+                                 options);
+}
+}
+
+%clear (char ** partIds);
+
+%inline {
+bool MultipartUploadAbort(const char *pszFilename,
+                          const char *pszUploadId,
+                          char** options = NULL)
+{
+    return VSIMultipartUploadAbort(pszFilename, pszUploadId, options);
+}
+}
+
+%clear const char *pszFilename;
+%clear const char *pszUploadId;
+%clear (size_t nDataLength, const void *pData);
+
+#endif
+

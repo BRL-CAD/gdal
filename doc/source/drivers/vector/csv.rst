@@ -25,6 +25,11 @@ For files structured as CSV, but not ending
 with the ".csv" extension, the 'CSV:' prefix can be added before the filename
 to force loading by the CSV driver.
 
+Starting with GDAL 3.10, specifying the ``-if CSV`` option to command line utilities
+accepting it, or ``CSV`` as the only value of the ``papszAllowedDrivers`` of
+:cpp:func:`GDALOpenEx`, also forces the driver to recognize the passed
+filename, without the ``CSV:`` prefix.
+
 The OGR CSV driver supports reading and writing. Because the CSV format
 has variable length text lines, reading is done sequentially. Reading
 features in random order will generally be very slow. OGR CSV layer
@@ -54,7 +59,7 @@ for geometries encoded in WKT
 Starting with GDAL 2.2, the "JSonStringList", "JSonIntegerList",
 "JSonInteger64List" and "JSonRealList" types can be used in .csvt to map
 to the corresponding OGR StringList, IntegerList, Integer64List and
-RealList types. The field values are then encoded as JSon arrays, with
+RealList types. The field values are then encoded as JSON arrays, with
 proper CSV escaping.
 
 Automatic field type guessing can also be done
@@ -79,7 +84,7 @@ per line must be present. Lines may be terminated by a DOS (CR/LF) or
 Unix (LF) style line terminators. Each record should have the same
 number of fields. The driver will also accept a semicolon, a tabulation,
 a pipe, or a space character as field separator.
-Starting with GDAL 3.8, the autodection will select the separator with the
+Starting with GDAL 3.8, the autodetection will select the separator with the
 most occurrences if there are several candidates  on the first line of the CSV
 file (and warn about that). The :oo:`SEPARATOR` open option may also be set to
 define the desired separator.
@@ -110,8 +115,8 @@ Example (employee.csv):
 ::
 
    ID,Salary,Name,Comments
+   131,11000.0,Jane Lake,Chief Technical Officer
    132,55000.0,John Walker,"The ""big"" cheese."
-   133,11000.0,Jane Lake,Cleaning Staff
 
 Note that the Comments value for the first data record is placed in
 double quotes because the value contains quotes, and those quotes have
@@ -163,7 +168,7 @@ Y_POSSIBLE_NAMES=Lat\* -oo KEEP_GEOM_COLUMNS=NO* will return :
      Name (String) = Third point
      POINT (0.75 47.5)
 
-If CSV file does not have a header line, the dummy "field_n" names can be
+If the CSV file does not have a header line, the dummy "field_n" names can be
 used as possible names for coordinate fields. For example plain XYZ point
 data can be opened as
 
@@ -260,8 +265,8 @@ is used.
 Open options
 ------------
 
-The following open options can be specified
-(typically with the -oo name=value parameters of ogrinfo or ogr2ogr):
+|about-open-options|
+The following open options are supported:
 
 -  .. oo:: SEPARATOR
       :choices: AUTO, COMMA, SEMICOLON, TAB, SPACE, PIPE
@@ -408,6 +413,16 @@ The following open options can be specified
 
       Maximum number of bytes for a line (-1=unlimited).
 
+-  .. oo:: OGR_SCHEMA
+      :choices: <filename>|<json string>
+      :since: 3.11.0
+
+      Partially or totally overrides the auto-detected schema to use for creating the layer.
+      The overrides are defined as a JSON list of field definitions.
+      This can be a filename, a URL or JSON string conformant with the `ogr_fields_override.schema.json schema <https://raw.githubusercontent.com/OSGeo/gdal/refs/heads/master/ogr/data/ogr_fields_override.schema.json>`_
+      This option takes precedence over any other option and over the .csvt file.
+
+
 Creation Issues
 ---------------
 
@@ -420,6 +435,9 @@ be stored in RAM temporarily before flushing to disk.
 
 Layer Creation options
 ----------------------
+
+|about-layer-creation-options|
+The following layer creation options are supported:
 
 -  .. lco:: LINEFORMAT
       :choices: CRLF, LF
@@ -484,8 +502,8 @@ Layer Creation options
 Configuration options
 ---------------------
 
-The following :ref:`configuration options <configoptions>` are
-available:
+|about-config-options|
+The following configuration options are available:
 
 -  .. config:: OGR_WKT_PRECISION
       :choices: <integer>
@@ -494,7 +512,7 @@ available:
       Number of decimals for coordinate
       values. A heuristic is used to remove insignificant
       trailing 00000x or 99999x that can appear when formatting decimal
-      numbers.
+      numbers. Examples: 6 gives 120.864, 24.1818; 2 gives 1.2E+02, 24.0.
 
 -  .. config:: OGR_WKT_ROUND
       :choices: YES, NO
@@ -517,11 +535,12 @@ Examples
       ogr2ogr -f CSV output.csv input.shp -lco GEOMETRY=AS_XYZ
 
 -  This example shows using ogr2ogr to transform a shapefile into a .csv
-   file with geography field formatted using GeoJSON format.
+   file with geometry field formatted using GeoJSON format.
 
    ::
 
-      ogr2ogr -f CSV -dialect sqlite -sql "select AsGeoJSON(geometry) AS geom, * from input" output.csv input.shp
+      ogr2ogr -f CSV output.csv input.shp -dialect sqlite -sql \
+          "select AsGeoJSON(geometry) AS geom, * from input"
 
 - Convert a CSV into a GeoPackage. Specify the names of the coordinate columns and assign a coordinate reference system.
 
@@ -533,6 +552,21 @@ Examples
        -oo X_POSSIBLE_NAMES=longitude \
        -oo Y_POSSIBLE_NAMES=latitude \
        -a_srs 'EPSG:4326'
+
+-  Use `ogr2ogr -segmentize` to densify a input geometry being specified in the ``WKT`` special field. Note that one needs to specify the GEOMETRY=AS_WKT layer creation option, otherwise the input geometry would be returned unmodified:
+
+   ::
+
+    $ cat input.csv
+    WKT,ID,Name
+    "LINESTRING (-900 -1450,-900 100)",0,900W
+
+    $ ogr2ogr -segmentize 400 -lco GEOMETRY=AS_WKT \
+      -sql "SELECT ID, Name FROM input" output.csv input.csv
+
+    $ cat output.csv
+    WKT,ID,Name
+    "LINESTRING (-900 -1450,-900 -1062.5,-900 -675,-900 -287.5,-900 100)","0",900W
 
 
 Particular datasources

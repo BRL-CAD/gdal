@@ -8,23 +8,7 @@
  * Copyright (c) 2000, Frank Warmerdam <warmerdam@pobox.com>
  * Copyright (c) 2008-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_vsi_virtual.h"
@@ -69,7 +53,8 @@ class VSIWin32FilesystemHandler final : public VSIFilesystemHandler
     virtual int Stat(const char *pszFilename, VSIStatBufL *pStatBuf,
                      int nFlags) override;
     virtual int Unlink(const char *pszFilename) override;
-    virtual int Rename(const char *oldpath, const char *newpath) override;
+    virtual int Rename(const char *oldpath, const char *newpath,
+                       GDALProgressFunc, void *) override;
     virtual int Mkdir(const char *pszDirname, long nMode) override;
     virtual int Rmdir(const char *pszDirname) override;
     virtual char **ReadDirEx(const char *pszDirname, int nMaxFiles) override;
@@ -108,27 +93,30 @@ class VSIWin32Handle final : public VSIVirtualHandle
   public:
     HANDLE hFile = nullptr;
     bool bEOF = false;
+    bool bError = false;
     bool m_bWriteThrough = false;
 
     VSIWin32Handle() = default;
+    ~VSIWin32Handle() override;
 
-    virtual int Seek(vsi_l_offset nOffset, int nWhence) override;
-    virtual vsi_l_offset Tell() override;
-    virtual size_t Read(void *pBuffer, size_t nSize, size_t nMemb) override;
-    virtual size_t Write(const void *pBuffer, size_t nSize,
-                         size_t nMemb) override;
-    virtual int Eof() override;
-    virtual int Flush() override;
-    virtual int Close() override;
-    virtual int Truncate(vsi_l_offset nNewSize) override;
+    int Seek(vsi_l_offset nOffset, int nWhence) override;
+    vsi_l_offset Tell() override;
+    size_t Read(void *pBuffer, size_t nSize, size_t nMemb) override;
+    size_t Write(const void *pBuffer, size_t nSize, size_t nMemb) override;
+    void ClearErr() override;
+    int Eof() override;
+    int Error() override;
+    int Flush() override;
+    int Close() override;
+    int Truncate(vsi_l_offset nNewSize) override;
 
-    virtual void *GetNativeFileDescriptor() override
+    void *GetNativeFileDescriptor() override
     {
         return static_cast<void *>(hFile);
     }
 
-    virtual VSIRangeStatus GetRangeStatus(vsi_l_offset nOffset,
-                                          vsi_l_offset nLength) override;
+    VSIRangeStatus GetRangeStatus(vsi_l_offset nOffset,
+                                  vsi_l_offset nLength) override;
 };
 
 /************************************************************************/
@@ -230,6 +218,15 @@ static int ErrnoFromGetLastError(DWORD dwError = 0)
     CPLAssert(0 <= err);
 
     return err;
+}
+
+/************************************************************************/
+/*                          ~VSIWin32Handle()                           */
+/************************************************************************/
+
+VSIWin32Handle::~VSIWin32Handle()
+{
+    VSIWin32Handle::Close();
 }
 
 /************************************************************************/
@@ -350,22 +347,38 @@ int VSIWin32Handle::Flush()
 size_t VSIWin32Handle::Read(void *pBuffer, size_t nSize, size_t nCount)
 
 {
-    DWORD dwSizeRead = 0;
-    size_t nResult = 0;
-
-    if (!ReadFile(hFile, pBuffer, static_cast<DWORD>(nSize * nCount),
-                  &dwSizeRead, nullptr))
+    GByte *const pabyBuffer = static_cast<GByte *>(pBuffer);
+    size_t nTotalRead = 0;
+    size_t nRemaining = nSize * nCount;
+    while (nRemaining > 0)
     {
-        nResult = 0;
-        errno = ErrnoFromGetLastError();
-    }
-    else if (nSize == 0)
-        nResult = 0;
-    else
-        nResult = dwSizeRead / nSize;
+        DWORD dwSizeRead = 0;
+        DWORD dwToRead = static_cast<DWORD>(
+            nRemaining > UINT32_MAX ? UINT32_MAX : nRemaining);
 
-    if (nResult != nCount)
-        bEOF = true;
+        if (!ReadFile(hFile, pabyBuffer + nTotalRead, dwToRead, &dwSizeRead,
+                      nullptr))
+        {
+            bError = true;
+            errno = ErrnoFromGetLastError();
+            return 0;
+        }
+        else
+        {
+            nTotalRead += dwSizeRead;
+            nRemaining -= dwSizeRead;
+            if (dwSizeRead < dwToRead)
+                break;
+        }
+    }
+
+    size_t nResult = 0;
+    if (nSize)
+    {
+        nResult = nTotalRead / nSize;
+        if (nResult != nCount)
+            bEOF = true;
+    }
 
     return nResult;
 }
@@ -379,6 +392,12 @@ size_t VSIWin32Handle::Write(const void *pBuffer, size_t nSize, size_t nCount)
 {
     DWORD dwSizeWritten = 0;
     size_t nResult = 0;
+
+    if (nSize > 0 && nCount > UINT32_MAX / nSize)
+    {
+        CPLError(CE_Failure, CPLE_FileIO, "Too many bytes to write at once");
+        return 0;
+    }
 
     if (!WriteFile(hFile, pBuffer, static_cast<DWORD>(nSize * nCount),
                    &dwSizeWritten, nullptr))
@@ -397,13 +416,34 @@ size_t VSIWin32Handle::Write(const void *pBuffer, size_t nSize, size_t nCount)
 }
 
 /************************************************************************/
+/*                             ClearErr()                               */
+/************************************************************************/
+
+void VSIWin32Handle::ClearErr()
+
+{
+    bEOF = false;
+    bError = false;
+}
+
+/************************************************************************/
+/*                              Error()                                 */
+/************************************************************************/
+
+int VSIWin32Handle::Error()
+
+{
+    return bError ? TRUE : FALSE;
+}
+
+/************************************************************************/
 /*                                Eof()                                 */
 /************************************************************************/
 
 int VSIWin32Handle::Eof()
 
 {
-    return bEOF;
+    return bEOF ? TRUE : FALSE;
 }
 
 /************************************************************************/
@@ -842,7 +882,6 @@ int VSIWin32FilesystemHandler::Stat(const char *pszFilename,
                                     VSIStatBufL *pStatBuf, int nFlags)
 
 {
-#if defined(_MSC_VER) || __MSVCRT_VERSION__ >= 0x0601
     if (CPLTestBool(CPLGetConfigOption("GDAL_FILENAME_IS_UTF8", "YES")))
     {
         wchar_t *pwszFilename =
@@ -907,7 +946,6 @@ int VSIWin32FilesystemHandler::Stat(const char *pszFilename,
         return nResult;
     }
     else
-#endif
     {
         (void)nFlags;
         return (VSI_STAT64(pszFilename, pStatBuf));
@@ -922,7 +960,6 @@ int VSIWin32FilesystemHandler::Stat(const char *pszFilename,
 int VSIWin32FilesystemHandler::Unlink(const char *pszFilename)
 
 {
-#if defined(_MSC_VER) || __MSVCRT_VERSION__ >= 0x0601
     if (CPLTestBool(CPLGetConfigOption("GDAL_FILENAME_IS_UTF8", "YES")))
     {
         wchar_t *pwszFilename =
@@ -933,7 +970,6 @@ int VSIWin32FilesystemHandler::Unlink(const char *pszFilename)
         return nResult;
     }
     else
-#endif
     {
         return unlink(pszFilename);
     }
@@ -943,10 +979,10 @@ int VSIWin32FilesystemHandler::Unlink(const char *pszFilename)
 /*                               Rename()                               */
 /************************************************************************/
 
-int VSIWin32FilesystemHandler::Rename(const char *oldpath, const char *newpath)
+int VSIWin32FilesystemHandler::Rename(const char *oldpath, const char *newpath,
+                                      GDALProgressFunc, void *)
 
 {
-#if defined(_MSC_VER) || __MSVCRT_VERSION__ >= 0x0601
     if (CPLTestBool(CPLGetConfigOption("GDAL_FILENAME_IS_UTF8", "YES")))
     {
         wchar_t *pwszOldPath =
@@ -960,7 +996,6 @@ int VSIWin32FilesystemHandler::Rename(const char *oldpath, const char *newpath)
         return nResult;
     }
     else
-#endif
     {
         return rename(oldpath, newpath);
     }
@@ -970,11 +1005,9 @@ int VSIWin32FilesystemHandler::Rename(const char *oldpath, const char *newpath)
 /*                               Mkdir()                                */
 /************************************************************************/
 
-int VSIWin32FilesystemHandler::Mkdir(const char *pszPathname, long nMode)
+int VSIWin32FilesystemHandler::Mkdir(const char *pszPathname, long /* nMode */)
 
 {
-    (void)nMode;
-#if defined(_MSC_VER) || __MSVCRT_VERSION__ >= 0x0601
     if (CPLTestBool(CPLGetConfigOption("GDAL_FILENAME_IS_UTF8", "YES")))
     {
         wchar_t *pwszFilename =
@@ -985,7 +1018,6 @@ int VSIWin32FilesystemHandler::Mkdir(const char *pszPathname, long nMode)
         return nResult;
     }
     else
-#endif
     {
         return mkdir(pszPathname);
     }
@@ -998,7 +1030,6 @@ int VSIWin32FilesystemHandler::Mkdir(const char *pszPathname, long nMode)
 int VSIWin32FilesystemHandler::Rmdir(const char *pszPathname)
 
 {
-#if defined(_MSC_VER) || __MSVCRT_VERSION__ >= 0x0601
     if (CPLTestBool(CPLGetConfigOption("GDAL_FILENAME_IS_UTF8", "YES")))
     {
         wchar_t *pwszFilename =
@@ -1009,7 +1040,6 @@ int VSIWin32FilesystemHandler::Rmdir(const char *pszPathname)
         return nResult;
     }
     else
-#endif
     {
         return rmdir(pszPathname);
     }
@@ -1022,7 +1052,6 @@ int VSIWin32FilesystemHandler::Rmdir(const char *pszPathname)
 char **VSIWin32FilesystemHandler::ReadDirEx(const char *pszPath, int nMaxFiles)
 
 {
-#if defined(_MSC_VER) || __MSVCRT_VERSION__ >= 0x0601
     if (CPLTestBool(CPLGetConfigOption("GDAL_FILENAME_IS_UTF8", "YES")))
     {
         struct _wfinddata_t c_file;
@@ -1062,7 +1091,6 @@ char **VSIWin32FilesystemHandler::ReadDirEx(const char *pszPath, int nMaxFiles)
         return oDir.StealList();
     }
     else
-#endif
     {
         struct _finddata_t c_file;
         intptr_t hFile;
@@ -1163,7 +1191,6 @@ bool VSIWin32FilesystemHandler::IsLocal(const char *pszPath)
 std::string VSIWin32FilesystemHandler::GetCanonicalFilename(
     const std::string &osFilename) const
 {
-#if defined(_MSC_VER) || __MSVCRT_VERSION__ >= 0x0601
     if (CPLTestBool(CPLGetConfigOption("GDAL_FILENAME_IS_UTF8", "YES")))
     {
         wchar_t *pwszFilename =
@@ -1179,7 +1206,6 @@ std::string VSIWin32FilesystemHandler::GetCanonicalFilename(
         return osRet;
     }
     else
-#endif
     {
         char longPath[MAX_PATH];
         DWORD result = GetLongPathNameA(osFilename.c_str(), longPath, MAX_PATH);

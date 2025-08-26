@@ -9,29 +9,14 @@
  * Copyright (c) 2007, Frank Warmerdam
  * Copyright (c) 2008-2012, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
 #include "gdal_priv.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <utility>
 
@@ -112,19 +97,27 @@ static GDALDataType GetWorkDataType(GDALDataType eDataType)
             eWrkDT = GDT_Byte;
             break;
 
+        case GDT_Int16:
+            eWrkDT = GDT_Int16;
+            break;
+
         case GDT_UInt16:
+            eWrkDT = GDT_UInt16;
+            break;
+
         case GDT_UInt32:
             eWrkDT = GDT_UInt32;
             break;
 
         case GDT_Int8:
-        case GDT_Int16:
         case GDT_Int32:
         case GDT_CInt16:
         case GDT_CInt32:
             eWrkDT = GDT_Int32;
             break;
 
+        case GDT_Float16:
+        case GDT_CFloat16:
         case GDT_Float32:
         case GDT_CFloat32:
             eWrkDT = GDT_Float32;
@@ -140,7 +133,8 @@ static GDALDataType GetWorkDataType(GDALDataType eDataType)
             eWrkDT = eDataType;
             break;
 
-        default:
+        case GDT_Unknown:
+        case GDT_TypeCount:
             CPLAssert(false);
             eWrkDT = GDT_Float64;
             break;
@@ -163,6 +157,16 @@ bool GDALNoDataMaskBand::IsNoDataInRange(double dfNoDataValue,
             return GDALIsValueInRange<GByte>(dfNoDataValue);
         }
 
+        case GDT_Int16:
+        {
+            return GDALIsValueInRange<GInt16>(dfNoDataValue);
+        }
+
+        case GDT_UInt16:
+        {
+            return GDALIsValueInRange<GUInt16>(dfNoDataValue);
+        }
+
         case GDT_UInt32:
         {
             return GDALIsValueInRange<GUInt32>(dfNoDataValue);
@@ -182,9 +186,15 @@ bool GDALNoDataMaskBand::IsNoDataInRange(double dfNoDataValue,
             return GDALIsValueInRange<int64_t>(dfNoDataValue);
         }
 
+        case GDT_Float16:
+        {
+            return std::isnan(dfNoDataValue) || std::isinf(dfNoDataValue) ||
+                   GDALIsValueInRange<GFloat16>(dfNoDataValue);
+        }
+
         case GDT_Float32:
         {
-            return CPLIsNan(dfNoDataValue) || CPLIsInf(dfNoDataValue) ||
+            return std::isnan(dfNoDataValue) || std::isinf(dfNoDataValue) ||
                    GDALIsValueInRange<float>(dfNoDataValue);
         }
 
@@ -225,6 +235,70 @@ CPLErr GDALNoDataMaskBand::IReadBlock(int nXBlockOff, int nYBlockOff,
 }
 
 /************************************************************************/
+/*                            SetZeroOr255()                            */
+/************************************************************************/
+
+#if (defined(__GNUC__) && !defined(__clang__))
+__attribute__((optimize("tree-vectorize")))
+#endif
+static void
+SetZeroOr255(GByte *pabyDestAndSrc, size_t nBufSize, GByte byNoData)
+{
+    for (size_t i = 0; i < nBufSize; ++i)
+    {
+        pabyDestAndSrc[i] = (pabyDestAndSrc[i] == byNoData) ? 0 : 255;
+    }
+}
+
+template <class T>
+#if (defined(__GNUC__) && !defined(__clang__))
+__attribute__((optimize("tree-vectorize")))
+#endif
+static void
+SetZeroOr255(GByte *pabyDest, const T *panSrc, size_t nBufSize, T nNoData)
+{
+    for (size_t i = 0; i < nBufSize; ++i)
+    {
+        pabyDest[i] = (panSrc[i] == nNoData) ? 0 : 255;
+    }
+}
+
+template <class T>
+static void SetZeroOr255(GByte *pabyDest, const T *panSrc, int nBufXSize,
+                         int nBufYSize, GSpacing nPixelSpace,
+                         GSpacing nLineSpace, T nNoData)
+{
+    if (nPixelSpace == 1 && nLineSpace == nBufXSize)
+    {
+        const size_t nBufSize = static_cast<size_t>(nBufXSize) * nBufYSize;
+        SetZeroOr255(pabyDest, panSrc, nBufSize, nNoData);
+    }
+    else if (nPixelSpace == 1)
+    {
+        for (int iY = 0; iY < nBufYSize; iY++)
+        {
+            SetZeroOr255(pabyDest, panSrc, nBufXSize, nNoData);
+            pabyDest += nLineSpace;
+            panSrc += nBufXSize;
+        }
+    }
+    else
+    {
+        size_t i = 0;
+        for (int iY = 0; iY < nBufYSize; iY++)
+        {
+            GByte *pabyLineDest = pabyDest + iY * nLineSpace;
+            for (int iX = 0; iX < nBufXSize; iX++)
+            {
+                *pabyLineDest = (panSrc[i] == nNoData) ? 0 : 255;
+                ++i;
+                pabyLineDest += nPixelSpace;
+            }
+        }
+    }
+}
+
+/************************************************************************/
 /*                             IRasterIO()                              */
 /************************************************************************/
 
@@ -259,22 +333,12 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
         if (nPixelSpace == 1 && nLineSpace == nBufXSize)
         {
             const size_t nBufSize = static_cast<size_t>(nBufXSize) * nBufYSize;
-            for (size_t i = 0; i < nBufSize; ++i)
-            {
-                pabyData[i] = pabyData[i] == byNoData ? 0 : 255;
-            }
+            SetZeroOr255(pabyData, nBufSize, byNoData);
         }
         else
         {
-            for (int iY = 0; iY < nBufYSize; iY++)
-            {
-                GByte *pabyLine = pabyData + iY * nLineSpace;
-                for (int iX = 0; iX < nBufXSize; iX++)
-                {
-                    *pabyLine = *pabyLine == byNoData ? 0 : 255;
-                    pabyLine += nPixelSpace;
-                }
-            }
+            SetZeroOr255(pabyData, pabyData, nBufXSize, nBufYSize, nPixelSpace,
+                         nLineSpace, byNoData);
         }
         return CE_None;
     }
@@ -347,7 +411,7 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
             return eErr;
         }
 
-        const bool bIsNoDataNan = CPLIsNan(m_dfNoDataValue) != 0;
+        const bool bIsNoDataNan = std::isnan(m_dfNoDataValue) != 0;
         GByte *pabyDest = static_cast<GByte *>(pData);
 
         /* --------------------------------------------------------------------
@@ -357,41 +421,39 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
          */
         switch (eWrkDT)
         {
+            case GDT_Int16:
+            {
+                const auto nNoData = static_cast<int16_t>(m_dfNoDataValue);
+                const auto *panSrc = static_cast<const int16_t *>(pTemp);
+                SetZeroOr255(pabyDest, panSrc, nBufXSize, nBufYSize,
+                             nPixelSpace, nLineSpace, nNoData);
+            }
+            break;
+
+            case GDT_UInt16:
+            {
+                const auto nNoData = static_cast<uint16_t>(m_dfNoDataValue);
+                const auto *panSrc = static_cast<const uint16_t *>(pTemp);
+                SetZeroOr255(pabyDest, panSrc, nBufXSize, nBufYSize,
+                             nPixelSpace, nLineSpace, nNoData);
+            }
+            break;
+
             case GDT_UInt32:
             {
-                const GUInt32 nNoData = static_cast<GUInt32>(m_dfNoDataValue);
-                const GUInt32 *panSrc = static_cast<const GUInt32 *>(pTemp);
-
-                size_t i = 0;
-                for (int iY = 0; iY < nBufYSize; iY++)
-                {
-                    GByte *pabyLineDest = pabyDest + iY * nLineSpace;
-                    for (int iX = 0; iX < nBufXSize; iX++)
-                    {
-                        *pabyLineDest = panSrc[i] == nNoData ? 0 : 255;
-                        ++i;
-                        pabyLineDest += nPixelSpace;
-                    }
-                }
+                const auto nNoData = static_cast<GUInt32>(m_dfNoDataValue);
+                const auto *panSrc = static_cast<const GUInt32 *>(pTemp);
+                SetZeroOr255(pabyDest, panSrc, nBufXSize, nBufYSize,
+                             nPixelSpace, nLineSpace, nNoData);
             }
             break;
 
             case GDT_Int32:
             {
-                const GInt32 nNoData = static_cast<GInt32>(m_dfNoDataValue);
-                const GInt32 *panSrc = static_cast<const GInt32 *>(pTemp);
-
-                size_t i = 0;
-                for (int iY = 0; iY < nBufYSize; iY++)
-                {
-                    GByte *pabyLineDest = pabyDest + iY * nLineSpace;
-                    for (int iX = 0; iX < nBufXSize; iX++)
-                    {
-                        *pabyLineDest = panSrc[i] == nNoData ? 0 : 255;
-                        ++i;
-                        pabyLineDest += nPixelSpace;
-                    }
-                }
+                const auto nNoData = static_cast<GInt32>(m_dfNoDataValue);
+                const auto *panSrc = static_cast<const GInt32 *>(pTemp);
+                SetZeroOr255(pabyDest, panSrc, nBufXSize, nBufYSize,
+                             nPixelSpace, nLineSpace, nNoData);
             }
             break;
 
@@ -407,7 +469,7 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                     for (int iX = 0; iX < nBufXSize; iX++)
                     {
                         const float fVal = pafSrc[i];
-                        if (bIsNoDataNan && CPLIsNan(fVal))
+                        if (bIsNoDataNan && std::isnan(fVal))
                             *pabyLineDest = 0;
                         else if (ARE_REAL_EQUAL(fVal, fNoData))
                             *pabyLineDest = 0;
@@ -431,7 +493,7 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
                     for (int iX = 0; iX < nBufXSize; iX++)
                     {
                         const double dfVal = padfSrc[i];
-                        if (bIsNoDataNan && CPLIsNan(dfVal))
+                        if (bIsNoDataNan && std::isnan(dfVal))
                             *pabyLineDest = 0;
                         else if (ARE_REAL_EQUAL(dfVal, m_dfNoDataValue))
                             *pabyLineDest = 0;
@@ -447,44 +509,16 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
             case GDT_Int64:
             {
                 const auto *panSrc = static_cast<const int64_t *>(pTemp);
-
-                size_t i = 0;
-                for (int iY = 0; iY < nBufYSize; iY++)
-                {
-                    GByte *pabyLineDest = pabyDest + iY * nLineSpace;
-                    for (int iX = 0; iX < nBufXSize; iX++)
-                    {
-                        const auto nVal = panSrc[i];
-                        if (nVal == m_nNoDataValueInt64)
-                            *pabyLineDest = 0;
-                        else
-                            *pabyLineDest = 255;
-                        ++i;
-                        pabyLineDest += nPixelSpace;
-                    }
-                }
+                SetZeroOr255(pabyDest, panSrc, nBufXSize, nBufYSize,
+                             nPixelSpace, nLineSpace, m_nNoDataValueInt64);
             }
             break;
 
             case GDT_UInt64:
             {
                 const auto *panSrc = static_cast<const uint64_t *>(pTemp);
-
-                size_t i = 0;
-                for (int iY = 0; iY < nBufYSize; iY++)
-                {
-                    GByte *pabyLineDest = pabyDest + iY * nLineSpace;
-                    for (int iX = 0; iX < nBufXSize; iX++)
-                    {
-                        const auto nVal = panSrc[i];
-                        if (nVal == m_nNoDataValueUInt64)
-                            *pabyLineDest = 0;
-                        else
-                            *pabyLineDest = 255;
-                        ++i;
-                        pabyLineDest += nPixelSpace;
-                    }
-                }
+                SetZeroOr255(pabyDest, panSrc, nBufXSize, nBufYSize,
+                             nPixelSpace, nLineSpace, m_nNoDataValueUInt64);
             }
             break;
 
@@ -513,13 +547,27 @@ CPLErr GDALNoDataMaskBand::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
 
     for (int iY = 0; iY < nBufYSize; iY++)
     {
-        GDALCopyWords(
+        GDALCopyWords64(
             static_cast<GByte *>(pTemp) + static_cast<size_t>(iY) * nBufXSize,
             GDT_Byte, 1, static_cast<GByte *>(pData) + iY * nLineSpace,
             eBufType, static_cast<int>(nPixelSpace), nBufXSize);
     }
     VSIFree(pTemp);
     return CE_None;
+}
+
+/************************************************************************/
+/*                   EmitErrorMessageIfWriteNotSupported()              */
+/************************************************************************/
+
+bool GDALNoDataMaskBand::EmitErrorMessageIfWriteNotSupported(
+    const char *pszCaller) const
+{
+    ReportError(CE_Failure, CPLE_NoWriteAccess,
+                "%s: attempt to write to a nodata implicit mask band.",
+                pszCaller);
+
+    return true;
 }
 
 //! @endcond

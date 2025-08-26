@@ -11,23 +11,7 @@
  * Portions Copyright (c) Her majesty the Queen in right of Canada as
  * represented by the Minister of National Defence, 2006.
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -54,6 +38,7 @@
 #include "cpl_conv.h"
 #include "cpl_error.h"
 #include "cpl_md5.h"
+#include "cpl_minixml.h"
 #include "quant_table_md5sum.h"
 #include "quant_table_md5sum_jpeg9e.h"
 #include "cpl_progress.h"
@@ -261,6 +246,39 @@ void JPGDatasetCommon::ReadEXIFMetadata()
                                 nGPSOffset);
         }
 
+        // Pix4D Mapper files have both DNG_CameraSerialNumber and EXIF_BodySerialNumber
+        // set at the same value. Only expose the later in that situation.
+        if (const char *pszDNG_CameraSerialNumber =
+                CSLFetchNameValue(papszMetadata, "DNG_CameraSerialNumber"))
+        {
+            const char *pszEXIF_BodySerialNumber =
+                CSLFetchNameValue(papszMetadata, "EXIF_BodySerialNumber");
+            if (pszEXIF_BodySerialNumber &&
+                EQUAL(pszDNG_CameraSerialNumber, pszEXIF_BodySerialNumber))
+            {
+                CPLDebug("JPEG", "Unsetting DNG_CameraSerialNumber as it has "
+                                 "the same value as EXIF_BodySerialNumber");
+                papszMetadata = CSLSetNameValue(
+                    papszMetadata, "DNG_CameraSerialNumber", nullptr);
+            }
+        }
+
+        // Pix4D Mapper files have both DNG_UniqueCameraModel and EXIF_Model
+        // set at the same value. Only expose the later in that situation.
+        if (const char *pszDNG_UniqueCameraModel =
+                CSLFetchNameValue(papszMetadata, "DNG_UniqueCameraModel"))
+        {
+            const char *pszEXIF_Model =
+                CSLFetchNameValue(papszMetadata, "EXIF_Model");
+            if (pszEXIF_Model && EQUAL(pszDNG_UniqueCameraModel, pszEXIF_Model))
+            {
+                CPLDebug("JPEG", "Unsetting DNG_UniqueCameraModel as it has "
+                                 "the same value as EXIF_Model");
+                papszMetadata = CSLSetNameValue(
+                    papszMetadata, "DNG_UniqueCameraModel", nullptr);
+            }
+        }
+
         // Avoid setting the PAM dirty bit just for that.
         const int nOldPamFlags = nPamFlags;
 
@@ -365,6 +383,7 @@ void JPGDatasetCommon::ReadXMPMetadata()
                     char *apszMDList[2] = {pszXMP, nullptr};
                     SetMetadata(apszMDList, "xml:XMP");
 
+                    // cppcheck-suppress redundantAssignment
                     nPamFlags = nOldPamFlags;
                 }
                 VSIFree(pszXMP);
@@ -663,13 +682,14 @@ void JPGDatasetCommon::ReadFLIRMetadata()
         SetMetadataItem(
             "IRWindowTemperature",
             CPLSPrintf("%f C", ReadFloat32FromKelvin(nRecOffset + 48)), "FLIR");
-        SetMetadataItem("IRWindowTemperature",
+        SetMetadataItem("IRWindowTransmission",
                         CPLSPrintf("%f", ReadFloat32(nRecOffset + 52)), "FLIR");
         auto fRelativeHumidity = ReadFloat32(nRecOffset + 60);
         if (fRelativeHumidity > 2)
             fRelativeHumidity /= 100.0f;  // Sometimes expressed in percentage
         SetMetadataItem("RelativeHumidity",
-                        CPLSPrintf("%f %%", 100.0f * fRelativeHumidity));
+                        CPLSPrintf("%f %%", 100.0f * fRelativeHumidity),
+                        "FLIR");
         SetMetadataItem("PlanckR1",
                         CPLSPrintf("%.8g", ReadFloat32(nRecOffset + 88)),
                         "FLIR");
@@ -2549,6 +2569,94 @@ const GDAL_GCP *JPGDatasetCommon::GetGCPs()
 }
 
 /************************************************************************/
+/*                           GetSpatialRef()                            */
+/************************************************************************/
+
+const OGRSpatialReference *JPGDatasetCommon::GetSpatialRef() const
+
+{
+    const auto poSRS = GDALPamDataset::GetSpatialRef();
+    if (poSRS)
+        return poSRS;
+
+    auto poThis = const_cast<JPGDatasetCommon *>(this);
+    if (poThis->GetGCPCount() == 0)
+    {
+        if (!m_oSRS.IsEmpty())
+            return &m_oSRS;
+
+        if (!bHasReadXMPMetadata)
+            poThis->ReadXMPMetadata();
+        CSLConstList papszXMP = poThis->GetMetadata("xml:XMP");
+        if (papszXMP && papszXMP[0])
+        {
+            CPLXMLTreeCloser poXML(CPLParseXMLString(papszXMP[0]));
+            if (poXML)
+            {
+                const auto psRDF =
+                    CPLGetXMLNode(poXML.get(), "=x:xmpmeta.rdf:RDF");
+                if (psRDF)
+                {
+                    for (const CPLXMLNode *psIter = psRDF->psChild; psIter;
+                         psIter = psIter->psNext)
+                    {
+                        if (psIter->eType == CXT_Element &&
+                            EQUAL(psIter->pszValue, "rdf:Description") &&
+                            EQUAL(CPLGetXMLValue(psIter, "xmlns:Camera", ""),
+                                  "http://pix4d.com/camera/1.0/"))
+                        {
+                            if (const char *pszHorizCS = CPLGetXMLValue(
+                                    psIter, "Camera:HorizCS", nullptr))
+                            {
+                                if (m_oSRS.SetFromUserInput(
+                                        pszHorizCS,
+                                        OGRSpatialReference::
+                                            SET_FROM_USER_INPUT_LIMITATIONS_get()) ==
+                                    OGRERR_NONE)
+                                {
+                                    if (const char *pszVertCS = CPLGetXMLValue(
+                                            psIter, "Camera:VertCS", nullptr))
+                                    {
+                                        if (EQUAL(pszVertCS, "ellipsoidal"))
+                                            m_oSRS.PromoteTo3D(nullptr);
+                                        else
+                                        {
+                                            OGRSpatialReference oVertCRS;
+                                            if (oVertCRS.SetFromUserInput(
+                                                    pszVertCS,
+                                                    OGRSpatialReference::
+                                                        SET_FROM_USER_INPUT_LIMITATIONS_get()) ==
+                                                OGRERR_NONE)
+                                            {
+                                                OGRSpatialReference oTmpCRS;
+                                                oTmpCRS.SetCompoundCS(
+                                                    std::string(
+                                                        m_oSRS.GetName())
+                                                        .append(" + ")
+                                                        .append(
+                                                            oVertCRS.GetName())
+                                                        .c_str(),
+                                                    &m_oSRS, &oVertCRS);
+                                                m_oSRS = std::move(oTmpCRS);
+                                            }
+                                        }
+                                    }
+                                    m_oSRS.SetAxisMappingStrategy(
+                                        OAMS_TRADITIONAL_GIS_ORDER);
+                                    return &m_oSRS;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+/************************************************************************/
 /*                             IRasterIO()                              */
 /*                                                                      */
 /*      Checks for what might be the most common read case              */
@@ -2556,13 +2664,11 @@ const GDAL_GCP *JPGDatasetCommon::GetGCPs()
 /*      optimizes for that case                                         */
 /************************************************************************/
 
-CPLErr JPGDatasetCommon::IRasterIO(GDALRWFlag eRWFlag, int nXOff, int nYOff,
-                                   int nXSize, int nYSize, void *pData,
-                                   int nBufXSize, int nBufYSize,
-                                   GDALDataType eBufType, int nBandCount,
-                                   int *panBandMap, GSpacing nPixelSpace,
-                                   GSpacing nLineSpace, GSpacing nBandSpace,
-                                   GDALRasterIOExtraArg *psExtraArg)
+CPLErr JPGDatasetCommon::IRasterIO(
+    GDALRWFlag eRWFlag, int nXOff, int nYOff, int nXSize, int nYSize,
+    void *pData, int nBufXSize, int nBufYSize, GDALDataType eBufType,
+    int nBandCount, BANDMAP_TYPE panBandMap, GSpacing nPixelSpace,
+    GSpacing nLineSpace, GSpacing nBandSpace, GDALRasterIOExtraArg *psExtraArg)
 
 {
     // Coverity says that we cannot pass a nullptr to IRasterIO.
@@ -2657,9 +2763,7 @@ GDALDataset *JPGDatasetCommon::Open(GDALOpenInfo *poOpenInfo)
 
     if (poOpenInfo->eAccess == GA_Update)
     {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "The JPEG driver does not support update access to existing"
-                 " datasets.");
+        ReportUpdateNotSupportedByDriver("JPEG");
         return nullptr;
     }
 
@@ -2739,7 +2843,8 @@ GDALDataset *JPGDatasetCommon::OpenFLIRRawThermalImage()
 
     GByte *pabyData =
         static_cast<GByte *>(CPLMalloc(m_abyRawThermalImage.size()));
-    const std::string osTmpFilename(CPLSPrintf("/vsimem/jpeg/%p", pabyData));
+    const std::string osTmpFilename(
+        VSIMemGenerateHiddenFilename("jpeg_flir_raw"));
     memcpy(pabyData, m_abyRawThermalImage.data(), m_abyRawThermalImage.size());
     VSILFILE *fpRaw = VSIFileFromMemBuffer(osTmpFilename.c_str(), pabyData,
                                            m_abyRawThermalImage.size(), true);
@@ -2800,7 +2905,14 @@ GDALDataset *JPGDatasetCommon::OpenFLIRRawThermalImage()
     if (m_abyRawThermalImage.size() > 4 &&
         memcmp(m_abyRawThermalImage.data(), "\x89PNG", 4) == 0)
     {
-        auto poRawDS = GDALDataset::Open(osTmpFilename.c_str());
+        // FLIR 16-bit PNG have a wrong endianness.
+        // Cf https://exiftool.org/TagNames/FLIR.html: "Note that most FLIR
+        // cameras using the PNG format seem to write the 16-bit raw image data
+        // in the wrong byte order."
+        const char *const apszPNGOpenOptions[] = {
+            "@BYTE_ORDER_LITTLE_ENDIAN=YES", nullptr};
+        auto poRawDS = GDALDataset::Open(osTmpFilename.c_str(), GDAL_OF_RASTER,
+                                         nullptr, apszPNGOpenOptions, nullptr);
         if (poRawDS == nullptr)
         {
             CPLError(CE_Failure, CPLE_AppDefined, "Invalid raw thermal image");
@@ -2853,7 +2965,7 @@ JPGDatasetCommon *JPGDataset::OpenStage2(JPGDatasetOpenArgs *psArgs,
 
     const char *pszFilename = psArgs->pszFilename;
     VSILFILE *fpLin = psArgs->fpLin;
-    char **papszSiblingFiles = psArgs->papszSiblingFiles;
+    CSLConstList papszSiblingFiles = psArgs->papszSiblingFiles;
     const int nScaleFactor = psArgs->nScaleFactor;
     const bool bDoPAMInitialize = psArgs->bDoPAMInitialize;
     const bool bUseInternalOverviews = psArgs->bUseInternalOverviews;
@@ -2931,7 +3043,7 @@ JPGDatasetCommon *JPGDataset::OpenStage2(JPGDatasetOpenArgs *psArgs,
     // Open the file using the large file api if necessary.
     VSILFILE *fpImage = fpLin;
 
-    if (fpImage == nullptr)
+    if (!fpImage)
     {
         fpImage = VSIFOpenL(real_filename, "rb");
 
@@ -2943,10 +3055,6 @@ JPGDatasetCommon *JPGDataset::OpenStage2(JPGDatasetOpenArgs *psArgs,
             delete poDS;
             return nullptr;
         }
-    }
-    else
-    {
-        fpImage = fpLin;
     }
 
     // Create a corresponding GDALDataset.
@@ -3115,7 +3223,8 @@ JPGDatasetCommon *JPGDataset::OpenStage2(JPGDatasetOpenArgs *psArgs,
         // will unlink the temporary /vsimem file just after GDALOpen(), so
         // later VSIFOpenL() when reading internal overviews would fail.
         // Initialize them now.
-        if (STARTS_WITH(real_filename, "/vsimem/http_"))
+        if (STARTS_WITH(real_filename, "/vsimem/") &&
+            strstr(real_filename, "_gdal_http_"))
         {
             poDS->InitInternalOverviews();
         }
@@ -3228,29 +3337,27 @@ void JPGDatasetCommon::CheckForMask()
 
     GByte abyEOD[2] = {0, 0};
 
-    if (nImageSize < nFileSize / 2 || nImageSize > nFileSize - 4)
-        goto end;
-
-    // If that seems okay, seek back, and verify that just preceding
-    // the bitmask is an apparent end-of-jpeg-data marker.
-    VSIFSeekL(m_fpImage, nImageSize - 2, SEEK_SET);
-    VSIFReadL(abyEOD, 2, 1, m_fpImage);
-    if (abyEOD[0] != 0xff || abyEOD[1] != 0xd9)
-        goto end;
-
-    // We seem to have a mask.  Read it in.
-    nCMaskSize = static_cast<int>(nFileSize - nImageSize - 4);
-    pabyCMask = static_cast<GByte *>(VSI_MALLOC_VERBOSE(nCMaskSize));
-    if (pabyCMask == nullptr)
+    if (nImageSize >= 2 && nImageSize >= nFileSize / 2 &&
+        nImageSize <= nFileSize - 4)
     {
-        goto end;
+        // If that seems okay, seek back, and verify that just preceding
+        // the bitmask is an apparent end-of-jpeg-data marker.
+        VSIFSeekL(m_fpImage, nImageSize - 2, SEEK_SET);
+        VSIFReadL(abyEOD, 2, 1, m_fpImage);
+        if (abyEOD[0] == 0xff && abyEOD[1] == 0xd9)
+        {
+            // We seem to have a mask.  Read it in.
+            nCMaskSize = static_cast<int>(nFileSize - nImageSize - 4);
+            pabyCMask = static_cast<GByte *>(VSI_MALLOC_VERBOSE(nCMaskSize));
+            if (pabyCMask)
+            {
+                VSIFReadL(pabyCMask, nCMaskSize, 1, m_fpImage);
+
+                CPLDebug("JPEG", "Got %d byte compressed bitmask.", nCMaskSize);
+            }
+        }
     }
-    VSIFReadL(pabyCMask, nCMaskSize, 1, m_fpImage);
 
-    CPLDebug("JPEG", "Got %d byte compressed bitmask.", nCMaskSize);
-
-    // TODO(schwehr): Refactor to not use goto.
-end:
     VSIFSeekL(m_fpImage, nCurOffset, SEEK_SET);
 }
 
@@ -3624,7 +3731,7 @@ void JPGDataset::EmitMessage(j_common_ptr cinfo, int msg_level)
                              buffer);
                 }
             }
-            else if (pszVal == nullptr || CPLTestBool(pszVal))
+            else if (pszVal == nullptr || !CPLTestBool(pszVal))
             {
                 if (pszVal == nullptr)
                 {
@@ -3977,7 +4084,7 @@ void JPGAddEXIF(GDALDataType eWorkDT, GDALDataset *poSrcDS, char **papszOptions,
             return;
         }
 
-        CPLString osTmpFile(CPLSPrintf("/vsimem/ovrjpg%p", poMemDS));
+        const CPLString osTmpFile(VSIMemGenerateHiddenFilename("ovrjpg"));
         GDALDataset *poOutDS = pCreateCopy(osTmpFile, poMemDS, 0, nullptr,
                                            GDALDummyProgress, nullptr);
         const bool bExifOverviewSuccess = poOutDS != nullptr;
@@ -4771,8 +4878,22 @@ GDALDataset *JPGDataset::CreateCopyStage2(
 
 char **GDALJPGDriver::GetMetadata(const char *pszDomain)
 {
-    GetMetadataItem(GDAL_DMD_CREATIONOPTIONLIST);
+    std::lock_guard oLock(m_oMutex);
+    InitializeMetadata();
     return GDALDriver::GetMetadata(pszDomain);
+}
+
+const char *GDALJPGDriver::GetMetadataItem(const char *pszName,
+                                           const char *pszDomain)
+{
+    std::lock_guard oLock(m_oMutex);
+
+    if (pszName != nullptr && EQUAL(pszName, GDAL_DMD_CREATIONOPTIONLIST) &&
+        (pszDomain == nullptr || EQUAL(pszDomain, "")))
+    {
+        InitializeMetadata();
+    }
+    return GDALDriver::GetMetadataItem(pszName, pszDomain);
 }
 
 // C_ARITH_CODING_SUPPORTED is defined in libjpeg-turbo's jconfig.h
@@ -4815,12 +4936,12 @@ static bool GDALJPEGIsArithmeticCodingAvailable()
 }
 #endif
 
-const char *GDALJPGDriver::GetMetadataItem(const char *pszName,
-                                           const char *pszDomain)
+void GDALJPGDriver::InitializeMetadata()
 {
-    if (pszName != nullptr && EQUAL(pszName, GDAL_DMD_CREATIONOPTIONLIST) &&
-        (pszDomain == nullptr || EQUAL(pszDomain, "")) &&
-        GDALDriver::GetMetadataItem(pszName, pszDomain) == nullptr)
+    if (m_bMetadataInitialized)
+        return;
+    m_bMetadataInitialized = true;
+
     {
         CPLString osCreationOptions =
             "<CreationOptionList>\n"
@@ -4876,7 +4997,6 @@ const char *GDALJPGDriver::GetMetadataItem(const char *pszName,
             "</CreationOptionList>\n";
         SetMetadataItem(GDAL_DMD_CREATIONOPTIONLIST, osCreationOptions);
     }
-    return GDALDriver::GetMetadataItem(pszName, pszDomain);
 }
 
 void GDALRegister_JPEG()

@@ -1,5 +1,24 @@
 %feature("docstring") OSRSpatialReferenceShadow "
 Python proxy of an :cpp:class:`OGRSpatialReference`.
+
+Create a new spatial reference object. An empty object will be created
+unless exactly one of the following parameters is provided.
+
+Parameters
+----------
+name : str / dict, optional
+    SRS description in a format understood by :py:meth:`SetFromUserInput`.
+epsg : int, optional
+    EPSG CRS code, as understood by :py:meth:`ImportFromEPSG`
+wkt : str, optional
+    WKT CRS string, as understood by :py:meth:`ImportFromWkt`
+
+Examples
+--------
+>>> osr.SpatialReference(epsg=5646).GetName()
+'NAD83 / Vermont (ftUS)'
+>>> osr.SpatialReference('+proj=utm +zone=18 +datum=WGS84').GetUTMZone()
+18
 ";
 
 %extend OSRSpatialReferenceShadow {
@@ -846,6 +865,20 @@ Returns
 int
     1 if the CRS is vertical, 0 otherwise
 
+";
+
+%feature("docstring") StripVertical "
+
+Convert a compound CRS into a horizontal CRS.
+
+See :cpp:func:`OGRSpatialReference::StripVertical`.
+
+.. versionadded:: 3.6
+
+Returns
+-------
+OGRErr:
+    :py:const:`OGRERR_NONE` if the operation succeeds
 ";
 
 }

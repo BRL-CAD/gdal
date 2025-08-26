@@ -32,7 +32,6 @@
 
 #include <algorithm>
 #include <limits>
-#include <queue>
 #include <string>
 
 #include "cpl_error.h"
@@ -292,6 +291,11 @@ int swqlex(YYSTYPE *ppNode, swq_parse_context *context)
             nReturn = SWQT_LIMIT;
         else if (EQUAL(osToken, "OFFSET"))
             nReturn = SWQT_OFFSET;
+        else if (EQUAL(osToken, "HIDDEN"))
+        {
+            *ppNode = new swq_expr_node(osToken);
+            nReturn = SWQT_HIDDEN;
+        }
 
         // Unhandled by OGR SQL.
         else if (EQUAL(osToken, "OUTER") || EQUAL(osToken, "INNER"))
@@ -321,7 +325,7 @@ int swqlex(YYSTYPE *ppNode, swq_parse_context *context)
 /************************************************************************/
 
 const char *swq_select_summarize(swq_select *select_info, int dest_column,
-                                 const char *value)
+                                 const char *pszValue, const double *pdfValue)
 
 {
     /* -------------------------------------------------------------------- */
@@ -334,7 +338,7 @@ const char *swq_select_summarize(swq_select *select_info, int dest_column,
         dest_column >= static_cast<int>(select_info->column_defs.size()))
         return "dest_column out of range in swq_select_summarize().";
 
-    swq_col_def *def = &select_info->column_defs[dest_column];
+    const swq_col_def *def = &select_info->column_defs[dest_column];
     if (def->col_func == SWQCF_NONE && !def->distinct_flag)
         return nullptr;
 
@@ -401,18 +405,17 @@ const char *swq_select_summarize(swq_select *select_info, int dest_column,
 
     if (def->distinct_flag)
     {
-        if (value == nullptr)
-            value = SZ_OGR_NULL;
+        if (pszValue == nullptr)
+            pszValue = SZ_OGR_NULL;
         try
         {
-            if (summary.oSetDistinctValues.find(value) ==
-                summary.oSetDistinctValues.end())
+            if (!cpl::contains(summary.oSetDistinctValues, pszValue))
             {
-                summary.oSetDistinctValues.insert(value);
+                summary.oSetDistinctValues.insert(pszValue);
                 if (select_info->order_specs == 0)
                 {
                     // If not sorted, keep values in their original order
-                    summary.oVectorDistinctValues.emplace_back(value);
+                    summary.oVectorDistinctValues.emplace_back(pszValue);
                 }
                 summary.count++;
             }
@@ -432,59 +435,78 @@ const char *swq_select_summarize(swq_select *select_info, int dest_column,
     switch (def->col_func)
     {
         case SWQCF_MIN:
-            if (value != nullptr && value[0] != '\0')
+            if (pdfValue)
             {
-                if (def->field_type == SWQ_DATE ||
-                    def->field_type == SWQ_TIME ||
-                    def->field_type == SWQ_TIMESTAMP ||
-                    def->field_type == SWQ_STRING)
+                if (*pdfValue < summary.min)
+                    summary.min = *pdfValue;
+                summary.count++;
+            }
+            else if (pszValue && pszValue[0] != '\0')
+            {
+                if (summary.count == 0 || strcmp(pszValue, summary.osMin) < 0)
                 {
-                    if (summary.count == 0 || strcmp(value, summary.osMin) < 0)
-                    {
-                        summary.osMin = value;
-                    }
-                }
-                else
-                {
-                    double df_val = CPLAtof(value);
-                    if (df_val < summary.min)
-                        summary.min = df_val;
+                    summary.osMin = pszValue;
                 }
                 summary.count++;
             }
             break;
         case SWQCF_MAX:
-            if (value != nullptr && value[0] != '\0')
+            if (pdfValue)
             {
-                if (def->field_type == SWQ_DATE ||
-                    def->field_type == SWQ_TIME ||
-                    def->field_type == SWQ_TIMESTAMP ||
-                    def->field_type == SWQ_STRING)
+                if (*pdfValue > summary.max)
+                    summary.max = *pdfValue;
+                summary.count++;
+            }
+            else if (pszValue && pszValue[0] != '\0')
+            {
+                if (summary.count == 0 || strcmp(pszValue, summary.osMax) > 0)
                 {
-                    if (summary.count == 0 || strcmp(value, summary.osMax) > 0)
-                    {
-                        summary.osMax = value;
-                    }
-                }
-                else
-                {
-                    double df_val = CPLAtof(value);
-                    if (df_val > summary.max)
-                        summary.max = df_val;
+                    summary.osMax = pszValue;
                 }
                 summary.count++;
             }
             break;
         case SWQCF_AVG:
         case SWQCF_SUM:
-            if (value != nullptr && value[0] != '\0')
+            if (pdfValue)
+            {
+                summary.count++;
+
+                // Cf KahanBabushkaNeumaierSum of
+                // https://en.wikipedia.org/wiki/Kahan_summation_algorithm#Further_enhancements
+                // We set a number of temporary variables as volatile, to
+                // prevent potential undesired compiler optimizations.
+
+                const double dfNewVal = *pdfValue;
+                const volatile double new_sum_acc = summary.sum_acc + dfNewVal;
+                if (summary.sum_only_finite_terms && std::isfinite(dfNewVal))
+                {
+                    if (std::fabs(summary.sum_acc) >= std::fabs(dfNewVal))
+                    {
+                        const volatile double diff =
+                            (summary.sum_acc - new_sum_acc);
+                        summary.sum_correction += (diff + dfNewVal);
+                    }
+                    else
+                    {
+                        const volatile double diff = (dfNewVal - new_sum_acc);
+                        summary.sum_correction += (diff + summary.sum_acc);
+                    }
+                }
+                else
+                {
+                    summary.sum_only_finite_terms = false;
+                }
+                summary.sum_acc = new_sum_acc;
+            }
+            else if (pszValue && pszValue[0] != '\0')
             {
                 if (def->field_type == SWQ_DATE ||
                     def->field_type == SWQ_TIME ||
                     def->field_type == SWQ_TIMESTAMP)
                 {
                     OGRField sField;
-                    if (OGRParseDate(value, &sField, 0))
+                    if (OGRParseDate(pszValue, &sField, 0))
                     {
                         struct tm brokendowntime;
                         brokendowntime.tm_year = sField.Date.Year - 1900;
@@ -495,32 +517,79 @@ const char *swq_select_summarize(swq_select *select_info, int dest_column,
                         brokendowntime.tm_sec =
                             static_cast<int>(sField.Date.Second);
                         summary.count++;
-                        summary.sum += CPLYMDHMSToUnixTime(&brokendowntime);
-                        summary.sum +=
+                        summary.sum_acc += CPLYMDHMSToUnixTime(&brokendowntime);
+                        summary.sum_acc +=
                             fmod(static_cast<double>(sField.Date.Second), 1.0);
                     }
                 }
                 else
                 {
-                    summary.count++;
-                    summary.sum += CPLAtof(value);
+                    return "swq_select_summarize() - AVG()/SUM() called on "
+                           "unexpected field type";
                 }
             }
             break;
 
         case SWQCF_COUNT:
-            if (value != nullptr)
+            if (pdfValue || pszValue)
                 summary.count++;
             break;
+
+        case SWQCF_STDDEV_POP:
+        case SWQCF_STDDEV_SAMP:
+        {
+            const auto UpdateVariance = [&summary](double dfValue)
+            {
+                // Welford's online algorithm for variance:
+                // https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
+                summary.count++;
+                const double dfDelta = dfValue - summary.mean_for_variance;
+                summary.mean_for_variance += dfDelta / summary.count;
+                const double dfDelta2 = dfValue - summary.mean_for_variance;
+                summary.sq_dist_from_mean_acc += dfDelta * dfDelta2;
+            };
+
+            if (pdfValue)
+            {
+                UpdateVariance(*pdfValue);
+            }
+            else if (pszValue && pszValue[0] != '\0')
+            {
+                if (def->field_type == SWQ_DATE ||
+                    def->field_type == SWQ_TIME ||
+                    def->field_type == SWQ_TIMESTAMP)
+                {
+                    OGRField sField;
+                    if (OGRParseDate(pszValue, &sField, 0))
+                    {
+                        struct tm brokendowntime;
+                        brokendowntime.tm_year = sField.Date.Year - 1900;
+                        brokendowntime.tm_mon = sField.Date.Month - 1;
+                        brokendowntime.tm_mday = sField.Date.Day;
+                        brokendowntime.tm_hour = sField.Date.Hour;
+                        brokendowntime.tm_min = sField.Date.Minute;
+                        brokendowntime.tm_sec =
+                            static_cast<int>(sField.Date.Second);
+
+                        UpdateVariance(static_cast<double>(
+                            CPLYMDHMSToUnixTime(&brokendowntime)));
+                    }
+                }
+                else
+                {
+                    return "swq_select_summarize() - STDDEV() called on "
+                           "unexpected field type";
+                }
+            }
+
+            break;
+        }
 
         case SWQCF_NONE:
             break;
 
         case SWQCF_CUSTOM:
             return "swq_select_summarize() called on custom field function.";
-
-        default:
-            return "swq_select_summarize() - unexpected col_func";
     }
 
     return nullptr;
@@ -760,81 +829,18 @@ CPLErr swq_expr_compile(const char *where_clause, int field_count,
 /*                       swq_fixup_expression()                         */
 /************************************************************************/
 
-static void swq_fixup_expression(swq_expr_node *node)
-{
-    std::queue<swq_expr_node *> nodes;
-    nodes.push(node);
-    while (!nodes.empty())
-    {
-        node = nodes.front();
-        nodes.pop();
-        if (node->eNodeType == SNT_OPERATION)
-        {
-            const swq_op eOp = node->nOperation;
-            if ((eOp == SWQ_OR || eOp == SWQ_AND) && node->nSubExprCount > 2)
-            {
-                std::vector<swq_expr_node *> exprs;
-                for (int i = 0; i < node->nSubExprCount; i++)
-                {
-                    swq_fixup_expression(node->papoSubExpr[i]);
-                    exprs.push_back(node->papoSubExpr[i]);
-                }
-                node->nSubExprCount = 0;
-                CPLFree(node->papoSubExpr);
-                node->papoSubExpr = nullptr;
-
-                while (exprs.size() > 2)
-                {
-                    std::vector<swq_expr_node *> new_exprs;
-                    for (size_t i = 0; i < exprs.size(); i++)
-                    {
-                        if (i + 1 < exprs.size())
-                        {
-                            auto cur_expr = new swq_expr_node(eOp);
-                            cur_expr->field_type = SWQ_BOOLEAN;
-                            cur_expr->PushSubExpression(exprs[i]);
-                            cur_expr->PushSubExpression(exprs[i + 1]);
-                            i++;
-                            new_exprs.push_back(cur_expr);
-                        }
-                        else
-                        {
-                            new_exprs.push_back(exprs[i]);
-                        }
-                    }
-                    exprs = std::move(new_exprs);
-                }
-                CPLAssert(exprs.size() == 2);
-                node->PushSubExpression(exprs[0]);
-                node->PushSubExpression(exprs[1]);
-            }
-            else
-            {
-                for (int i = 0; i < node->nSubExprCount; i++)
-                {
-                    nodes.push(node->papoSubExpr[i]);
-                }
-            }
-        }
-    }
-}
-
-/************************************************************************/
-/*                       swq_fixup_expression()                         */
-/************************************************************************/
-
 void swq_fixup(swq_parse_context *psParseContext)
 {
     if (psParseContext->poRoot)
     {
-        swq_fixup_expression(psParseContext->poRoot);
+        psParseContext->poRoot->RebalanceAndOr();
     }
     auto psSelect = psParseContext->poCurSelect;
     while (psSelect)
     {
         if (psSelect->where_expr)
         {
-            swq_fixup_expression(psSelect->where_expr);
+            psSelect->where_expr->RebalanceAndOr();
         }
         psSelect = psSelect->poOtherSelect;
     }

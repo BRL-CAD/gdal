@@ -37,6 +37,9 @@ a dataset:
 Layer open options
 ------------------
 
+|about-open-options|
+The following open options are supported:
+
 -  .. oo:: HOST
      :choices: <hostname>
      :default: localhost
@@ -129,7 +132,7 @@ Layer open options
       typically for authentication purposes, that must be passed to Elasticsearch.
       The value of string is a comma separated list of http_header_name=env_variable_name,
       where http_header_name is the name of a HTTP header and env_variable_name
-      the name of the environment variable / configuration option from which th value
+      the name of the environment variable / configuration option from which the value
       of the HTTP header should be retrieved. This is intended for a use case where
       the OGR Elasticsearch driver is invoked from a web server that stores the HTTP
       headers of incoming request into environment variables.
@@ -191,16 +194,16 @@ syntax <https://www.elastic.co/guide/en/elasticsearch/reference/current/query-ds
 They will be combined with the potentially defined spatial filter.
 
 It is also possible to directly use a Elasticsearch filter by setting
-the string passed to SetAttributeFilter() as a JSon serialized object,
+the string passed to SetAttributeFilter() as a JSON serialized object,
 e.g.
 
 .. code-block:: json
 
    { "post_filter": { "term": { "properties.EAS_ID": 169 } } }
 
-Note: if defining directly an Elastic Search JSon filter, the spatial
+Note: if defining directly an Elastic Search JSON filter, the spatial
 filter specified through SetSpatialFilter() will be ignored, and must
-thus be included in the JSon filter if needed.
+thus be included in the JSON filter if needed.
 
 Paging
 ------
@@ -221,7 +224,7 @@ and build the schema that best fit to the found fields and values.
 
 It is also possible to set the :oo:`JSON_FIELD=YES` open option so that a
 \_json special field is added to the OGR schema. When reading Elastic
-Search documents as OGR features, the full JSon version of the document
+Search documents as OGR features, the full JSON version of the document
 will be stored in the \_json field. This might be useful in case of
 complex documents or with data types that do not translate well in OGR
 data types. On creation/update of documents, if the \_json field is
@@ -247,7 +250,7 @@ Starting with GDAL 2.2, SQL requests, involving a single layer, with
 WHERE and ORDER BY statements will be translated as Elasticsearch
 queries.
 
-Otherwise, if specifying "ES" as the dialect of ExecuteSQL(), a JSon
+Otherwise, if specifying "ES" as the dialect of ExecuteSQL(), a JSON
 string with a serialized `Elastic Search
 filter <https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-filters.html>`__
 can be passed. The search will be done on all indices and types, unless
@@ -309,9 +312,9 @@ Aggregations
 
 The driver can support issuing aggregation requests to an index. ElasticSearch
 aggregations can potentially be rather complex, so the driver currently limits
-to geohash grid based spatial aggegrations, with additional fields with
+to geohash grid based spatial aggregation, with additional fields with
 statistical indicators (min, max, average, .), which can be used for example
-to generate heatmaps. The specification of the aggegation is done through
+to generate heatmaps. The specification of the aggregation is done through
 the :oo:`AGGREGATION` open option, whose value is a JSON serialized object whose
 members are:
 
@@ -321,11 +324,11 @@ members are:
   `geohash grid aggregation <https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations-bucket-geohashgrid-aggregation.html>`__. For documents with points encoded as GeoJSON, this will
   be for example `geometry.coordinates`. When this property is not specified,
   the driver will analyze the mapping and use the geometry field definition
-  found into it (provided there is a single one). Note that aggegration on
+  found into it (provided there is a single one). Note that aggregation on
   geo_shape geometries is only supported since Elasticsearch 7 and may require
   a non-free license.
 
-- ``geohash_grid`` (optional): a JSon object, describing a few characteristics of
+- ``geohash_grid`` (optional): a JSON object, describing a few characteristics of
   the geohash_grid, that can have the following members:
 
     * ``size`` (optional): maximum number of geohash buckets to return per query. The
@@ -340,26 +343,26 @@ members are:
       taking into account the ``size`` parameter and the spatial filter, so that
       the theoretical number of buckets returned does not exceed ``size``.
 
-- ``fields`` (optional): a JSon object, describing which additional statistical
+- ``fields`` (optional): a JSON object, describing which additional statistical
   fields should be added, that can have the following members:
 
       * ``min`` (optional): array with the paths to index properties on which
-        to compute the minimum during aggegation.
+        to compute the minimum during aggregation.
 
       * ``max`` (optional): array with the paths to index properties on which
-        to compute the maximum  during aggegation.
+        to compute the maximum  during aggregation.
 
       * ``avg`` (optional): array with the paths to index properties on which
-        to compute the average during aggegation.
+        to compute the average during aggregation.
 
       * ``sum`` (optional): array with the paths to index properties on which
-        to compute the sum during aggegation.
+        to compute the sum during aggregation.
 
       * ``count`` (optional): array with the paths to index properties on which
-        to compute the value_count during aggegation.
+        to compute the value_count during aggregation.
 
       * ``stats`` (optional): array with the paths to index properties on which
-        to compute all the above indicators during aggegation.
+        to compute all the above indicators during aggregation.
 
   When using a GeoJSON mapping, the path to an index property is typically
   ``property.some_name``.
@@ -443,6 +446,7 @@ EPSG:4326.
 Layer creation options
 ----------------------
 
+|about-layer-creation-options|
 Starting with GDAL 2.1, the driver supports the following layer creation
 options:
 
@@ -455,7 +459,7 @@ options:
       :since: 2.4
 
       Filename from which to read a user-defined index definition, or inlined index
-      definition as serialized JSon.
+      definition as serialized JSON .
 
 -  .. lco:: MAPPING_NAME
 
@@ -469,7 +473,7 @@ options:
 -  .. lco:: MAPPING
       :choices: <filename>, <json>
 
-      Filename from which to read a user-defined mapping, or mapping as serialized JSon.
+      Filename from which to read a user-defined mapping, or mapping as serialized JSON .
 
 -  .. lco:: WRITE_MAPPING
       :choices: <filename>
@@ -617,7 +621,8 @@ options:
 Configuration options
 ---------------------
 
-The following (deprecated) :ref:`configuration options <configoptions>` are
+|about-config-options|
+The following (deprecated) configuration options are
 available. Starting with GDAL 2.1, layer creation options are also available
 and should be preferred (see above):
 

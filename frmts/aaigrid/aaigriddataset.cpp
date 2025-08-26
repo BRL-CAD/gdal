@@ -9,23 +9,7 @@
  * Copyright (c) 2007-2012, Even Rouault <even dot rouault at spatialys.com>
  * Copyright (c) 2014, Kyle Shannon <kyle at pobox dot com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 // We need cpl_port as first include to avoid VSIStatBufL being not
@@ -47,6 +31,7 @@
 #endif
 
 #include <algorithm>
+#include <cinttypes>
 #include <limits>
 #include <string>
 
@@ -80,7 +65,7 @@ float DoubleToFloatClamp(double dfValue)
 // to be needed for other formats.
 double MapNoDataToFloat(double dfNoDataValue)
 {
-    if (CPLIsInf(dfNoDataValue) || CPLIsNan(dfNoDataValue))
+    if (std::isinf(dfNoDataValue) || std::isnan(dfNoDataValue))
         return dfNoDataValue;
 
     if (dfNoDataValue >= std::numeric_limits<float>::max())
@@ -492,16 +477,6 @@ int AAIGDataset::ParseHeader(const char *pszHeader, const char *pszDataType)
         return FALSE;
     }
 
-    // TODO(schwehr): Would be good to also factor the file size into the max.
-    // TODO(schwehr): Allow the user to disable this check.
-    // The driver allocates a panLineOffset array based on nRasterYSize
-    constexpr int kMaxDimSize = 10000000;  // 1e7 cells.
-    if (nRasterXSize > kMaxDimSize || nRasterYSize > kMaxDimSize)
-    {
-        CSLDestroy(papszTokens);
-        return FALSE;
-    }
-
     double dfCellDX = 0.0;
     double dfCellDY = 0.0;
     if ((i = CSLFindString(papszTokens, "cellsize")) < 0)
@@ -611,7 +586,7 @@ int AAIGDataset::ParseHeader(const char *pszHeader, const char *pszDataType)
                  dfNoDataValue > std::numeric_limits<int>::max()))
             {
                 eDataType = GDT_Float32;
-                if (!CPLIsInf(dfNoDataValue) &&
+                if (!std::isinf(dfNoDataValue) &&
                     (fabs(dfNoDataValue) < std::numeric_limits<float>::min() ||
                      fabs(dfNoDataValue) > std::numeric_limits<float>::max()))
                 {
@@ -669,16 +644,6 @@ int GRASSASCIIDataset::ParseHeader(const char *pszHeader,
     nRasterYSize = atoi(papszTokens[i + 1]);
 
     if (!GDALCheckDatasetDimensions(nRasterXSize, nRasterYSize))
-    {
-        CSLDestroy(papszTokens);
-        return FALSE;
-    }
-
-    // TODO(schwehr): Would be good to also factor the file size into the max.
-    // TODO(schwehr): Allow the user to disable this check.
-    // The driver allocates a panLineOffset array based on nRasterYSize
-    constexpr int kMaxDimSize = 10000000;  // 1e7 cells.
-    if (nRasterXSize > kMaxDimSize || nRasterYSize > kMaxDimSize)
     {
         CSLDestroy(papszTokens);
         return FALSE;
@@ -863,18 +828,37 @@ int ISGDataset::ParseHeader(const char *pszHeader, const char *)
                  "ISG: coord type = %s not supported", osCoordType.c_str());
         return FALSE;
     }
-    if (!osCoordUnits.empty() && osCoordUnits != "deg")
+
+    const auto parseDMS = [](CPLString &str)
     {
-        CPLError(CE_Failure, CPLE_NotSupported,
-                 "ISG: coord units = %s not supported", osCoordUnits.c_str());
-        return FALSE;
+        const std::string degreeSymbol{"\xc2\xb0"};
+        str.replaceAll(degreeSymbol, "D");
+        return CPLDMSToDec(str);
+    };
+
+    bool useDMS = false;
+    if (!osCoordUnits.empty())
+    {
+        if (osCoordUnits == "dms")
+        {
+            // CPLDMSToDec does not support the non ascii char for degree used in ISG.
+            // just replace it with "D" to make it compatible.
+            useDMS = true;
+        }
+        else if (osCoordUnits != "deg")
+        {
+            CPLError(CE_Failure, CPLE_NotSupported,
+                     "ISG: coord units = %s not supported",
+                     osCoordUnits.c_str());
+            return FALSE;
+        }
     }
-    double dfLatMin = CPLAtof(osLatMin);
-    double dfLatMax = CPLAtof(osLatMax);
-    double dfLonMin = CPLAtof(osLonMin);
-    double dfLonMax = CPLAtof(osLonMax);
-    double dfDeltaLon = CPLAtof(osDeltaLon);
-    double dfDeltaLat = CPLAtof(osDeltaLat);
+    double dfLatMin = useDMS ? parseDMS(osLatMin) : CPLAtof(osLatMin);
+    double dfLatMax = useDMS ? parseDMS(osLatMax) : CPLAtof(osLatMax);
+    double dfLonMin = useDMS ? parseDMS(osLonMin) : CPLAtof(osLonMin);
+    double dfLonMax = useDMS ? parseDMS(osLonMax) : CPLAtof(osLonMax);
+    double dfDeltaLon = useDMS ? parseDMS(osDeltaLon) : CPLAtof(osDeltaLon);
+    double dfDeltaLat = useDMS ? parseDMS(osDeltaLat) : CPLAtof(osDeltaLat);
     if (dfVersion >= 2.0)
     {
         dfLatMin -= dfDeltaLat / 2.0;
@@ -889,6 +873,11 @@ int ISGDataset::ParseHeader(const char *pszHeader, const char *)
           dfDeltaLon < 360))
     {
         return FALSE;
+    }
+
+    if (!GDALCheckDatasetDimensions(nRows, nCols))
+    {
+        return false;
     }
 
     // Correct rounding errors.
@@ -1080,6 +1069,32 @@ GDALDataset *AAIGDataset::CommonOpen(GDALOpenInfo *poOpenInfo,
     poDS->fp = poOpenInfo->fpL;
     poOpenInfo->fpL = nullptr;
 
+    // Sanity check in particular to avoid allocating a too large
+    // AAIGRasterBand::panLineOffset array
+    if (poDS->nRasterXSize > 10 * 1000 * 1000 ||
+        poDS->nRasterYSize > 10 * 1000 * 1000 ||
+        static_cast<int64_t>(poDS->nRasterXSize) * poDS->nRasterYSize >
+            1000 * 1000 * 1000)
+    {
+        // We need at least 2 bytes for each pixel: one for the character for
+        // its value and one for the space separator
+        constexpr int MIN_BYTE_COUNT_PER_PIXEL = 2;
+        if (VSIFSeekL(poDS->fp, 0, SEEK_END) != 0 ||
+            VSIFTellL(poDS->fp) <
+                static_cast<vsi_l_offset>(poDS->nRasterXSize) *
+                    poDS->nRasterYSize * MIN_BYTE_COUNT_PER_PIXEL)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined,
+                     "Too large raster dimension %d x %d compared to file size "
+                     "(%" PRIu64 " bytes)",
+                     poDS->nRasterXSize, poDS->nRasterYSize,
+                     static_cast<uint64_t>(VSIFTellL(poDS->fp)));
+            delete poDS;
+            return nullptr;
+        }
+        VSIFSeekL(poDS->fp, 0, SEEK_SET);
+    }
+
     // Find the start of real data.
     int nStartOfData = 0;
 
@@ -1215,11 +1230,12 @@ GDALDataset *AAIGDataset::CommonOpen(GDALOpenInfo *poOpenInfo,
     }
 
     // Try to read projection file.
-    char *const pszDirname = CPLStrdup(CPLGetPath(poOpenInfo->pszFilename));
+    char *const pszDirname =
+        CPLStrdup(CPLGetPathSafe(poOpenInfo->pszFilename).c_str());
     char *const pszBasename =
-        CPLStrdup(CPLGetBasename(poOpenInfo->pszFilename));
+        CPLStrdup(CPLGetBasenameSafe(poOpenInfo->pszFilename).c_str());
 
-    poDS->osPrjFilename = CPLFormFilename(pszDirname, pszBasename, "prj");
+    poDS->osPrjFilename = CPLFormFilenameSafe(pszDirname, pszBasename, "prj");
     int nRet = 0;
     {
         VSIStatBufL sStatBuf;
@@ -1227,7 +1243,8 @@ GDALDataset *AAIGDataset::CommonOpen(GDALOpenInfo *poOpenInfo,
     }
     if (nRet != 0 && VSIIsCaseSensitiveFS(poDS->osPrjFilename))
     {
-        poDS->osPrjFilename = CPLFormFilename(pszDirname, pszBasename, "PRJ");
+        poDS->osPrjFilename =
+            CPLFormFilenameSafe(pszDirname, pszBasename, "PRJ");
 
         VSIStatBufL sStatBuf;
         nRet = VSIStatL(poDS->osPrjFilename, &sStatBuf);
@@ -1504,8 +1521,8 @@ GDALDataset *AAIGDataset::CreateCopy(const char *pszFilename,
                     {
                         bHasOutputDecimalDot = true;
                     }
-                    else if (!CPLIsInf(padfScanline[iPixel]) &&
-                             !CPLIsNan(padfScanline[iPixel]))
+                    else if (!std::isinf(padfScanline[iPixel]) &&
+                             !std::isnan(padfScanline[iPixel]))
                     {
                         strcat(szHeader, ".0");
                         bHasOutputDecimalDot = true;
@@ -1554,10 +1571,10 @@ GDALDataset *AAIGDataset::CreateCopy(const char *pszFilename,
     const char *pszOriginalProjection = poSrcDS->GetProjectionRef();
     if (!EQUAL(pszOriginalProjection, ""))
     {
-        char *pszDirname = CPLStrdup(CPLGetPath(pszFilename));
-        char *pszBasename = CPLStrdup(CPLGetBasename(pszFilename));
-        char *pszPrjFilename =
-            CPLStrdup(CPLFormFilename(pszDirname, pszBasename, "prj"));
+        char *pszDirname = CPLStrdup(CPLGetPathSafe(pszFilename).c_str());
+        char *pszBasename = CPLStrdup(CPLGetBasenameSafe(pszFilename).c_str());
+        char *pszPrjFilename = CPLStrdup(
+            CPLFormFilenameSafe(pszDirname, pszBasename, "prj").c_str());
         VSILFILE *fp = VSIFOpenL(pszPrjFilename, "wt");
         if (fp != nullptr)
         {

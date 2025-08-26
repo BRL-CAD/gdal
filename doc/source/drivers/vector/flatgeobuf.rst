@@ -40,9 +40,16 @@ FlatGeobuf header, and retrieved on reading as layer metadata.
 Open options
 ------------
 
--  **VERIFY_BUFFERS=**\ *YES/NO*: Set to YES to verify buffers when reading.
-   This can provide some protection for invalid/corrupt data with a performance
-   trade off. Defaults to YES.
+|about-open-options|
+The following open options are supported:
+
+-  .. oo:: VERIFY_BUFFERS
+      :choices: YES, NO
+      :default: YES
+
+      Set to YES to verify buffers when reading.
+      This can provide some protection for invalid/corrupt data with a performance
+      trade off.
 
 Dataset Creation Options
 ------------------------
@@ -51,6 +58,9 @@ None
 
 Layer Creation Options
 ----------------------
+
+|about-layer-creation-options|
+The following layer creation options are supported:
 
 -  .. lco:: SPATIAL_INDEX
       :choices: YES, NO
@@ -85,7 +95,7 @@ Creation Issues
 
 * Currently, NULL geometries are not supported with :lco:`SPATIAL_INDEX=YES`.
 
-  `More background and dicussion on this issue at <https://github.com/flatgeobuf/flatgeobuf/discussions/260>`__
+  `More background and discussion on this issue at <https://github.com/flatgeobuf/flatgeobuf/discussions/260>`__
 
 * The creation of the packet Hilbert R-Tree requires an amount of RAM which
   is at least the number of features times 83 bytes.

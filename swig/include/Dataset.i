@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Name:     Dataset.i
  * Project:  GDAL Python Interface
@@ -9,23 +8,7 @@
  ******************************************************************************
  * Copyright (c) 2005, Kevin Ruland
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  *****************************************************************************/
 
 %{
@@ -288,6 +271,10 @@ public:
     }
   }
 
+#ifdef SWIGJAVA
+  %rename (CloseInternal) Close;
+  %javamethodmodifiers Close() "private";
+#endif
   CPLErr Close() {
      return GDALClose(self);
   }
@@ -298,6 +285,17 @@ public:
 
   GDALRasterBandShadow* GetRasterBand(int nBand ) {
     return (GDALRasterBandShadow*) GDALGetRasterBand( self, nBand );
+  }
+
+  bool IsThreadSafe(int nScopeFlags)
+  {
+      return GDALDatasetIsThreadSafe(self, nScopeFlags, nullptr);
+  }
+
+%newobject GetThreadSafeDataset;
+  GDALDatasetShadow* GetThreadSafeDataset(int nScopeFlags)
+  {
+      return GDALGetThreadSafeDataset(self, nScopeFlags, nullptr);
   }
 
 %newobject GetRootGroup;
@@ -312,6 +310,16 @@ public:
   char const *GetProjectionRef() {
     return GDALGetProjectionRef( self );
   }
+
+#ifdef SWIGPYTHON
+  int GetRefCount() {
+    return OGR_DS_GetRefCount(self);
+  }
+
+  int GetSummaryRefCount() {
+    return OGR_DS_GetSummaryRefCount(self);
+  }
+#endif
 
   %newobject GetSpatialRef;
   OSRSpatialReferenceShadow *GetSpatialRef() {
@@ -836,15 +844,18 @@ CPLErr AdviseRead(  int xoff, int yoff, int xsize, int ysize,
                                     GDALProgressFunc callback = NULL,
                                     void* callback_data=NULL )
   {
-    return GDALDatasetGetNextFeature( self, ppoBelongingLayer, pdfProgressPct,
+    OGRLayerH hLayer = NULL;
+    OGRFeatureShadow* feat = (OGRFeatureShadow*)GDALDatasetGetNextFeature( self, &hLayer, pdfProgressPct,
                                       callback, callback_data );
+    *ppoBelongingLayer = (OGRLayerShadow*)hLayer;
+    return feat;
   }
 #else
     // FIXME: return layer
 %newobject GetNextFeature;
   OGRFeatureShadow* GetNextFeature()
   {
-    return GDALDatasetGetNextFeature( self, NULL, NULL, NULL, NULL );
+    return (OGRFeatureShadow*)GDALDatasetGetNextFeature( self, NULL, NULL, NULL, NULL );
   }
 #endif
 
@@ -910,15 +921,18 @@ CPLErr AdviseRead(  int xoff, int yoff, int xsize, int ysize,
   }
 
 #ifdef SWIGCSHARP
-  
+
   %newobject GetNextFeature;
   OGRFeatureShadow *GetNextFeature( OGRLayerShadow** ppoBelongingLayer = NULL,
                                     double* pdfProgressPct = NULL,
                                     GDALProgressFunc callback = NULL,
                                     void* callback_data=NULL )
   {
-    return GDALDatasetGetNextFeature( self, ppoBelongingLayer, pdfProgressPct,
+    OGRLayerH hLayer = NULL;
+    OGRFeatureShadow* feat = (OGRFeatureShadow*)GDALDatasetGetNextFeature( self, &hLayer, pdfProgressPct,
                                       callback, callback_data );
+    *ppoBelongingLayer = (OGRLayerShadow*)hLayer;
+    return feat;
   }
 
 
@@ -968,7 +982,14 @@ OGRErr AbortSQL() {
   %apply Pointer NONNULL {OGRFieldDomainShadow* fieldDomain};
   bool AddFieldDomain(OGRFieldDomainShadow* fieldDomain)
   {
-      return GDALDatasetAddFieldDomain(self, (OGRFieldDomainH)fieldDomain, NULL);
+      char* pszReason = NULL;
+      if( !GDALDatasetAddFieldDomain(self, (OGRFieldDomainH)fieldDomain, &pszReason) )
+      {
+          CPLError(CE_Failure, CPLE_AppDefined, "%s", pszReason);
+          CPLFree(pszReason);
+          return false;
+      }
+      return true;
   }
   %clear OGRFieldDomainShadow* fieldDomain;
 

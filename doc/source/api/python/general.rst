@@ -1,7 +1,12 @@
+..
+   The documentation displayed on this page is automatically generated from
+   Python docstrings. See https://gdal.org/development/dev_documentation.html
+   for information on updating this content.
+
 .. _python_general:
 
-Python General API
-==================
+General API
+===========
 
 Configuration Management
 ------------------------
@@ -89,6 +94,26 @@ Error Handling
 
 File Management
 ---------------
+
+osgeo.gdal_fsspec module
+++++++++++++++++++++++++
+
+.. automodule:: osgeo.gdal_fsspec
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :noindex:
+
+osgeo.gdal.VSIFile class
+++++++++++++++++++++++++
+
+.. autoclass:: osgeo.gdal.VSIFile
+   :members:
+   :undoc-members:
+   :noindex:
+
+Low level functions
++++++++++++++++++++
 
 .. autofunction:: osgeo.gdal.CloseDir
 

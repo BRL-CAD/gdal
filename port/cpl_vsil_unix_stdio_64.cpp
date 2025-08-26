@@ -9,23 +9,7 @@
  * Copyright (c) 2001, Frank Warmerdam
  * Copyright (c) 2010-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************
  *
  * NB: Note that in wrappers we are always saving the error state (errno
@@ -182,7 +166,8 @@ class VSIUnixStdioFilesystemHandler final : public VSIFilesystemHandler
     int Stat(const char *pszFilename, VSIStatBufL *pStatBuf,
              int nFlags) override;
     int Unlink(const char *pszFilename) override;
-    int Rename(const char *oldpath, const char *newpath) override;
+    int Rename(const char *oldpath, const char *newpath, GDALProgressFunc,
+               void *) override;
     int Mkdir(const char *pszDirname, long nMode) override;
     int Rmdir(const char *pszDirname) override;
     char **ReadDirEx(const char *pszDirname, int nMaxFiles) override;
@@ -224,6 +209,7 @@ class VSIUnixStdioHandle final : public VSIVirtualHandle
     bool bLastOpWrite = false;
     bool bLastOpRead = false;
     bool bAtEOF = false;
+    bool bError = false;
     // In a+ mode, disable any optimization since the behavior of the file
     // pointer on Mac and other BSD system is to have a seek() to the end of
     // file and thus a call to our Seek(0, SEEK_SET) before a read will be a
@@ -236,12 +222,15 @@ class VSIUnixStdioHandle final : public VSIVirtualHandle
   public:
     VSIUnixStdioHandle(VSIUnixStdioFilesystemHandler *poFSIn, FILE *fpIn,
                        bool bReadOnlyIn, bool bModeAppendReadWriteIn);
+    ~VSIUnixStdioHandle() override;
 
     int Seek(vsi_l_offset nOffsetIn, int nWhence) override;
     vsi_l_offset Tell() override;
     size_t Read(void *pBuffer, size_t nSize, size_t nMemb) override;
     size_t Write(const void *pBuffer, size_t nSize, size_t nMemb) override;
+    void ClearErr() override;
     int Eof() override;
+    int Error() override;
     int Flush() override;
     int Close() override;
     int Truncate(vsi_l_offset nNewSize) override;
@@ -277,6 +266,15 @@ VSIUnixStdioHandle::VSIUnixStdioHandle(
       poFS(poFSIn)
 #endif
 {
+}
+
+/************************************************************************/
+/*                         ~VSIUnixStdioHandle()                        */
+/************************************************************************/
+
+VSIUnixStdioHandle::~VSIUnixStdioHandle()
+{
+    VSIUnixStdioHandle::Close();
 }
 
 /************************************************************************/
@@ -484,13 +482,20 @@ size_t VSIUnixStdioHandle::Read(void *pBuffer, size_t nSize, size_t nCount)
 
     if (nResult != nCount)
     {
+        if (ferror(fp))
+            bError = true;
+        else
+        {
+            CPLAssert(feof(fp));
+            bAtEOF = true;
+        }
+
         errno = 0;
         vsi_l_offset nNewOffset = VSI_FTELL64(fp);
         if (errno == 0)  // ftell() can fail if we are end of file with a pipe.
             m_nOffset = nNewOffset;
         else
             CPLDebug("VSI", "%s", VSIStrerror(errno));
-        bAtEOF = CPL_TO_BOOL(feof(fp));
     }
 
     return nResult;
@@ -542,6 +547,28 @@ size_t VSIUnixStdioHandle::Write(const void *pBuffer, size_t nSize,
     bLastOpRead = false;
 
     return nResult;
+}
+
+/************************************************************************/
+/*                             ClearErr()                               */
+/************************************************************************/
+
+void VSIUnixStdioHandle::ClearErr()
+
+{
+    clearerr(fp);
+    bAtEOF = false;
+    bError = false;
+}
+
+/************************************************************************/
+/*                              Error()                                 */
+/************************************************************************/
+
+int VSIUnixStdioHandle::Error()
+
+{
+    return bError ? TRUE : FALSE;
 }
 
 /************************************************************************/
@@ -766,7 +793,8 @@ int VSIUnixStdioFilesystemHandler::Unlink(const char *pszFilename)
 /************************************************************************/
 
 int VSIUnixStdioFilesystemHandler::Rename(const char *oldpath,
-                                          const char *newpath)
+                                          const char *newpath, GDALProgressFunc,
+                                          void *)
 
 {
     return rename(oldpath, newpath);
@@ -990,7 +1018,7 @@ bool VSIUnixStdioFilesystemHandler::SupportsSequentialWrite(
     VSIStatBufL sStat;
     if (VSIStatL(pszPath, &sStat) == 0)
         return access(pszPath, W_OK) == 0;
-    return access(CPLGetDirname(pszPath), W_OK) == 0;
+    return access(CPLGetDirnameSafe(pszPath).c_str(), W_OK) == 0;
 }
 
 /************************************************************************/

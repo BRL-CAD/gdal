@@ -66,16 +66,16 @@ pixel data. If automatic conversion to RGB has been done, the color
 profile information cannot be used.
 
 All these metadata tags can be used as creation options.
-
-Creation Options:
+|about-creation-options|
+The following creation options are available:
 
 -  .. co:: WORLDFILE
       :choices: YES, NO
       :default: NO
 
       Force the generation of an associated ESRI world
-      file (with the extension .wld). See `World File <#WLD>`__ section for
-      details.
+      file (with the extension .wld). See :ref:`World Files <raster.wld>`
+      section for details.
 
 -  .. co:: ZLEVEL=n
       :choices: [1-9]

@@ -6,23 +6,7 @@
  ******************************************************************************
  * Copyright (c) 2019, Even Rouault <even.rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "hdf5dataset.h"
@@ -1007,11 +991,14 @@ HDF5Array::HDF5Array(const std::string &osParentName, const std::string &osName,
     if (GetFullName() ==
             "/BathymetryCoverage/BathymetryCoverage.01/Group_001/values" &&
         m_dt.GetClass() == GEDTC_COMPOUND &&
-        m_dt.GetSize() == 2 * sizeof(float) &&
-        m_dt.GetComponents().size() == 2 &&
+        (m_dt.GetComponents().size() == 1 ||
+         m_dt.GetComponents().size() == 2) &&
+        m_dt.GetSize() == m_dt.GetComponents().size() * sizeof(float) &&
         m_dt.GetComponents()[0]->GetType().GetNumericDataType() ==
             GDT_Float32 &&
-        m_dt.GetComponents()[1]->GetType().GetNumericDataType() == GDT_Float32)
+        (m_dt.GetComponents().size() == 1 ||
+         m_dt.GetComponents()[1]->GetType().GetNumericDataType() ==
+             GDT_Float32))
     {
         m_abyNoData.resize(m_dt.GetSize());
         float afNoData[2] = {1e6f, 1e6f};
@@ -1032,7 +1019,8 @@ HDF5Array::HDF5Array(const std::string &osParentName, const std::string &osName,
                             .GetComponents()[3]
                             ->GetName() == "fillValue" &&
                     poGroupFArray->GetDimensionCount() == 1 &&
-                    poGroupFArray->GetDimensions()[0]->GetSize() == 2)
+                    poGroupFArray->GetDimensions()[0]->GetSize() ==
+                        m_dt.GetComponents().size())
                 {
                     auto poFillValue =
                         poGroupFArray->GetView("[\"fillValue\"]");
@@ -1049,14 +1037,21 @@ HDF5Array::HDF5Array(const std::string &osParentName, const std::string &osName,
                                           anArrayStep, anBufferStride,
                                           GDALExtendedDataType::CreateString(),
                                           &pszVal0);
-                        poFillValue->Read(anArrayStartIdx1, anCount,
-                                          anArrayStep, anBufferStride,
-                                          GDALExtendedDataType::CreateString(),
-                                          &pszVal1);
-                        if (pszVal0 && pszVal1)
+                        if (poGroupFArray->GetDimensions()[0]->GetSize() == 2)
+                        {
+                            poFillValue->Read(
+                                anArrayStartIdx1, anCount, anArrayStep,
+                                anBufferStride,
+                                GDALExtendedDataType::CreateString(), &pszVal1);
+                        }
+                        if (pszVal0)
                         {
                             afNoData[0] = static_cast<float>(CPLAtof(pszVal0));
-                            afNoData[1] = static_cast<float>(CPLAtof(pszVal1));
+                            if (pszVal1)
+                            {
+                                afNoData[1] =
+                                    static_cast<float>(CPLAtof(pszVal1));
+                            }
                         }
                         CPLFree(pszVal0);
                         CPLFree(pszVal1);
@@ -1070,17 +1065,28 @@ HDF5Array::HDF5Array(const std::string &osParentName, const std::string &osName,
     }
 
     // Special case for S102 QualityOfSurvey nodata value that is typically at 0
-    if (GetFullName() ==
-            "/QualityOfSurvey/QualityOfSurvey.01/Group_001/values" &&
-        m_dt.GetClass() == GEDTC_NUMERIC &&
-        m_dt.GetNumericDataType() == GDT_UInt32)
+    const bool bIsQualityOfSurvey =
+        (GetFullName() ==
+         "/QualityOfSurvey/QualityOfSurvey.01/Group_001/values");
+    const bool bIsQualityOfBathymetryCoverage =
+        (GetFullName() == "/QualityOfBathymetryCoverage/"
+                          "QualityOfBathymetryCoverage.01/Group_001/values");
+    if ((bIsQualityOfSurvey || bIsQualityOfBathymetryCoverage) &&
+        ((m_dt.GetClass() == GEDTC_NUMERIC &&
+          m_dt.GetNumericDataType() == GDT_UInt32) ||
+         (m_dt.GetClass() == GEDTC_COMPOUND &&
+          m_dt.GetComponents().size() == 1 &&
+          m_dt.GetComponents()[0]->GetType().GetClass() == GEDTC_NUMERIC &&
+          m_dt.GetComponents()[0]->GetType().GetNumericDataType() ==
+              GDT_UInt32)))
     {
         if (auto poRootGroup = HDF5Array::GetRootGroup())
         {
             if (const auto poGroupF = poRootGroup->OpenGroup("Group_F"))
             {
-                const auto poGroupFArray =
-                    poGroupF->OpenMDArray("QualityOfSurvey");
+                const auto poGroupFArray = poGroupF->OpenMDArray(
+                    bIsQualityOfSurvey ? "QualityOfSurvey"
+                                       : "QualityOfBathymetryCoverage");
                 if (poGroupFArray &&
                     poGroupFArray->GetDataType().GetClass() == GEDTC_COMPOUND &&
                     poGroupFArray->GetDataType().GetComponents().size() == 8 &&
@@ -2211,6 +2217,13 @@ GetHDF5DataTypeFromGDALDataType(const GDALExtendedDataType &dt, hid_t hNativeDT,
         case GDT_Int64:
             hBufferType = H5Tcopy(H5T_NATIVE_INT64);
             break;
+        case GDT_Float16:
+#ifdef HDF5_HAVE_FLOAT16
+            hBufferType = H5Tcopy(H5T_NATIVE_FLOAT16);
+            break;
+#else
+            return H5I_INVALID_HID;
+#endif
         case GDT_Float32:
             hBufferType = H5Tcopy(H5T_NATIVE_FLOAT);
             break;
@@ -2219,6 +2232,7 @@ GetHDF5DataTypeFromGDALDataType(const GDALExtendedDataType &dt, hid_t hNativeDT,
             break;
         case GDT_CInt16:
         case GDT_CInt32:
+        case GDT_CFloat16:
         case GDT_CFloat32:
         case GDT_CFloat64:
             if (bufferDataType != dt)

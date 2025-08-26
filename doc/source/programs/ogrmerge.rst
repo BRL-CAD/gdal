@@ -1,7 +1,7 @@
 .. _ogrmerge:
 
 ================================================================================
-ogrmerge.py
+ogrmerge
 ================================================================================
 
 .. only:: html
@@ -15,7 +15,7 @@ Synopsis
 
 .. code-block::
 
-    ogrmerge.py [--help] [--help-general]
+    ogrmerge [--help] [--help-general]
                 -o <out_dsname> <src_dsname> [<src_dsname>]...
                 [-f format] [-single] [-nln <layer_name_template>]
                 [-update | -overwrite_ds] [-append | -overwrite_layer]
@@ -37,8 +37,8 @@ Description
 
 .. versionadded:: 2.2
 
-:program:`ogrmerge.py` script takes as input several vector datasets,
-each of them having one or several vector layers, and copy them in
+:program:`ogrmerge` takes as input several vector datasets,
+each of them having one or several vector layers, and copies them into
 a target dataset.
 
 There are essentially two modes:
@@ -56,7 +56,11 @@ output format is not VRT, final translation is done with :program:`ogr2ogr`
 or :py:func:`gdal.VectorTranslate`. So, for advanced uses, output to VRT,
 potential manual editing of it and :program:`ogr2ogr` can be done.
 
-.. program:: ogrmerge.py
+.. note::
+
+    ogrmerge is a Python utility, and is only available if GDAL Python bindings are available.
+
+.. program:: ogrmerge
 
 .. include:: options/help_and_help_general.rst
 
@@ -84,7 +88,7 @@ potential manual editing of it and :program:`ogr2ogr` can be done.
     Name of the output vector layer (in single mode, and the default is
     "merged"), or template to name the output vector layers in default
     mode (the default value is ``{AUTO_NAME}``). The template can be a
-    string with the following variables that will be susbstitued with a
+    string with the following variables that will be substituted with a
     value computed from the input layer being processed:
 
     -  ``{AUTO_NAME}``: equivalent to ``{DS_BASENAME}_{LAYER_NAME}`` if both
@@ -166,7 +170,7 @@ potential manual editing of it and :program:`ogr2ogr` can be done.
 
     Only used with :option:`-single`. If specified, the schema of the target layer
     will be extended with a new field 'name', whose content is
-    determined by -src_layer_field_content.
+    determined by -src_layer_field_content. See :example:`src-layer-field-name`.
 
 .. option:: -src_layer_field_content <layer_name_template>
 
@@ -179,22 +183,29 @@ potential manual editing of it and :program:`ogr2ogr` can be done.
 Examples
 --------
 
-Create a VRT with a layer for each input shapefiles
+.. example::
+   :title: Creating a VRT with a layer for each input shapefile
 
-.. code-block::
+   .. code-block:: bash
 
-    ogrmerge.py -f VRT -o merged.vrt *.shp
+       ogrmerge -f VRT -o merged.vrt *.shp
 
-Same, but creates a GeoPackage file
 
-.. code-block::
+.. example::
+   :title: Creating a GeoPackage with a layer for each input shapefile
 
-    ogrmerge.py -f GPKG -o merged.gpkg *.shp
+   .. code-block:: bash
 
-Concatenate the content of france.shp and germany.shp in merged.shp,
-and adds a 'country' field to each feature whose value is 'france' or
-'germany' depending where it comes from.
+       ogrmerge -f GPKG -o merged.gpkg *.shp
 
-.. code-block::
+.. example::
+   :title: Adding a field to indicate the source layer
+   :id: src-layer-field-name
 
-    ogrmerge.py -single -o merged.shp france.shp germany.shp -src_layer_field_name country
+   Concatenate the content of :file:`france.shp` and :file:`germany.shp` in :file:`merged.shp`,
+   and add a 'country' field to each feature whose value is 'france' or
+   'germany' depending where it comes from:
+
+   .. code-block:: bash
+
+       ogrmerge -single -o merged.shp france.shp germany.shp -src_layer_field_name country

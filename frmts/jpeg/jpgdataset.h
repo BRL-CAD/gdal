@@ -12,23 +12,7 @@
  * Portions Copyright (c) Her majesty the Queen in right of Canada as
  * represented by the Minister of National Defence, 2006.
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -46,6 +30,7 @@
 #include <setjmp.h>
 
 #include <algorithm>
+#include <mutex>
 #include <string>
 
 #include "cpl_conv.h"
@@ -89,7 +74,7 @@ struct JPGDatasetOpenArgs
 {
     const char *pszFilename = nullptr;
     VSILFILE *fpLin = nullptr;
-    char **papszSiblingFiles = nullptr;
+    CSLConstList papszSiblingFiles = nullptr;
     int nScaleFactor = 1;
     bool bDoPAMInitialize = false;
     bool bUseInternalOverviews = false;
@@ -170,7 +155,7 @@ class JPGDatasetCommon CPL_NON_FINAL : public GDALPamDataset
     void InitInternalOverviews();
     GDALDataset *InitEXIFOverview();
 
-    OGRSpatialReference m_oSRS{};
+    mutable OGRSpatialReference m_oSRS{};
     bool bGeoTransformValid;
     double adfGeoTransform[6];
     std::vector<gdal::GCP> m_aoGCPs{};
@@ -254,8 +239,9 @@ class JPGDatasetCommon CPL_NON_FINAL : public GDALPamDataset
     virtual ~JPGDatasetCommon();
 
     virtual CPLErr IRasterIO(GDALRWFlag, int, int, int, int, void *, int, int,
-                             GDALDataType, int, int *, GSpacing nPixelSpace,
-                             GSpacing nLineSpace, GSpacing nBandSpace,
+                             GDALDataType, int, BANDMAP_TYPE,
+                             GSpacing nPixelSpace, GSpacing nLineSpace,
+                             GSpacing nBandSpace,
                              GDALRasterIOExtraArg *psExtraArg) override;
 
     virtual CPLErr GetGeoTransform(double *) override;
@@ -263,6 +249,8 @@ class JPGDatasetCommon CPL_NON_FINAL : public GDALPamDataset
     virtual int GetGCPCount() override;
     const OGRSpatialReference *GetGCPSpatialRef() const override;
     virtual const GDAL_GCP *GetGCPs() override;
+
+    const OGRSpatialReference *GetSpatialRef() const override;
 
     virtual char **GetMetadataDomainList() override;
     virtual char **GetMetadata(const char *pszDomain = "") override;
@@ -421,13 +409,16 @@ class JPGMaskBand final : public GDALRasterBand
 class GDALJPGDriver final : public GDALDriver
 {
   public:
-    GDALJPGDriver()
-    {
-    }
+    GDALJPGDriver() = default;
 
     char **GetMetadata(const char *pszDomain = "") override;
     const char *GetMetadataItem(const char *pszName,
                                 const char *pszDomain = "") override;
+
+  private:
+    std::mutex m_oMutex{};
+    bool m_bMetadataInitialized = false;
+    void InitializeMetadata();
 };
 
 #endif  // !defined(JPGDataset)

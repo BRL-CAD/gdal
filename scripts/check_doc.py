@@ -38,7 +38,15 @@ for subdir in ("raster", "vector"):
 for i in range(gdal.GetDriverCount()):
     drv = gdal.GetDriver(i)
     shortname = drv.ShortName
-    if shortname in ("BIGGIF", "GTX", "NULL", "GNMFile", "GNMDatabase", "HTTP"):
+    if shortname in (
+        "BIGGIF",
+        "GTX",
+        "NULL",
+        "GNMFile",
+        "GNMDatabase",
+        "HTTP",
+        "AVIF_HEIF",
+    ):
         continue
     if shortname == "OGR_GMT":
         shortname = "GMT"
@@ -79,7 +87,7 @@ for i in range(gdal.GetDriverCount()):
         ), f"Driver {shortname} declares DCAP_CREATECOPY but doc does not!"
     else:
         if not drv.GetMetadataItem(gdal.DCAP_CREATE):
-            if shortname == "JP2MrSID":
+            if shortname in ("AVIF", "JP2MrSID"):
                 continue  # build dependent
             assert (
                 "supports_createcopy" not in doc_caps

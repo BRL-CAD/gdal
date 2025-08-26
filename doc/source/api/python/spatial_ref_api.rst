@@ -1,7 +1,12 @@
+..
+   The documentation displayed on this page is automatically generated from
+   Python docstrings. See https://gdal.org/development/dev_documentation.html
+   for information on updating this content.
+
 .. _python_spatial_ref_api:
 
-Python Spatial Reference System API
-===================================
+Spatial Reference System API
+============================
 
 This page contains classes, methods and functions that relate to spatial reference systems:
 

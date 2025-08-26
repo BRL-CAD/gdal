@@ -7,23 +7,7 @@
  ******************************************************************************
  * Copyright (c) 2010-2013, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "ogr_pgdump.h"
@@ -32,6 +16,7 @@
 #include "cpl_string.h"
 #include "ogr_p.h"
 
+#include <cmath>
 #include <limits>
 
 //
@@ -362,8 +347,22 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
                         OGRGeometryToHexEWKB(poGeom, poGFldDefn->m_nSRSId,
                                              m_nPostGISMajor, m_nPostGISMinor);
                     osCommand += "'";
-                    if (pszHex)
+                    if (!pszHex || pszHex[0] == 0)
+                    {
+                        CPLFree(pszHex);
+                        return false;
+                    }
+                    try
+                    {
                         osCommand += pszHex;
+                    }
+                    catch (const std::bad_alloc &)
+                    {
+                        CPLError(CE_Failure, CPLE_OutOfMemory,
+                                 "Out of memory: too large geometry");
+                        CPLFree(pszHex);
+                        return false;
+                    }
                     osCommand += "'";
                     CPLFree(pszHex);
                 }
@@ -371,20 +370,31 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
                 {
                     poGeom->exportToWkt(&pszWKT, wkbVariantIso);
 
-                    if (pszWKT != nullptr)
+                    if (!pszWKT)
                     {
-                        osCommand += CPLString().Printf(
-                            "GeomFromEWKT('SRID=%d;%s'::TEXT) ",
-                            poGFldDefn->m_nSRSId, pszWKT);
-                        CPLFree(pszWKT);
+                        return false;
                     }
-                    else
-                        osCommand += "''";
+                    try
+                    {
+                        osCommand += CPLSPrintf("GeomFromEWKT('SRID=%d;",
+                                                poGFldDefn->m_nSRSId);
+                        osCommand += pszWKT;
+                        osCommand += "'::TEXT) ";
+                    }
+                    catch (const std::bad_alloc &)
+                    {
+                        CPLError(CE_Failure, CPLE_OutOfMemory,
+                                 "Out of memory: too large geometry");
+                        CPLFree(pszWKT);
+                        return false;
+                    }
+                    CPLFree(pszWKT);
                 }
 
                 bNeedComma = true;
             }
         }
+        return true;
     };
 
     /* Set the FID */
@@ -397,7 +407,10 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
     }
 
     if (m_bGeomColumnPositionImmediate)
-        AddGeomFieldsValue();
+    {
+        if (!AddGeomFieldsValue())
+            return OGRERR_FAILURE;
+    }
 
     for (int i = 0; i < m_poFeatureDefn->GetFieldCount(); i++)
     {
@@ -416,7 +429,10 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaInsert(OGRFeature *poFeature)
     }
 
     if (!m_bGeomColumnPositionImmediate)
-        AddGeomFieldsValue();
+    {
+        if (!AddGeomFieldsValue())
+            return OGRERR_FAILURE;
+    }
 
     osCommand += ")";
 
@@ -455,7 +471,8 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaCopy(OGRFeature *poFeature)
                 poGeometry /* && (bHasWkb || bHasPostGISGeometry || bHasPostGISGeography) */)
             {
                 OGRPGDumpGeomFieldDefn *poGFldDefn =
-                    (OGRPGDumpGeomFieldDefn *)poFeature->GetGeomFieldDefnRef(i);
+                    cpl::down_cast<OGRPGDumpGeomFieldDefn *>(
+                        poFeature->GetGeomFieldDefnRef(i));
 
                 poGeometry->closeRings();
                 poGeometry->set3D(poGFldDefn->m_nGeometryTypeFlags &
@@ -470,20 +487,32 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaCopy(OGRFeature *poFeature)
 
             if (!osCommand.empty())
                 osCommand += "\t";
-            if (pszGeom)
+            if (!pszGeom || pszGeom[0] == 0)
+            {
+                CPLFree(pszGeom);
+                return false;
+            }
+            try
             {
                 osCommand += pszGeom;
-                CPLFree(pszGeom);
             }
-            else
+            catch (const std::bad_alloc &)
             {
-                osCommand += "\\N";
+                CPLError(CE_Failure, CPLE_OutOfMemory,
+                         "Out of memory: too large geometry");
+                CPLFree(pszGeom);
+                return false;
             }
+            CPLFree(pszGeom);
         }
+        return true;
     };
 
     if (m_bGeomColumnPositionImmediate)
-        AddGeomFieldsValue();
+    {
+        if (!AddGeomFieldsValue())
+            return OGRERR_FAILURE;
+    }
 
     OGRPGCommonAppendCopyRegularFields(
         osCommand, poFeature, m_pszFIDColumn,
@@ -491,7 +520,10 @@ OGRErr OGRPGDumpLayer::CreateFeatureViaCopy(OGRFeature *poFeature)
         OGRPGDumpEscapeStringWithUserData, nullptr);
 
     if (!m_bGeomColumnPositionImmediate)
-        AddGeomFieldsValue();
+    {
+        if (!AddGeomFieldsValue())
+            return OGRERR_FAILURE;
+    }
 
     /* ------------------------------------------------------------ */
     /*      Execute the copy.                                       */
@@ -626,9 +658,9 @@ void OGRPGCommonAppendCopyRegularFields(
 
                 nOff += static_cast<int>(strlen(pszNeedToFree + nOff));
                 // Check for special values. They need to be quoted.
-                if (CPLIsNan(padfItems[j]))
+                if (std::isnan(padfItems[j]))
                     snprintf(pszNeedToFree + nOff, nLen - nOff, "NaN");
-                else if (CPLIsInf(padfItems[j]))
+                else if (std::isinf(padfItems[j]))
                     snprintf(pszNeedToFree + nOff, nLen - nOff,
                              (padfItems[j] > 0) ? "Infinity" : "-Infinity");
                 else
@@ -663,9 +695,9 @@ void OGRPGCommonAppendCopyRegularFields(
         {
             // Check for special values. They need to be quoted.
             double dfVal = poFeature->GetFieldAsDouble(i);
-            if (CPLIsNan(dfVal))
+            if (std::isnan(dfVal))
                 pszStrValue = "NaN";
-            else if (CPLIsInf(dfVal))
+            else if (std::isinf(dfVal))
                 pszStrValue = (dfVal > 0) ? "Infinity" : "-Infinity";
         }
 
@@ -866,22 +898,22 @@ CPLString OGRPGDumpEscapeString(const char *pszStrValue, int nMaxLength,
     /* We need to quote and escape string fields. */
     osCommand += '\'';
 
-    int nSrcLen = static_cast<int>(strlen(pszStrValue));
-    const int nSrcLenUTF = CPLStrlenUTF8(pszStrValue);
-
-    if (nMaxLength > 0 && nSrcLenUTF > nMaxLength)
+    size_t nBytesLen = strlen(pszStrValue);
+    if (nMaxLength > 0 &&
+        CPLStrlenUTF8Ex(pszStrValue) > static_cast<size_t>(nMaxLength))
     {
         CPLDebug("PG", "Truncated %s field value, it was too long.",
                  pszFieldName);
 
-        int iUTF8Char = 0;
-        for (int iChar = 0; iChar < nSrcLen; iChar++)
+        size_t iUTF8Char = 0;
+        for (size_t iChar = 0; pszStrValue[iChar]; iChar++)
         {
-            if ((((unsigned char *)pszStrValue)[iChar] & 0xc0) != 0x80)
+            if ((reinterpret_cast<const unsigned char *>(pszStrValue)[iChar] &
+                 0xc0) != 0x80)
             {
-                if (iUTF8Char == nMaxLength)
+                if (iUTF8Char == static_cast<size_t>(nMaxLength))
                 {
-                    nSrcLen = iChar;
+                    nBytesLen = iChar;
                     break;
                 }
                 iUTF8Char++;
@@ -889,7 +921,7 @@ CPLString OGRPGDumpEscapeString(const char *pszStrValue, int nMaxLength,
         }
     }
 
-    for (int i = 0; i < nSrcLen; i++)
+    for (size_t i = 0; i < nBytesLen; i++)
     {
         if (pszStrValue[i] == '\'')
         {
@@ -1057,9 +1089,9 @@ void OGRPGCommonAppendFieldValue(CPLString &osCommand, OGRFeature *poFeature,
 
             nOff += static_cast<int>(strlen(pszNeedToFree + nOff));
             // Check for special values. They need to be quoted.
-            if (CPLIsNan(padfItems[j]))
+            if (std::isnan(padfItems[j]))
                 snprintf(pszNeedToFree + nOff, nLen - nOff, "NaN");
-            else if (CPLIsInf(padfItems[j]))
+            else if (std::isinf(padfItems[j]))
                 snprintf(pszNeedToFree + nOff, nLen - nOff,
                          (padfItems[j] > 0) ? "Infinity" : "-Infinity");
             else
@@ -1121,9 +1153,9 @@ void OGRPGCommonAppendFieldValue(CPLString &osCommand, OGRFeature *poFeature,
     {
         // Check for special values. They need to be quoted.
         double dfVal = poFeature->GetFieldAsDouble(i);
-        if (CPLIsNan(dfVal))
+        if (std::isnan(dfVal))
             pszStrValue = "'NaN'";
-        else if (CPLIsInf(dfVal))
+        else if (std::isinf(dfVal))
             pszStrValue = (dfVal > 0) ? "'Infinity'" : "'-Infinity'";
     }
     else if ((nOGRFieldType == OFTInteger || nOGRFieldType == OFTInteger64) &&
@@ -1549,7 +1581,7 @@ CPLString OGRPGCommonLayerGetPGDefault(OGRFieldDefn *poFieldDefn)
     if (sscanf(osRet, "'%d/%d/%d %d:%d:%f'", &nYear, &nMonth, &nDay, &nHour,
                &nMinute, &fSecond) == 6)
     {
-        osRet.resize(osRet.size() - 1);
+        osRet.pop_back();
         osRet += "+00'::timestamp with time zone";
     }
     return osRet;
@@ -1561,12 +1593,28 @@ CPLString OGRPGCommonLayerGetPGDefault(OGRFieldDefn *poFieldDefn)
 
 std::string OGRPGCommonGenerateShortEnoughIdentifier(const char *pszIdentifier)
 {
-    if (strlen(pszIdentifier) <= static_cast<size_t>(OGR_PG_NAMEDATALEN - 1))
+    if (CPLStrlenUTF8Ex(pszIdentifier) <=
+        static_cast<size_t>(OGR_PG_NAMEDATALEN - 1))
         return pszIdentifier;
 
+    // Truncate string by making sure we don't cut in the
+    // middle of a UTF-8 multibyte character
+    // Continuation bytes of such characters are of the form
+    // 10xxxxxx (0x80), whereas single-byte are 0xxxxxxx
+    // and the start of a multi-byte is 11xxxxxx
+    std::string osRet;
     constexpr int FIRST_8_CHARS_OF_MD5 = 8;
-    std::string osRet(pszIdentifier,
-                      OGR_PG_NAMEDATALEN - 1 - 1 - FIRST_8_CHARS_OF_MD5);
+    int iUTF8Char = 0;
+    for (size_t i = 0; pszIdentifier[i]; ++i)
+    {
+        if ((pszIdentifier[i] & 0xc0) != 0x80)
+        {
+            ++iUTF8Char;
+            if (iUTF8Char == OGR_PG_NAMEDATALEN - 1 - FIRST_8_CHARS_OF_MD5)
+                break;
+        }
+        osRet += pszIdentifier[i];
+    }
     osRet += '_';
     osRet += std::string(CPLMD5String(pszIdentifier), FIRST_8_CHARS_OF_MD5);
     return osRet;
@@ -1588,8 +1636,8 @@ std::string OGRPGCommonGenerateSpatialIndexName(const char *pszTableName,
     // Nominal case: use full table and geometry field name
     for (const char *pszSuffix : {"_geom_idx", "_idx"})
     {
-        if (strlen(pszTableName) + 1 + strlen(pszGeomFieldName) +
-                strlen(pszSuffix) <=
+        if (CPLStrlenUTF8Ex(pszTableName) + 1 +
+                CPLStrlenUTF8Ex(pszGeomFieldName) + strlen(pszSuffix) <=
             static_cast<size_t>(OGR_PG_NAMEDATALEN - 1))
         {
             std::string osRet(pszTableName);
@@ -1602,7 +1650,7 @@ std::string OGRPGCommonGenerateSpatialIndexName(const char *pszTableName,
 
     // Slightly degraded case: use table name and geometry field index
     const std::string osGeomFieldIdx(CPLSPrintf("%d", nGeomFieldIdx));
-    if (strlen(pszTableName) + 1 + osGeomFieldIdx.size() +
+    if (CPLStrlenUTF8Ex(pszTableName) + 1 + osGeomFieldIdx.size() +
             strlen("_geom_idx") <=
         static_cast<size_t>(OGR_PG_NAMEDATALEN - 1))
     {
@@ -1621,7 +1669,19 @@ std::string OGRPGCommonGenerateSpatialIndexName(const char *pszTableName,
     osSuffix += '_';
     osSuffix += osGeomFieldIdx;
     osSuffix += "_geom_idx";
-    std::string osRet(pszTableName, OGR_PG_NAMEDATALEN - 1 - osSuffix.size());
+
+    std::string osRet;
+    size_t iUTF8Char = 0;
+    for (size_t i = 0; pszTableName[i]; ++i)
+    {
+        if ((pszTableName[i] & 0xc0) != 0x80)
+        {
+            ++iUTF8Char;
+            if (iUTF8Char == OGR_PG_NAMEDATALEN - osSuffix.size())
+                break;
+        }
+        osRet += pszTableName[i];
+    }
     osRet += osSuffix;
     return osRet;
 }

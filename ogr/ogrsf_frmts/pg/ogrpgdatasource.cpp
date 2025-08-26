@@ -8,23 +8,7 @@
  * Copyright (c) 2000, Frank Warmerdam
  * Copyright (c) 2008-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include <string.h>
@@ -54,7 +38,6 @@ OGRPGDataSource::~OGRPGDataSource()
 {
     OGRPGDataSource::FlushCache(true);
 
-    CPLFree(pszName);
     CPLFree(pszForcedTables);
     CSLDestroy(papszSchemaList);
 
@@ -140,61 +123,23 @@ CPLString OGRPGDataSource::GetCurrentSchema()
 void OGRPGDataSource::OGRPGDecodeVersionString(PGver *psVersion,
                                                const char *pszVer)
 {
+    // Skip leading spaces
     while (*pszVer == ' ')
         pszVer++;
+    std::string osVer(pszVer);
+    // And truncate at the first space
+    const auto nPosSpace = osVer.find(' ');
+    if (nPosSpace != std::string::npos)
+        osVer.resize(nPosSpace);
 
-    const char *ptr = pszVer;
-    // get Version string
-    while (*ptr && *ptr != ' ')
-        ptr++;
-    GUInt32 iLen = static_cast<int>(ptr - pszVer);
-    char szVer[10] = {};
-    if (iLen > sizeof(szVer) - 1)
-        iLen = sizeof(szVer) - 1;
-    strncpy(szVer, pszVer, iLen);
-    szVer[iLen] = '\0';
-
-    ptr = pszVer = szVer;
-
-    // get Major number
-    while (*ptr && *ptr != '.')
-        ptr++;
-    iLen = static_cast<int>(ptr - pszVer);
-    char szNum[25] = {};
-    if (iLen > sizeof(szNum) - 1)
-        iLen = sizeof(szNum) - 1;
-    strncpy(szNum, pszVer, iLen);
-    szNum[iLen] = '\0';
-    psVersion->nMajor = atoi(szNum);
-
-    if (*ptr == 0)
-        return;
-    pszVer = ++ptr;
-
-    // get Minor number
-    while (*ptr && *ptr != '.')
-        ptr++;
-    iLen = static_cast<int>(ptr - pszVer);
-    if (iLen > sizeof(szNum) - 1)
-        iLen = sizeof(szNum) - 1;
-    strncpy(szNum, pszVer, iLen);
-    szNum[iLen] = '\0';
-    psVersion->nMinor = atoi(szNum);
-
-    if (*ptr)
-    {
-        pszVer = ++ptr;
-
-        // get Release number
-        while (*ptr && *ptr != '.')
-            ptr++;
-        iLen = static_cast<int>(ptr - pszVer);
-        if (iLen > sizeof(szNum) - 1)
-            iLen = sizeof(szNum) - 1;
-        strncpy(szNum, pszVer, iLen);
-        szNum[iLen] = '\0';
-        psVersion->nRelease = atoi(szNum);
-    }
+    memset(psVersion, 0, sizeof(*psVersion));
+    const CPLStringList aosTokens(CSLTokenizeString2(osVer.c_str(), ".", 0));
+    if (aosTokens.size() >= 1)
+        psVersion->nMajor = atoi(aosTokens[0]);
+    if (aosTokens.size() >= 2)
+        psVersion->nMinor = atoi(aosTokens[1]);
+    if (aosTokens.size() >= 3)
+        psVersion->nRelease = atoi(aosTokens[2]);
 }
 
 /************************************************************************/
@@ -343,8 +288,6 @@ int OGRPGDataSource::Open(const char *pszNewName, int bUpdate, int bTestOpen,
         return FALSE;
     }
 
-    pszName = CPLStrdup(pszNewName);
-
     const auto QuoteAndEscapeConnectionParam = [](const char *pszParam)
     {
         CPLString osRet("\'");
@@ -361,7 +304,7 @@ int OGRPGDataSource::Open(const char *pszNewName, int bUpdate, int bTestOpen,
         return osRet;
     };
 
-    CPLString osConnectionName(pszName);
+    CPLString osConnectionName(pszNewName);
     if (osConnectionName.find("PG:postgresql://") == 0)
         osConnectionName = osConnectionName.substr(3);
     const bool bIsURI = osConnectionName.find("postgresql://") == 0;
@@ -418,7 +361,7 @@ int OGRPGDataSource::Open(const char *pszNewName, int bUpdate, int bTestOpen,
     /*      Set application name if not found in connection string          */
     /* -------------------------------------------------------------------- */
 
-    if (strstr(pszName, "application_name") == nullptr &&
+    if (strstr(pszNewName, "application_name") == nullptr &&
         getenv("PGAPPNAME") == nullptr)
     {
         if (bIsURI)
@@ -706,47 +649,61 @@ int OGRPGDataSource::Open(const char *pszNewName, int bUpdate, int bTestOpen,
          osSearchPath.find(osPostgisSchema) == std::string::npos))
     {
         std::string osNewSearchPath;
-        if (osActiveSchema != "public")
+        if (!osActiveSchema.empty() && osActiveSchema != "public")
         {
             osNewSearchPath +=
                 OGRPGEscapeString(hPGConn, osActiveSchema.c_str());
-            osNewSearchPath += ',';
         }
-        osNewSearchPath += osSearchPath;
+        // SHOW search_path reports "", but SET search_path doesn't accept it!
+        // It must be transformed to ''
+        if (STARTS_WITH(osSearchPath.c_str(), "\"\""))
+            osSearchPath = "''" + osSearchPath.substr(2);
+        if (!osSearchPath.empty())
+        {
+            if (!osNewSearchPath.empty())
+                osNewSearchPath += ',';
+            osNewSearchPath += osSearchPath;
+        }
         if (!osPostgisSchema.empty() &&
             osSearchPath.find(osPostgisSchema) == std::string::npos)
         {
-            osNewSearchPath += ',';
+            if (!osNewSearchPath.empty())
+                osNewSearchPath += ',';
             osNewSearchPath +=
                 OGRPGEscapeString(hPGConn, osPostgisSchema.c_str());
         }
-        CPLDebug("PG", "Modifying search_path from %s to %s",
-                 osSearchPath.c_str(), osNewSearchPath.c_str());
-
-        std::string osCommand = "SET search_path=" + osNewSearchPath;
-        PGresult *hResult = OGRPG_PQexec(hPGConn, osCommand.c_str());
-
-        if (!hResult || PQresultStatus(hResult) != PGRES_COMMAND_OK)
+        if (osNewSearchPath != osSearchPath)
         {
-            OGRPGClearResult(hResult);
-            CPLDebug("PG", "Command \"%s\" failed. Trying without 'public'.",
-                     osCommand.c_str());
-            osCommand =
-                CPLSPrintf("SET search_path='%s'", osActiveSchema.c_str());
-            PGresult *hResult2 = OGRPG_PQexec(hPGConn, osCommand.c_str());
+            CPLDebug("PG", "Modifying search_path from %s to %s",
+                     osSearchPath.c_str(), osNewSearchPath.c_str());
 
-            if (!hResult2 || PQresultStatus(hResult2) != PGRES_COMMAND_OK)
+            std::string osCommand = "SET search_path=" + osNewSearchPath;
+            PGresult *hResult = OGRPG_PQexec(hPGConn, osCommand.c_str());
+
+            if (!hResult || PQresultStatus(hResult) != PGRES_COMMAND_OK)
             {
-                OGRPGClearResult(hResult2);
+                OGRPGClearResult(hResult);
+                CPLDebug("PG",
+                         "Command \"%s\" failed. Trying without 'public'.",
+                         osCommand.c_str());
+                osCommand = CPLSPrintf(
+                    "SET search_path=%s",
+                    OGRPGEscapeString(hPGConn, osActiveSchema.c_str()).c_str());
+                PGresult *hResult2 = OGRPG_PQexec(hPGConn, osCommand.c_str());
 
-                CPLError(CE_Failure, CPLE_AppDefined, "%s",
-                         PQerrorMessage(hPGConn));
+                if (!hResult2 || PQresultStatus(hResult2) != PGRES_COMMAND_OK)
+                {
+                    OGRPGClearResult(hResult2);
 
-                return FALSE;
+                    CPLError(CE_Failure, CPLE_AppDefined, "%s",
+                             PQerrorMessage(hPGConn));
+
+                    return FALSE;
+                }
             }
-        }
 
-        OGRPGClearResult(hResult);
+            OGRPGClearResult(hResult);
+        }
     }
 
     /* -------------------------------------------------------------------- */
@@ -963,60 +920,109 @@ void OGRPGDataSource::LoadTables()
 
     if (pszForcedTables)
     {
-        char **papszTableList = CSLTokenizeString2(pszForcedTables, ",", 0);
+        const CPLStringList aosTableList(
+            CSLTokenizeString2(pszForcedTables, ",", CSLT_HONOURSTRINGS));
 
-        for (int i = 0; i < CSLCount(papszTableList); i++)
+        for (const char *pszTable : aosTableList)
         {
             // Get schema and table name
-            char **papszQualifiedParts =
-                CSLTokenizeString2(papszTableList[i], ".", 0);
-            int nParts = CSLCount(papszQualifiedParts);
+            const CPLStringList aosQualifiedParts(
+                CSLTokenizeString2(pszTable, ".", CSLT_HONOURSTRINGS));
+            const int nParts = aosQualifiedParts.size();
 
             if (nParts == 1 || nParts == 2)
             {
                 /* Find the geometry column name if specified */
-                char *pszGeomColumnName = nullptr;
-                char *pos = strchr(
-                    papszQualifiedParts[CSLCount(papszQualifiedParts) - 1],
-                    '(');
-                if (pos != nullptr)
+                std::string osTableName;
+                std::string osGeomColumnName;
+                const char *pszTablePart = aosQualifiedParts[nParts - 1];
+                int j = 0;
+                for (; pszTablePart[j]; ++j)
                 {
-                    *pos = '\0';
-                    pszGeomColumnName = pos + 1;
-                    int len = static_cast<int>(strlen(pszGeomColumnName));
-                    if (len > 0)
-                        pszGeomColumnName[len - 1] = '\0';
+                    if (pszTablePart[j] == '\\')
+                    {
+                        if (pszTablePart[j + 1] == '\\' ||
+                            pszTablePart[j + 1] == '(')
+                        {
+                            ++j;
+                            osTableName += pszTablePart[j];
+                        }
+                        else
+                        {
+                            CPLError(CE_Failure, CPLE_AppDefined,
+                                     "Unexpected character after backslash at "
+                                     "offset %d of %s",
+                                     j, pszTablePart);
+                        }
+                    }
+                    else if (pszTablePart[j] == '(')
+                    {
+                        // Now parse the geometry column name
+                        break;
+                    }
+                    else
+                    {
+                        osTableName += pszTablePart[j];
+                    }
+                }
+
+                if (pszTablePart[j] == '(')
+                {
+                    // Now parse the geometry column name
+                    ++j;
+                    for (; pszTablePart[j]; ++j)
+                    {
+                        if (pszTablePart[j] == '\\')
+                        {
+                            if (pszTablePart[j + 1] == '\\' ||
+                                pszTablePart[j + 1] == '(')
+                            {
+                                ++j;
+                                osGeomColumnName += pszTablePart[j];
+                            }
+                            else
+                            {
+                                CPLError(CE_Failure, CPLE_AppDefined,
+                                         "Unexpected character after backslash "
+                                         "at offset %d of %s",
+                                         j, pszTablePart);
+                            }
+                        }
+                        else
+                        {
+                            osGeomColumnName += pszTablePart[j];
+                        }
+                    }
+                    if (!osGeomColumnName.empty() &&
+                        osGeomColumnName.back() == ')')
+                        osGeomColumnName.pop_back();
                 }
 
                 papsTables = static_cast<PGTableEntry **>(CPLRealloc(
                     papsTables, sizeof(PGTableEntry *) * (nTableCount + 1)));
                 papsTables[nTableCount] = static_cast<PGTableEntry *>(
                     CPLCalloc(1, sizeof(PGTableEntry)));
-                if (pszGeomColumnName)
+                if (!osGeomColumnName.empty())
                     OGRPGTableEntryAddGeomColumn(papsTables[nTableCount],
-                                                 pszGeomColumnName);
+                                                 osGeomColumnName.c_str());
 
                 if (nParts == 2)
                 {
                     papsTables[nTableCount]->pszSchemaName =
-                        CPLStrdup(papszQualifiedParts[0]);
+                        CPLStrdup(aosQualifiedParts[0]);
                     papsTables[nTableCount]->pszTableName =
-                        CPLStrdup(papszQualifiedParts[1]);
+                        CPLStrdup(osTableName.c_str());
                 }
                 else
                 {
                     papsTables[nTableCount]->pszSchemaName =
                         CPLStrdup(osActiveSchema.c_str());
                     papsTables[nTableCount]->pszTableName =
-                        CPLStrdup(papszQualifiedParts[0]);
+                        CPLStrdup(osTableName.c_str());
                 }
                 nTableCount++;
             }
-
-            CSLDestroy(papszQualifiedParts);
         }
-
-        CSLDestroy(papszTableList);
     }
 
     /* -------------------------------------------------------------------- */
@@ -2263,9 +2269,8 @@ OGRLayer *OGRPGDataSource::GetLayerByName(const char *pszNameIn)
     {
         EndCopy();
 
-        CPLString osTableName(pszTableName);
-        CPLString osTableNameLower(pszTableName);
-        osTableNameLower.tolower();
+        const CPLString osTableName(pszTableName);
+        const CPLString osTableNameLower = CPLString(pszTableName).tolower();
         if (osTableName != osTableNameLower)
             CPLPushErrorHandler(CPLQuietErrorHandler);
         poLayer = OpenTable(osCurrentSchema, pszTableName, pszSchemaName,
@@ -2988,7 +2993,7 @@ const char *OGRPGDataSource::GetMetadataItem(const char *pszKey,
             return pszRet;
         }
     }
-    return OGRDataSource::GetMetadataItem(pszKey, pszDomain);
+    return GDALDataset::GetMetadataItem(pszKey, pszDomain);
 }
 
 /************************************************************************/
@@ -3010,8 +3015,8 @@ OGRLayer *OGRPGDataSource::ExecuteSQL(const char *pszSQLCommand,
     /*      Use generic implementation for recognized dialects              */
     /* -------------------------------------------------------------------- */
     if (IsGenericSQLDialect(pszDialect))
-        return OGRDataSource::ExecuteSQL(pszSQLCommand, poSpatialFilter,
-                                         pszDialect);
+        return GDALDataset::ExecuteSQL(pszSQLCommand, poSpatialFilter,
+                                       pszDialect);
 
     /* -------------------------------------------------------------------- */
     /*      Special case DELLAYER: command.                                 */
@@ -3056,7 +3061,7 @@ OGRLayer *OGRPGDataSource::ExecuteSQL(const char *pszSQLCommand,
             CPLDebug("PG", "Command Results Tuples = %d", PQntuples(hResult));
 
             GDALDriver *poMemDriver =
-                OGRSFDriverRegistrar::GetRegistrar()->GetDriverByName("Memory");
+                GetGDALDriverManager()->GetDriverByName("MEM");
             if (poMemDriver)
             {
                 OGRPGLayer *poResultLayer =
@@ -3194,6 +3199,16 @@ bool OGRPGDataSource::CreateMetadataTableIfNeeded()
 
     m_bCreateMetadataTableIfNeededRun = true;
 
+    const bool bIsSuperUser = IsSuperUser();
+    if (!bIsSuperUser && !OGRSystemTablesEventTriggerExists())
+    {
+        CPLError(CE_Warning, CPLE_AppDefined,
+                 "User lacks super user privilege to be able to create event "
+                 "trigger ogr_system_tables_event_trigger_for_metadata");
+        m_bCreateMetadataTableIfNeededSuccess = true;
+        return true;
+    }
+
     PGresult *hResult;
 
     hResult = OGRPG_PQexec(
@@ -3307,35 +3322,67 @@ bool OGRPGDataSource::CreateMetadataTableIfNeeded()
     }
     OGRPGClearResult(hResult);
 
-    hResult =
-        OGRPG_PQexec(hPGConn, "DROP EVENT TRIGGER IF EXISTS "
-                              "ogr_system_tables_event_trigger_for_metadata");
-    if (!hResult || (PQresultStatus(hResult) != PGRES_COMMAND_OK &&
-                     PQresultStatus(hResult) != PGRES_TUPLES_OK))
+    if (bIsSuperUser)
     {
+        hResult = OGRPG_PQexec(hPGConn,
+                               "DROP EVENT TRIGGER IF EXISTS "
+                               "ogr_system_tables_event_trigger_for_metadata");
+        if (!hResult || (PQresultStatus(hResult) != PGRES_COMMAND_OK &&
+                         PQresultStatus(hResult) != PGRES_TUPLES_OK))
+        {
+            OGRPGClearResult(hResult);
+            return false;
+        }
         OGRPGClearResult(hResult);
-        return false;
-    }
-    OGRPGClearResult(hResult);
 
-    hResult = OGRPG_PQexec(
-        hPGConn,
-        "CREATE EVENT TRIGGER ogr_system_tables_event_trigger_for_metadata "
-        "ON sql_drop "
-        "EXECUTE FUNCTION "
-        "ogr_system_tables.event_trigger_function_for_metadata()");
-    if (!hResult || (PQresultStatus(hResult) != PGRES_COMMAND_OK &&
-                     PQresultStatus(hResult) != PGRES_TUPLES_OK))
-    {
+        hResult = OGRPG_PQexec(
+            hPGConn,
+            "CREATE EVENT TRIGGER ogr_system_tables_event_trigger_for_metadata "
+            "ON sql_drop "
+            "EXECUTE FUNCTION "
+            "ogr_system_tables.event_trigger_function_for_metadata()");
+        if (!hResult || (PQresultStatus(hResult) != PGRES_COMMAND_OK &&
+                         PQresultStatus(hResult) != PGRES_TUPLES_OK))
+        {
+            OGRPGClearResult(hResult);
+            return false;
+        }
         OGRPGClearResult(hResult);
-        return false;
     }
-    OGRPGClearResult(hResult);
 
     m_bCreateMetadataTableIfNeededSuccess = true;
     m_bOgrSystemTablesMetadataTableExistenceTested = true;
     m_bOgrSystemTablesMetadataTableFound = true;
     return true;
+}
+
+/************************************************************************/
+/*                               IsSuperUser()                          */
+/************************************************************************/
+
+bool OGRPGDataSource::IsSuperUser()
+{
+    PGresult *hResult = OGRPG_PQexec(
+        hPGConn, "SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER");
+    const bool bRet =
+        (hResult && PQntuples(hResult) == 1 && !PQgetisnull(hResult, 0, 0) &&
+         strcmp(PQgetvalue(hResult, 0, 0), "t") == 0);
+    OGRPGClearResult(hResult);
+    return bRet;
+}
+
+/************************************************************************/
+/*                  OGRSystemTablesEventTriggerExists()                 */
+/************************************************************************/
+
+bool OGRPGDataSource::OGRSystemTablesEventTriggerExists()
+{
+    PGresult *hResult =
+        OGRPG_PQexec(hPGConn, "SELECT 1 FROM pg_event_trigger WHERE evtname = "
+                              "'ogr_system_tables_event_trigger_for_metadata'");
+    const bool bRet = (hResult && PQntuples(hResult) == 1);
+    OGRPGClearResult(hResult);
+    return bRet;
 }
 
 /************************************************************************/

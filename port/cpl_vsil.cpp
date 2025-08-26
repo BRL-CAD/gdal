@@ -9,23 +9,7 @@
  * Copyright (c) 2005, Frank Warmerdam <warmerdam@pobox.com>
  * Copyright (c) 2008-2014, Even Rouault <even dot rouault at spatialys.com>
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
- * DEALINGS IN THE SOFTWARE.
+ * SPDX-License-Identifier: MIT
  ****************************************************************************/
 
 #include "cpl_port.h"
@@ -156,13 +140,278 @@ char **VSISiblingFiles(const char *pszFilename)
 }
 
 /************************************************************************/
+/*                           VSIFnMatch()                               */
+/************************************************************************/
+
+static bool VSIFnMatch(const char *pszPattern, const char *pszStr)
+{
+    for (; *pszPattern && *pszStr; pszPattern++, pszStr++)
+    {
+        if (*pszPattern == '*')
+        {
+            if (pszPattern[1] == 0)
+                return true;
+            for (; *pszStr; ++pszStr)
+            {
+                if (VSIFnMatch(pszPattern + 1, pszStr))
+                    return true;
+            }
+            return false;
+        }
+        else if (*pszPattern == '?')
+        {
+            // match single any char
+        }
+        else if (*pszPattern == '[')
+        {
+            // match character classes and ranges
+            // "[abcd]" will match a character that is a, b, c or d
+            // "[a-z]" will match a character that is a to z
+            // "[!abcd] will match a character that is *not* a, b, c or d
+            // "[]]" will match character ]
+            // "[]-]" will match character ] or -
+            // "[!]a-]" will match a character that is *not* ], a or -
+
+            const char *pszOpenBracket = pszPattern;
+            ++pszPattern;
+            const bool isNot = (*pszPattern == '!');
+            if (isNot)
+            {
+                ++pszOpenBracket;
+                ++pszPattern;
+            }
+            bool res = false;
+            for (; *pszPattern; ++pszPattern)
+            {
+                if ((*pszPattern == ']' || *pszPattern == '-') &&
+                    pszPattern == pszOpenBracket + 1)
+                {
+                    if (*pszStr == *pszPattern)
+                    {
+                        res = true;
+                    }
+                }
+                else if (*pszPattern == ']')
+                {
+                    break;
+                }
+                else if (pszPattern[1] == '-' && pszPattern[2] != 0 &&
+                         pszPattern[2] != ']')
+                {
+                    if (*pszStr >= pszPattern[0] && *pszStr <= pszPattern[2])
+                    {
+                        res = true;
+                    }
+                    pszPattern += 2;
+                }
+                else if (*pszStr == *pszPattern)
+                {
+                    res = true;
+                }
+            }
+            if (*pszPattern == 0)
+                return false;
+            if (!res && !isNot)
+                return false;
+            if (res && isNot)
+                return false;
+        }
+        else if (*pszPattern != *pszStr)
+        {
+            return false;
+        }
+    }
+    return *pszPattern == 0 && *pszStr == 0;
+}
+
+/************************************************************************/
+/*                             VSIGlob()                                */
+/************************************************************************/
+
+/**
+ \brief Return a list of file and directory names matching
+ a pattern that can contain wildcards.
+
+ This function has similar behavior to the POSIX glob() function:
+ https://man7.org/linux/man-pages/man7/glob.7.html
+
+ In particular it supports the following wildcards:
+ <ul>
+ <li>'*': match any string</li>
+ <li>'?': match any single character</li>
+ <li>'[': match character class or range, with '!' immediately after '['
+ to indicate negation.</li>
+ </ul>
+ Refer to to the above man page for more details.
+
+ It also supports the "**" recursive wildcard, behaving similarly to Python
+ glob.glob() with recursive=True. Be careful of the amount of memory and time
+ required when using that recursive wildcard on directories with a large
+ amount of files and subdirectories.
+
+ Examples, given a file hierarchy:
+ - one.tif
+ - my_subdir/two.tif
+ - my_subdir/subsubdir/three.tif
+
+ \code{.cpp}
+ VSIGlob("one.tif",NULL,NULL,NULL) returns ["one.tif", NULL]
+ VSIGlob("*.tif",NULL,NULL,NULL) returns ["one.tif", NULL]
+ VSIGlob("on?.tif",NULL,NULL,NULL) returns ["one.tif", NULL]
+ VSIGlob("on[a-z].tif",NULL,NULL,NULL) returns ["one.tif", NULL]
+ VSIGlob("on[ef].tif",NULL,NULL,NULL) returns ["one.tif", NULL]
+ VSIGlob("on[!e].tif",NULL,NULL,NULL) returns NULL
+ VSIGlob("my_subdir" "/" "*.tif",NULL,NULL,NULL) returns ["my_subdir/two.tif", NULL]
+ VSIGlob("**" "/" "*.tif",NULL,NULL,NULL) returns ["one.tif", "my_subdir/two.tif", "my_subdir/subsubdir/three.tif", NULL]
+ \endcode
+
+ In the current implementation, matching is done based on the assumption that
+ a character fits into a single byte, which will not work properly on
+ non-ASCII UTF-8 filenames.
+
+ VSIGlob() works with any virtual file systems supported by GDAL, including
+ network file systems such as /vsis3/, /vsigs/, /vsiaz/, etc. But note that
+ for those ones, the pattern is not passed to the remote server, and thus large
+ amount of filenames can be transferred from the remote server to the host
+ where the filtering is done.
+
+ @param pszPattern the relative, or absolute path of a directory to read.
+ UTF-8 encoded.
+ @param papszOptions NULL-terminate list of options, or NULL. None supported
+ currently.
+ @param pProgressFunc Progress function, or NULL. This is only used as a way
+ for the user to cancel operation if it takes too much time. The percentage
+ passed to the callback is not significant (always at 0).
+ @param pProgressData User data passed to the progress function, or NULL.
+ @return The list of matched filenames, which must be freed with CSLDestroy().
+ Filenames are returned in UTF-8 encoding.
+
+ @since GDAL 3.11
+*/
+
+char **VSIGlob(const char *pszPattern, const char *const *papszOptions,
+               GDALProgressFunc pProgressFunc, void *pProgressData)
+{
+    CPL_IGNORE_RET_VAL(papszOptions);
+
+    CPLStringList aosRes;
+    std::vector<std::pair<std::string, size_t>> candidates;
+    candidates.emplace_back(pszPattern, 0);
+    while (!candidates.empty())
+    {
+        auto [osPattern, nPosStart] = candidates.back();
+        pszPattern = osPattern.c_str() + nPosStart;
+        candidates.pop_back();
+
+        std::string osPath = osPattern.substr(0, nPosStart);
+        std::string osCurPath;
+        for (;; ++pszPattern)
+        {
+            if (*pszPattern == 0 || *pszPattern == '/' || *pszPattern == '\\')
+            {
+                struct VSIDirCloser
+                {
+                    void operator()(VSIDIR *dir)
+                    {
+                        VSICloseDir(dir);
+                    }
+                };
+
+                if (osCurPath == "**")
+                {
+                    std::unique_ptr<VSIDIR, VSIDirCloser> psDir(
+                        VSIOpenDir(osPath.c_str(), -1, nullptr));
+                    if (!psDir)
+                        return nullptr;
+                    while (const VSIDIREntry *psEntry =
+                               VSIGetNextDirEntry(psDir.get()))
+                    {
+                        if (pProgressFunc &&
+                            !pProgressFunc(0, "", pProgressData))
+                        {
+                            return nullptr;
+                        }
+                        {
+                            std::string osCandidate(osPath);
+                            osCandidate += psEntry->pszName;
+                            nPosStart = osCandidate.size();
+                            if (*pszPattern)
+                            {
+                                osCandidate += pszPattern;
+                            }
+                            candidates.emplace_back(std::move(osCandidate),
+                                                    nPosStart);
+                        }
+                    }
+                    osPath.clear();
+                    break;
+                }
+                else if (osCurPath.find_first_of("*?[") != std::string::npos)
+                {
+                    std::unique_ptr<VSIDIR, VSIDirCloser> psDir(
+                        VSIOpenDir(osPath.c_str(), 0, nullptr));
+                    if (!psDir)
+                        return nullptr;
+                    while (const VSIDIREntry *psEntry =
+                               VSIGetNextDirEntry(psDir.get()))
+                    {
+                        if (pProgressFunc &&
+                            !pProgressFunc(0, "", pProgressData))
+                        {
+                            return nullptr;
+                        }
+                        if (VSIFnMatch(osCurPath.c_str(), psEntry->pszName))
+                        {
+                            std::string osCandidate(osPath);
+                            osCandidate += psEntry->pszName;
+                            nPosStart = osCandidate.size();
+                            if (*pszPattern)
+                            {
+                                osCandidate += pszPattern;
+                            }
+                            candidates.emplace_back(std::move(osCandidate),
+                                                    nPosStart);
+                        }
+                    }
+                    osPath.clear();
+                    break;
+                }
+                else if (*pszPattern == 0)
+                {
+                    osPath += osCurPath;
+                    break;
+                }
+                else
+                {
+                    osPath += osCurPath;
+                    osPath += *pszPattern;
+                    osCurPath.clear();
+                }
+            }
+            else
+            {
+                osCurPath += *pszPattern;
+            }
+        }
+        if (!osPath.empty())
+        {
+            VSIStatBufL sStat;
+            if (VSIStatL(osPath.c_str(), &sStat) == 0)
+                aosRes.AddString(osPath.c_str());
+        }
+    }
+
+    return aosRes.StealList();
+}
+
+/************************************************************************/
 /*                      VSIGetDirectorySeparator()                      */
 /************************************************************************/
 
 /** Return the directory separator for the specified path.
  *
  * Default is forward slash. The only exception currently is the Windows
- * file system which returns anti-slash, unless the specified path is of the
+ * file system which returns backslash, unless the specified path is of the
  * form "{drive_letter}:/{rest_of_the_path}".
  *
  * @since 3.9
@@ -410,7 +659,7 @@ int VSIMkdirRecursive(const char *pszPathname, long mode)
     {
         return VSI_ISDIR(sStat.st_mode) ? 0 : -1;
     }
-    const CPLString osParentPath(CPLGetPath(osPathname));
+    const std::string osParentPath(CPLGetPathSafe(osPathname));
 
     // Prevent crazy paths from recursing forever.
     if (osParentPath == osPathname ||
@@ -419,9 +668,9 @@ int VSIMkdirRecursive(const char *pszPathname, long mode)
         return -1;
     }
 
-    if (VSIStatL(osParentPath, &sStat) != 0)
+    if (!osParentPath.empty() && VSIStatL(osParentPath.c_str(), &sStat) != 0)
     {
-        if (VSIMkdirRecursive(osParentPath, mode) != 0)
+        if (VSIMkdirRecursive(osParentPath.c_str(), mode) != 0)
             return -1;
     }
 
@@ -508,11 +757,17 @@ int *VSIUnlinkBatch(CSLConstList papszFiles)
  * \brief Rename a file.
  *
  * Renames a file object in the file system.  It should be possible
- * to rename a file onto a new filesystem, but it is safest if this
+ * to rename a file onto a new directory, but it is safest if this
  * function is only used to rename files that remain in the same directory.
  *
+ * This function only works if the new path is located on the same VSI
+ * virtual file system than the old path. I not, use VSIMove() instead.
+ *
  * This method goes through the VSIFileHandler virtualization and may
- * work on unusual filesystems such as in memory.
+ * work on unusual filesystems such as in memory or cloud object storage.
+ * Note that for cloud object storage, renaming a directory may involve
+ * renaming all files it contains recursively, and is thus not an atomic
+ * operation (and could be expensive on directories with many files!)
  *
  * Analog of the POSIX rename() function.
  *
@@ -527,7 +782,114 @@ int VSIRename(const char *oldpath, const char *newpath)
 {
     VSIFilesystemHandler *poFSHandler = VSIFileManager::GetHandler(oldpath);
 
-    return poFSHandler->Rename(oldpath, newpath);
+    return poFSHandler->Rename(oldpath, newpath, nullptr, nullptr);
+}
+
+/************************************************************************/
+/*                             VSIMove()                                */
+/************************************************************************/
+
+/**
+ * \brief Move (or rename) a file.
+ *
+ * If the new path is an existing directory, the file will be moved to it.
+ *
+ * The function can work even if the files are not located on the same VSI
+ * virtual file system, but it will involve copying and deletion.
+ *
+ * Note that for cloud object storage, moving/renaming a directory may involve
+ * renaming all files it contains recursively, and is thus not an atomic
+ * operation (and could be slow and expensive on directories with many files!)
+ *
+ * @param oldpath the path of the file to be renamed/moved.  UTF-8 encoded.
+ * @param newpath the new path the file should be given.  UTF-8 encoded.
+ * @param papszOptions Null terminated list of options, or NULL.
+ * @param pProgressFunc Progress callback, or NULL.
+ * @param pProgressData User data of progress callback, or NULL.
+ *
+ * @return 0 on success or -1 on error.
+ * @since GDAL 3.11
+ */
+
+int VSIMove(const char *oldpath, const char *newpath,
+            const char *const *papszOptions, GDALProgressFunc pProgressFunc,
+            void *pProgressData)
+{
+
+    if (strcmp(oldpath, newpath) == 0)
+        return 0;
+
+    VSIFilesystemHandler *poOldFSHandler = VSIFileManager::GetHandler(oldpath);
+    VSIFilesystemHandler *poNewFSHandler = VSIFileManager::GetHandler(newpath);
+
+    VSIStatBufL sStat;
+    if (VSIStatL(oldpath, &sStat) != 0)
+    {
+        CPLDebug("VSI", "%s is not a object", oldpath);
+        errno = ENOENT;
+        return -1;
+    }
+
+    std::string sNewpath(newpath);
+    VSIStatBufL sStatNew;
+    if (VSIStatL(newpath, &sStatNew) == 0 && VSI_ISDIR(sStatNew.st_mode))
+    {
+        sNewpath =
+            CPLFormFilenameSafe(newpath, CPLGetFilename(oldpath), nullptr);
+    }
+
+    int ret = 0;
+
+    if (poOldFSHandler == poNewFSHandler)
+    {
+        ret = poOldFSHandler->Rename(oldpath, sNewpath.c_str(), pProgressFunc,
+                                     pProgressData);
+        if (ret == 0 && pProgressFunc)
+            ret = pProgressFunc(1.0, "", pProgressData) ? 0 : -1;
+        return ret;
+    }
+
+    if (VSI_ISDIR(sStat.st_mode))
+    {
+        const CPLStringList aosList(VSIReadDir(oldpath));
+        poNewFSHandler->Mkdir(sNewpath.c_str(), 0755);
+        bool bFoundFiles = false;
+        const int nListSize = aosList.size();
+        for (int i = 0; ret == 0 && i < nListSize; i++)
+        {
+            if (strcmp(aosList[i], ".") != 0 && strcmp(aosList[i], "..") != 0)
+            {
+                bFoundFiles = true;
+                const std::string osSrc =
+                    CPLFormFilenameSafe(oldpath, aosList[i], nullptr);
+                const std::string osTarget =
+                    CPLFormFilenameSafe(sNewpath.c_str(), aosList[i], nullptr);
+                void *pScaledProgress = GDALCreateScaledProgress(
+                    static_cast<double>(i) / nListSize,
+                    static_cast<double>(i + 1) / nListSize, pProgressFunc,
+                    pProgressData);
+                ret = VSIMove(osSrc.c_str(), osTarget.c_str(), papszOptions,
+                              pScaledProgress ? GDALScaledProgress : nullptr,
+                              pScaledProgress);
+                GDALDestroyScaledProgress(pScaledProgress);
+            }
+        }
+        if (!bFoundFiles)
+            ret = VSIStatL(sNewpath.c_str(), &sStat);
+        if (ret == 0)
+            ret = poOldFSHandler->Rmdir(oldpath);
+    }
+    else
+    {
+        ret = VSICopyFile(oldpath, sNewpath.c_str(), nullptr, sStat.st_size,
+                          nullptr, pProgressFunc, pProgressData) == 0 &&
+                      VSIUnlink(oldpath) == 0
+                  ? 0
+                  : -1;
+    }
+    if (ret == 0 && pProgressFunc)
+        ret = pProgressFunc(1.0, "", pProgressData) ? 0 : -1;
+    return ret;
 }
 
 /************************************************************************/
@@ -586,6 +948,102 @@ int VSICopyFile(const char *pszSource, const char *pszTarget,
     return poFSHandlerTarget->CopyFile(pszSource, pszTarget, fpSource,
                                        nSourceSize, papszOptions, pProgressFunc,
                                        pProgressData);
+}
+
+/************************************************************************/
+/*                       VSICopyFileRestartable()                       */
+/************************************************************************/
+
+/**
+ \brief Copy a source file into a target file in a way that can (potentially)
+ be restarted.
+
+ This function provides the possibility of efficiently restarting upload of
+ large files to cloud storage that implements upload in a chunked way,
+ such as /vsis3/ and /vsigs/.
+ For other destination file systems, this function may fallback to
+ VSICopyFile() and not provide any smart restartable implementation.
+
+ Example of a potential workflow:
+
+ @code{.cpp}
+ char* pszOutputPayload = NULL;
+ int ret = VSICopyFileRestartable(pszSource, pszTarget, NULL,
+                                  &pszOutputPayload, NULL, NULL, NULL);
+ while( ret == 1 ) // add also a limiting counter to avoid potentiall endless looping
+ {
+     // TODO: wait for some time
+
+     char* pszOutputPayloadNew = NULL;
+     const char* pszInputPayload = pszOutputPayload;
+     ret = VSICopyFileRestartable(pszSource, pszTarget, pszInputPayload,
+                                  &pszOutputPayloadNew, NULL, NULL, NULL);
+     VSIFree(pszOutputPayload);
+     pszOutputPayload = pszOutputPayloadNew;
+ }
+ VSIFree(pszOutputPayload);
+ @endcode
+
+ @param pszSource Source filename. UTF-8 encoded. Must not be NULL
+ @param pszTarget Target filename. UTF-8 encoded. Must not be NULL
+ @param pszInputPayload NULL at the first invocation. When doing a retry,
+                        should be the content of *ppszOutputPayload from a
+                        previous invocation.
+ @param[out] ppszOutputPayload Pointer to an output string that will be set to
+                               a value that can be provided as pszInputPayload
+                               for a next call to VSICopyFileRestartable().
+                               ppszOutputPayload must not be NULL.
+                               The string set in *ppszOutputPayload, if not NULL,
+                               is JSON-encoded, and can be re-used in another
+                               process instance. It must be freed with VSIFree()
+                               when no longer needed.
+ @param papszOptions Null terminated list of options, or NULL.
+ Currently accepted options are:
+ <ul>
+ <li>NUM_THREADS=integer or ALL_CPUS. Number of threads to use for parallel
+ file copying. Only use for when /vsis3/, /vsigs/, /vsiaz/ or /vsiadls/ is in
+ source or target. The default is 10.
+ </li>
+ <li>CHUNK_SIZE=integer. Maximum size of chunk (in bytes) to use
+ to split large objects. For upload to /vsis3/, this chunk size must be set at
+ least to 5 MB. The default is 50 MB.
+ </li>
+ </ul>
+ @param pProgressFunc Progress callback, or NULL.
+ @param pProgressData User data of progress callback, or NULL.
+ @return 0 on success,
+         -1 on (non-restartable) failure,
+         1 if VSICopyFileRestartable() can be called again in a restartable way
+ @since GDAL 3.10
+
+ @see VSIAbortPendingUploads()
+*/
+
+int VSICopyFileRestartable(const char *pszSource, const char *pszTarget,
+                           const char *pszInputPayload,
+                           char **ppszOutputPayload,
+                           const char *const *papszOptions,
+                           GDALProgressFunc pProgressFunc, void *pProgressData)
+
+{
+    if (!pszSource)
+    {
+        return -1;
+    }
+    if (!pszTarget || pszTarget[0] == '\0')
+    {
+        return -1;
+    }
+    if (!ppszOutputPayload)
+    {
+        return -1;
+    }
+
+    VSIFilesystemHandler *poFSHandlerTarget =
+        VSIFileManager::GetHandler(pszTarget);
+    return poFSHandlerTarget->CopyFileRestartable(
+        pszSource, pszTarget, pszInputPayload, ppszOutputPayload, papszOptions,
+        pProgressFunc, pProgressData);
 }
 
 /************************************************************************/
@@ -699,16 +1157,284 @@ int VSISync(const char *pszSource, const char *pszTarget,
 }
 
 /************************************************************************/
-/*                         VSIAbortOngoingUploads()                     */
+/*                    VSIMultipartUploadGetCapabilities()               */
 /************************************************************************/
 
 /**
- * \brief Abort ongoing multi-part uploads.
+ * \brief Return capabilities for multiple part file upload.
+ *
+ * @param pszFilename Filename, or virtual file system prefix, onto which
+ * capabilities should apply.
+ * @param[out] pbNonSequentialUploadSupported If not null,
+ * the pointed value is set if parts can be uploaded in a non-sequential way.
+ * @param[out] pbParallelUploadSupported If not null,
+ * the pointed value is set if parts can be uploaded in a parallel way.
+ * (implies *pbNonSequentialUploadSupported = true)
+ * @param[out] pbAbortSupported If not null,
+ * the pointed value is set if VSIMultipartUploadAbort() is implemented.
+ * @param[out] pnMinPartSize If not null, the pointed value is set to the minimum
+ * size of parts (but the last one), in MiB.
+ * @param[out] pnMaxPartSize If not null, the pointed value is set to the maximum
+ * size of parts, in MiB.
+ * @param[out] pnMaxPartCount  If not null, the pointed value is set to the
+ * maximum number of parts that can be uploaded.
+ *
+ * @return TRUE in case of success, FALSE otherwise.
+ *
+ * @since 3.10
+ */
+int VSIMultipartUploadGetCapabilities(
+    const char *pszFilename, int *pbNonSequentialUploadSupported,
+    int *pbParallelUploadSupported, int *pbAbortSupported,
+    size_t *pnMinPartSize, size_t *pnMaxPartSize, int *pnMaxPartCount)
+{
+    VSIFilesystemHandler *poFSHandler = VSIFileManager::GetHandler(pszFilename);
+
+    return poFSHandler->MultipartUploadGetCapabilities(
+        pbNonSequentialUploadSupported, pbParallelUploadSupported,
+        pbAbortSupported, pnMinPartSize, pnMaxPartSize, pnMaxPartCount);
+}
+
+/************************************************************************/
+/*                     VSIMultipartUploadStart()                        */
+/************************************************************************/
+
+/**
+ * \brief Initiates the upload a (big) file in a piece-wise way.
+ *
+ * Using this API directly is generally not needed, but in very advanced cases,
+ * as VSIFOpenL(..., "wb") + VSIFWriteL(), VSISync(), VSICopyFile() or
+ * VSICopyFileRestartable() may be able to leverage it when needed.
+ *
+ * This is only implemented for the /vsis3/, /vsigs/, /vsiaz/, /vsiadls/ and
+ * /vsioss/ virtual file systems.
+ *
+ * The typical workflow is to do :
+ * - VSIMultipartUploadStart()
+ * - VSIMultipartUploadAddPart(): several times
+ * - VSIMultipartUploadEnd()
+ *
+ * If VSIMultipartUploadAbort() is supported by the filesystem (VSIMultipartUploadGetCapabilities()
+ * can be used to determine it), this function should be called to cancel an
+ * upload. This can be needed to avoid extra billing for some cloud storage
+ * providers.
+ *
+ * The following options are supported:
+ * <ul>
+ * <li>MIME headers such as Content-Type and Content-Encoding
+ * are supported for the /vsis3/, /vsigs/, /vsiaz/, /vsiadls/ file systems.</li>
+ * </ul>
+ *
+ * @param pszFilename Filename to create
+ * @param papszOptions NULL or null-terminated list of options.
+ * @return an upload ID to pass to other VSIMultipartUploadXXXXX() functions,
+ * and to free with CPLFree() once done, or nullptr in case of error.
+ *
+ * @since 3.10
+ */
+char *VSIMultipartUploadStart(const char *pszFilename,
+                              CSLConstList papszOptions)
+{
+    VSIFilesystemHandler *poFSHandler = VSIFileManager::GetHandler(pszFilename);
+
+    return poFSHandler->MultipartUploadStart(pszFilename, papszOptions);
+}
+
+/************************************************************************/
+/*                     VSIMultipartUploadAddPart()                      */
+/************************************************************************/
+
+/**
+ * \brief Uploads a new part to a multi-part uploaded file.
+ *
+ * Cf VSIMultipartUploadStart().
+ *
+ * VSIMultipartUploadGetCapabilities() returns hints on the constraints that
+ * apply to the upload, in terms of minimum/maximum size of each part, maximum
+ * number of parts, and whether non-sequential or parallel uploads are
+ * supported.
+ *
+ * @param pszFilename Filename to which to append the new part. Should be the
+ *                    same as the one used for VSIMultipartUploadStart()
+ * @param pszUploadId Value returned by VSIMultipartUploadStart()
+ * @param nPartNumber Part number, starting at 1.
+ * @param nFileOffset Offset within the file at which (starts at 0) the passed
+ *                    data starts.
+ * @param pData       Pointer to an array of nDataLength bytes.
+ * @param nDataLength Size in bytes of pData.
+ * @param papszOptions Unused. Should be nullptr.
+ *
+ * @return a part identifier that must be passed into the apszPartIds[] array of
+ * VSIMultipartUploadEnd(), and to free with CPLFree() once done, or nullptr in
+ * case of error.
+ *
+ * @since 3.10
+ */
+char *VSIMultipartUploadAddPart(const char *pszFilename,
+                                const char *pszUploadId, int nPartNumber,
+                                vsi_l_offset nFileOffset, const void *pData,
+                                size_t nDataLength, CSLConstList papszOptions)
+{
+    VSIFilesystemHandler *poFSHandler = VSIFileManager::GetHandler(pszFilename);
+
+    return poFSHandler->MultipartUploadAddPart(pszFilename, pszUploadId,
+                                               nPartNumber, nFileOffset, pData,
+                                               nDataLength, papszOptions);
+}
+
+/************************************************************************/
+/*                       VSIMultipartUploadEnd()                        */
+/************************************************************************/
+
+/**
+ * \brief Completes a multi-part file upload.
+ *
+ * Cf VSIMultipartUploadStart().
+ *
+ * @param pszFilename Filename for which multipart upload should be completed.
+ *                    Should be the same as the one used for
+ *                    VSIMultipartUploadStart()
+ * @param pszUploadId Value returned by VSIMultipartUploadStart()
+ * @param nPartIdsCount Number of parts,  andsize of apszPartIds
+ * @param apszPartIds Array of part identifiers (as returned by
+ *                    VSIMultipartUploadAddPart()), that must be ordered in
+ *                    the sequential order of parts, and of size nPartIdsCount.
+ * @param nTotalSize  Total size of the file in bytes (must be equal to the sum
+ *                    of nDataLength passed to VSIMultipartUploadAddPart())
+ * @param papszOptions Unused. Should be nullptr.
+ *
+ * @return TRUE in case of success, FALSE in case of failure.
+ *
+ * @since 3.10
+ */
+int VSIMultipartUploadEnd(const char *pszFilename, const char *pszUploadId,
+                          size_t nPartIdsCount, const char *const *apszPartIds,
+                          vsi_l_offset nTotalSize, CSLConstList papszOptions)
+{
+    VSIFilesystemHandler *poFSHandler = VSIFileManager::GetHandler(pszFilename);
+
+    return poFSHandler->MultipartUploadEnd(pszFilename, pszUploadId,
+                                           nPartIdsCount, apszPartIds,
+                                           nTotalSize, papszOptions);
+}
+
+/************************************************************************/
+/*                       VSIMultipartUploadAbort()                      */
+/************************************************************************/
+
+/**
+ * \brief Aborts a multi-part file upload.
+ *
+ * Cf VSIMultipartUploadStart().
+ *
+ * This function is not implemented for all virtual file systems.
+ * Use VSIMultipartUploadGetCapabilities() to determine if it is supported.
+ *
+ * This can be needed to avoid extra billing for some cloud storage providers.
+ *
+ * @param pszFilename Filename for which multipart upload should be completed.
+ *                    Should be the same as the one used for
+ *                    VSIMultipartUploadStart()
+ * @param pszUploadId Value returned by VSIMultipartUploadStart()
+ * @param papszOptions Unused. Should be nullptr.
+ *
+ * @return TRUE in case of success, FALSE in case of failure.
+ *
+ * @since 3.10
+ */
+int VSIMultipartUploadAbort(const char *pszFilename, const char *pszUploadId,
+                            CSLConstList papszOptions)
+{
+    VSIFilesystemHandler *poFSHandler = VSIFileManager::GetHandler(pszFilename);
+
+    return poFSHandler->MultipartUploadAbort(pszFilename, pszUploadId,
+                                             papszOptions);
+}
+
+#ifndef DOXYGEN_SKIP
+
+/************************************************************************/
+/*                     MultipartUploadGetCapabilities()                 */
+/************************************************************************/
+
+bool VSIFilesystemHandler::MultipartUploadGetCapabilities(int *, int *, int *,
+                                                          size_t *, size_t *,
+                                                          int *)
+{
+    CPLError(
+        CE_Failure, CPLE_NotSupported,
+        "MultipartUploadGetCapabilities() not supported by this file system");
+    return false;
+}
+
+/************************************************************************/
+/*                         MultipartUploadStart()                       */
+/************************************************************************/
+
+char *VSIFilesystemHandler::MultipartUploadStart(const char *, CSLConstList)
+{
+    CPLError(CE_Failure, CPLE_NotSupported,
+             "MultipartUploadStart() not supported by this file system");
+    return nullptr;
+}
+
+/************************************************************************/
+/*                       MultipartUploadAddPart()                       */
+/************************************************************************/
+
+char *VSIFilesystemHandler::MultipartUploadAddPart(const char *, const char *,
+                                                   int, vsi_l_offset,
+                                                   const void *, size_t,
+                                                   CSLConstList)
+{
+    CPLError(CE_Failure, CPLE_NotSupported,
+             "MultipartUploadAddPart() not supported by this file system");
+    return nullptr;
+}
+
+/************************************************************************/
+/*                         MultipartUploadEnd()                         */
+/************************************************************************/
+
+bool VSIFilesystemHandler::MultipartUploadEnd(const char *, const char *,
+                                              size_t, const char *const *,
+                                              vsi_l_offset, CSLConstList)
+{
+    CPLError(CE_Failure, CPLE_NotSupported,
+             "MultipartUploadEnd() not supported by this file system");
+    return FALSE;
+}
+
+/************************************************************************/
+/*                         MultipartUploadAbort()                       */
+/************************************************************************/
+
+bool VSIFilesystemHandler::MultipartUploadAbort(const char *, const char *,
+                                                CSLConstList)
+{
+    CPLError(CE_Failure, CPLE_NotSupported,
+             "MultipartUploadAbort() not supported by this file system");
+    return FALSE;
+}
+
+#endif
+
+/************************************************************************/
+/*                         VSIAbortPendingUploads()                     */
+/************************************************************************/
+
+/**
+ * \brief Abort all ongoing multi-part uploads.
  *
  * Abort ongoing multi-part uploads on AWS S3 and Google Cloud Storage. This
  * can be used in case a process doing such uploads was killed in a unclean way.
  *
+ * This can be needed to avoid extra billing for some cloud storage providers.
+ *
  * Without effect on other virtual file systems.
+ *
+ * VSIMultipartUploadAbort() can also be used to cancel a given upload, if the
+ * upload ID is known.
  *
  * @param pszFilename filename or prefix of a directory into which multipart
  * uploads must be aborted. This can be the root directory of a bucket.  UTF-8
@@ -883,16 +1609,27 @@ int VSIStatExL(const char *pszFilename, VSIStatBufL *psStatBuf, int nFlags)
  * Implemented currently only for network-like filesystems, or starting
  * with GDAL 3.7 for /vsizip/
  *
+ * Starting with GDAL 3.11, calling it with pszFilename being the root of a
+ * /vsigs/ bucket and pszDomain == nullptr, and when authenticated through
+ * OAuth2, will result in returning the result of a "Buckets: get"
+ * operation (https://cloud.google.com/storage/docs/json_api/v1/buckets/get),
+ * with the keys of the top-level JSON document as keys of the key=value pairs
+ * returned by this function.
+ *
  * @param pszFilename the path of the filesystem object to be queried.
  * UTF-8 encoded.
  * @param pszDomain Metadata domain to query. Depends on the file system.
- * The following are supported:
+ * The following ones are supported:
  * <ul>
  * <li>HEADERS: to get HTTP headers for network-like filesystems (/vsicurl/,
- * /vsis3/, /vsgis/, etc)</li> <li>TAGS: <ul> <li>/vsis3/: to get S3 Object
- * tagging information</li> <li>/vsiaz/: to get blob tags. Refer to
- * https://docs.microsoft.com/en-us/rest/api/storageservices/get-blob-tags</li>
- *    </ul>
+ * /vsis3/, /vsgis/, etc)</li>
+ * <li>TAGS:
+ *   <ul>
+ *     <li>/vsis3/: to get S3 Object tagging information</li>
+ *     <li>/vsiaz/: to get blob tags. Refer to
+ *     https://docs.microsoft.com/en-us/rest/api/storageservices/get-blob-tags
+ *     </li>
+ *   </ul>
  * </li>
  * <li>STATUS: specific to /vsiadls/: returns all system defined properties for
  * a path (seems in practice to be a subset of HEADERS)</li> <li>ACL: specific
@@ -900,7 +1637,7 @@ int VSIStatExL(const char *pszFilename, VSIStatBufL *psStatBuf, int nFlags)
  * /vsigs/, a single XML=xml_content string is returned. Refer to
  * https://cloud.google.com/storage/docs/xml-api/get-object-acls
  * </li>
- * <li>METADATA: specific to /vsiaz/: to set blob metadata. Refer to
+ * <li>METADATA: specific to /vsiaz/: to get blob metadata. Refer to
  * https://docs.microsoft.com/en-us/rest/api/storageservices/get-blob-metadata.
  * Note: this will be a subset of what pszDomain=HEADERS returns</li>
  * <li>ZIP: specific to /vsizip/: to obtain ZIP specific metadata, in particular
@@ -1314,6 +2051,7 @@ int VSIFilesystemHandler::CopyFile(const char *pszSource, const char *pszTarget,
     VSIVirtualHandleUniquePtr poFileHandleAutoClose;
     if (!fpSource)
     {
+        CPLAssert(pszSource);
         fpSource = VSIFOpenExL(pszSource, "rb", TRUE);
         if (!fpSource)
         {
@@ -1342,6 +2080,8 @@ int VSIFilesystemHandler::CopyFile(const char *pszSource, const char *pszTarget,
     CPLString osMsg;
     if (pszSource)
         osMsg.Printf("Copying of %s", pszSource);
+    else
+        pszSource = "(unknown filename)";
 
     int ret = 0;
     constexpr size_t nBufferSize = 10 * 4096;
@@ -1349,26 +2089,41 @@ int VSIFilesystemHandler::CopyFile(const char *pszSource, const char *pszTarget,
     GUIntBig nOffset = 0;
     while (true)
     {
-        size_t nRead = VSIFReadL(&abyBuffer[0], 1, nBufferSize, fpSource);
-        size_t nWritten = VSIFWriteL(&abyBuffer[0], 1, nRead, fpOut);
-        if (nWritten != nRead)
+        const size_t nRead = VSIFReadL(&abyBuffer[0], 1, nBufferSize, fpSource);
+        if (nRead < nBufferSize && VSIFErrorL(fpSource))
         {
-            CPLError(CE_Failure, CPLE_FileIO, "Copying of %s to %s failed",
-                     pszSource, pszTarget);
+            CPLError(
+                CE_Failure, CPLE_FileIO,
+                "Copying of %s to %s failed: error while reading source file",
+                pszSource, pszTarget);
             ret = -1;
             break;
         }
-        nOffset += nRead;
-        if (pProgressFunc &&
-            !pProgressFunc(nSourceSize == 0 ? 1.0
-                           : nSourceSize > 0 &&
-                                   nSourceSize != static_cast<vsi_l_offset>(-1)
-                               ? double(nOffset) / nSourceSize
-                               : 0.0,
-                           pszSource ? osMsg.c_str() : nullptr, pProgressData))
+        if (nRead > 0)
         {
-            ret = -1;
-            break;
+            const size_t nWritten = VSIFWriteL(&abyBuffer[0], 1, nRead, fpOut);
+            if (nWritten != nRead)
+            {
+                CPLError(CE_Failure, CPLE_FileIO,
+                         "Copying of %s to %s failed: error while writing into "
+                         "target file",
+                         pszSource, pszTarget);
+                ret = -1;
+                break;
+            }
+            nOffset += nRead;
+            if (pProgressFunc &&
+                !pProgressFunc(
+                    nSourceSize == 0 ? 1.0
+                    : nSourceSize > 0 &&
+                            nSourceSize != static_cast<vsi_l_offset>(-1)
+                        ? double(nOffset) / nSourceSize
+                        : 0.0,
+                    !osMsg.empty() ? osMsg.c_str() : nullptr, pProgressData))
+            {
+                ret = -1;
+                break;
+            }
         }
         if (nRead < nBufferSize)
         {
@@ -1390,7 +2145,27 @@ int VSIFilesystemHandler::CopyFile(const char *pszSource, const char *pszTarget,
     {
         ret = -1;
     }
+
+    if (ret != 0)
+        VSIUnlink(pszTarget);
+
     return ret;
+}
+
+/************************************************************************/
+/*                       CopyFileRestartable()                          */
+/************************************************************************/
+
+int VSIFilesystemHandler::CopyFileRestartable(
+    const char *pszSource, const char *pszTarget,
+    const char * /* pszInputPayload */, char **ppszOutputPayload,
+    CSLConstList papszOptions, GDALProgressFunc pProgressFunc,
+    void *pProgressData)
+{
+    *ppszOutputPayload = nullptr;
+    return CopyFile(pszSource, pszTarget, nullptr,
+                    static_cast<vsi_l_offset>(-1), papszOptions, pProgressFunc,
+                    pProgressData);
 }
 
 /************************************************************************/
@@ -1415,7 +2190,7 @@ bool VSIFilesystemHandler::Sync(const char *pszSource, const char *pszTarget,
     if (osSourceWithoutSlash.back() == '/' ||
         osSourceWithoutSlash.back() == '\\')
     {
-        osSourceWithoutSlash.resize(osSourceWithoutSlash.size() - 1);
+        osSourceWithoutSlash.pop_back();
     }
     if (VSIStatL(osSourceWithoutSlash, &sSource) < 0)
     {
@@ -1425,18 +2200,18 @@ bool VSIFilesystemHandler::Sync(const char *pszSource, const char *pszTarget,
 
     if (VSI_ISDIR(sSource.st_mode))
     {
-        CPLString osTargetDir(pszTarget);
+        std::string osTargetDir(pszTarget);
         if (osSource.back() != '/' && osSource.back() != '\\')
         {
-            osTargetDir = CPLFormFilename(osTargetDir,
-                                          CPLGetFilename(pszSource), nullptr);
+            osTargetDir = CPLFormFilenameSafe(
+                osTargetDir.c_str(), CPLGetFilename(pszSource), nullptr);
         }
 
         VSIStatBufL sTarget;
         bool ret = true;
-        if (VSIStatL(osTargetDir, &sTarget) < 0)
+        if (VSIStatL(osTargetDir.c_str(), &sTarget) < 0)
         {
-            if (VSIMkdirRecursive(osTargetDir, 0755) < 0)
+            if (VSIMkdirRecursive(osTargetDir.c_str(), 0755) < 0)
             {
                 CPLError(CE_Failure, CPLE_FileIO, "Cannot create directory %s",
                          osTargetDir.c_str());
@@ -1469,17 +2244,17 @@ bool VSIFilesystemHandler::Sync(const char *pszSource, const char *pszTarget,
                 {
                     continue;
                 }
-                CPLString osSubSource(
-                    CPLFormFilename(osSourceWithoutSlash, *iter, nullptr));
-                CPLString osSubTarget(
-                    CPLFormFilename(osTargetDir, *iter, nullptr));
+                const std::string osSubSource(CPLFormFilenameSafe(
+                    osSourceWithoutSlash.c_str(), *iter, nullptr));
+                const std::string osSubTarget(
+                    CPLFormFilenameSafe(osTargetDir.c_str(), *iter, nullptr));
                 // coverity[divide_by_zero]
                 void *pScaledProgress = GDALCreateScaledProgress(
                     double(iFile) / nFileCount, double(iFile + 1) / nFileCount,
                     pProgressFunc, pProgressData);
-                ret = Sync((osSubSource + SOURCE_SEP).c_str(), osSubTarget,
-                           aosChildOptions.List(), GDALScaledProgress,
-                           pScaledProgress, nullptr);
+                ret = Sync((osSubSource + SOURCE_SEP).c_str(),
+                           osSubTarget.c_str(), aosChildOptions.List(),
+                           GDALScaledProgress, pScaledProgress, nullptr);
                 GDALDestroyScaledProgress(pScaledProgress);
                 if (!ret)
                 {
@@ -1492,15 +2267,15 @@ bool VSIFilesystemHandler::Sync(const char *pszSource, const char *pszTarget,
     }
 
     VSIStatBufL sTarget;
-    CPLString osTarget(pszTarget);
-    if (VSIStatL(osTarget, &sTarget) == 0)
+    std::string osTarget(pszTarget);
+    if (VSIStatL(osTarget.c_str(), &sTarget) == 0)
     {
         bool bTargetIsFile = true;
         if (VSI_ISDIR(sTarget.st_mode))
         {
-            osTarget =
-                CPLFormFilename(osTarget, CPLGetFilename(pszSource), nullptr);
-            bTargetIsFile = VSIStatL(osTarget, &sTarget) == 0 &&
+            osTarget = CPLFormFilenameSafe(osTarget.c_str(),
+                                           CPLGetFilename(pszSource), nullptr);
+            bTargetIsFile = VSIStatL(osTarget.c_str(), &sTarget) == 0 &&
                             !CPL_TO_BOOL(VSI_ISDIR(sTarget.st_mode));
         }
         if (bTargetIsFile)
@@ -1833,7 +2608,7 @@ int VSIFilesystemHandler::RmdirRecursive(const char *pszDirname)
         (osDirnameWithoutEndSlash.back() == '/' ||
          osDirnameWithoutEndSlash.back() == '\\'))
     {
-        osDirnameWithoutEndSlash.resize(osDirnameWithoutEndSlash.size() - 1);
+        osDirnameWithoutEndSlash.pop_back();
     }
 
     const char SEP = VSIGetDirectorySeparator(pszDirname)[0];
@@ -1907,10 +2682,10 @@ bool VSIFilesystemHandler::SetFileMetadata(const char * /* pszFilename*/,
 /************************************************************************/
 
 /**
- * \brief Open file.
+ * \brief Open/create file.
  *
- * This function opens a file with the desired access.  Large files (larger
- * than 2GB) should be supported.  Binary access is always implied and
+ * This function opens (or creates) a file with the desired access.
+ * Binary access is always implied and
  * the "b" does not need to be included in the pszAccess string.
  *
  * Note that the "VSILFILE *" returned by this function is
@@ -1948,10 +2723,10 @@ VSILFILE *VSIFOpenExL(const char *pszFilename, const char *pszAccess,
 /************************************************************************/
 
 /**
- * \brief Open file.
+ * \brief Open/create file.
  *
- * This function opens a file with the desired access.  Large files (larger
- * than 2GB) should be supported.  Binary access is always implied and
+ * This function opens (or creates) a file with the desired access.
+ * Binary access is always implied and
  * the "b" does not need to be included in the pszAccess string.
  *
  * Note that the "VSILFILE *" returned by this function is
@@ -1976,6 +2751,23 @@ VSILFILE *VSIFOpenExL(const char *pszFilename, const char *pszAccess,
  * set the FILE_FLAG_WRITE_THROUGH flag to the CreateFile() function. In that
  * mode, the data is written to the system cache but is flushed to disk without
  * delay.</li>
+ * </ul>
+ *
+ * Options specifics to /vsis3/, /vsigs/, /vsioss/ and /vsiaz/ in "w" mode:
+ * <ul>
+ * <li>CHUNK_SIZE=val in MiB. (GDAL >= 3.10) Size of a block. Default is 50 MiB.
+ * For /vsis3/, /vsigz/, /vsioss/, it can be up to 5000 MiB.
+ * For /vsiaz/, only taken into account when BLOB_TYPE=BLOCK. It can be up to 4000 MiB.
+ * </li>
+ * </ul>
+ *
+ * Options specifics to /vsiaz/ in "w" mode:
+ * <ul>
+ * <li>BLOB_TYPE=APPEND/BLOCK. (GDAL >= 3.10) Type of blob. Defaults to APPEND.
+ * Append blocks are limited to 195 GiB
+ * (however if the file size is below 4 MiB, a block blob will be created in a
+ * single PUT operation)
+ * </li>
  * </ul>
  *
  * Analog of the POSIX fopen() function.
@@ -2243,7 +3035,9 @@ int VSIFFlushL(VSILFILE *fp)
  * @param nSize size of objects to read in bytes.
  * @param nCount number of objects to read.
  *
- * @return number of objects successfully read.
+ * @return number of objects successfully read. If that number is less than
+ * nCount, VSIFEofL() or VSIFErrorL() can be used to determine the reason for
+ * the short read.
  */
 
 /**
@@ -2263,7 +3057,9 @@ int VSIFFlushL(VSILFILE *fp)
  * @param nCount number of objects to read.
  * @param fp file handle opened with VSIFOpenL().
  *
- * @return number of objects successfully read.
+ * @return number of objects successfully read. If that number is less than
+ * nCount, VSIFEofL() or VSIFErrorL() can be used to determine the reason for
+ * the short read.
  */
 
 size_t VSIFReadL(void *pBuffer, size_t nSize, size_t nCount, VSILFILE *fp)
@@ -2393,14 +3189,14 @@ size_t VSIFWriteL(const void *pBuffer, size_t nSize, size_t nCount,
  *
  * Returns TRUE (non-zero) if an end-of-file condition occurred during the
  * previous read operation. The end-of-file flag is cleared by a successful
- * VSIFSeekL() call.
+ * VSIFSeekL() call, or a call to VSIFClearErrL().
  *
  * This method goes through the VSIFileHandler virtualization and may
  * work on unusual filesystems such as in memory.
  *
  * Analog of the POSIX feof() call.
  *
- * @return TRUE if at EOF else FALSE.
+ * @return TRUE if at EOF, else FALSE.
  */
 
 /**
@@ -2408,7 +3204,7 @@ size_t VSIFWriteL(const void *pBuffer, size_t nSize, size_t nCount,
  *
  * Returns TRUE (non-zero) if an end-of-file condition occurred during the
  * previous read operation. The end-of-file flag is cleared by a successful
- * VSIFSeekL() call.
+ * VSIFSeekL() call, or a call to VSIFClearErrL().
  *
  * This method goes through the VSIFileHandler virtualization and may
  * work on unusual filesystems such as in memory.
@@ -2417,13 +3213,95 @@ size_t VSIFWriteL(const void *pBuffer, size_t nSize, size_t nCount,
  *
  * @param fp file handle opened with VSIFOpenL().
  *
- * @return TRUE if at EOF else FALSE.
+ * @return TRUE if at EOF, else FALSE.
  */
 
 int VSIFEofL(VSILFILE *fp)
 
 {
     return fp->Eof();
+}
+
+/************************************************************************/
+/*                            VSIFErrorL()                              */
+/************************************************************************/
+
+/**
+ * \fn VSIVirtualHandle::Error()
+ * \brief Test the error indicator.
+ *
+ * Returns TRUE (non-zero) if an error condition occurred during the
+ * previous read operation. The error indicator is cleared by a call to
+ * VSIFClearErrL(). Note that a end-of-file situation, reported by VSIFEofL(),
+ * is *not* an error reported by VSIFErrorL().
+ *
+ * This method goes through the VSIFileHandler virtualization and may
+ * work on unusual filesystems such as in memory.
+ *
+ * Analog of the POSIX ferror() call.
+ *
+ * @return TRUE if the error indicator is set, else FALSE.
+ * @since 3.10
+ */
+
+/**
+ * \brief Test the error indicator.
+ *
+ * Returns TRUE (non-zero) if an error condition occurred during the
+ * previous read operation. The error indicator is cleared by a call to
+ * VSIFClearErrL(). Note that a end-of-file situation, reported by VSIFEofL(),
+ * is *not* an error reported by VSIFErrorL().
+ *
+ * This method goes through the VSIFileHandler virtualization and may
+ * work on unusual filesystems such as in memory.
+ *
+ * Analog of the POSIX feof() call.
+ *
+ * @param fp file handle opened with VSIFOpenL().
+ *
+ * @return TRUE if the error indicator is set, else FALSE.
+ * @since 3.10
+ */
+
+int VSIFErrorL(VSILFILE *fp)
+
+{
+    return fp->Error();
+}
+
+/************************************************************************/
+/*                           VSIFClearErrL()                            */
+/************************************************************************/
+
+/**
+ * \fn VSIVirtualHandle::ClearErr()
+ * \brief Reset the error and end-of-file indicators.
+ *
+ * This method goes through the VSIFileHandler virtualization and may
+ * work on unusual filesystems such as in memory.
+ *
+ * Analog of the POSIX clearerr() call.
+ *
+ * @since 3.10
+ */
+
+/**
+ * \brief Reset the error and end-of-file indicators.
+ *
+ * This method goes through the VSIFileHandler virtualization and may
+ * work on unusual filesystems such as in memory.
+ *
+ * Analog of the POSIX clearerr() call.
+ *
+ * @param fp file handle opened with VSIFOpenL().
+ *
+ * @since 3.10
+ */
+
+void VSIFClearErrL(VSILFILE *fp)
+
+{
+    fp->ClearErr();
 }
 
 /************************************************************************/
@@ -2998,7 +3876,7 @@ void VSISetCredential(const char *pszPathPrefix, const char *pszKey,
  *
  * @param pszPathPrefix a path prefix of a virtual file system handler.
  *                      Typically of the form "/vsiXXX/bucket". Must NOT be
- * NULL.
+ * NULL. Should not include trailing slashes.
  * @param pszKey        Option name. Must NOT be NULL.
  * @param pszValue      Option value. May be NULL to erase it.
  *

@@ -89,7 +89,7 @@ if test "${CIFUZZ:-}" = "True"; then
             -L$SRC_DIR/build -lgdal \
             -lproj \
             -Wl,-Bstatic -lzstd -lwebp -llzma -lexpat -lsqlite3 -lgif -ljpeg -lz \
-            -Wl,-Bdynamic -ldl -lpthread
+            -Wl,-Bdynamic -ldl -lpthread -lclang_rt.builtins
 
   echo "Building ogr_fuzzer"
   $CXX $CXXFLAGS \
@@ -103,7 +103,7 @@ if test "${CIFUZZ:-}" = "True"; then
             -L$SRC_DIR/build -lgdal \
             -L$SRC/install/lib -lproj \
             -Wl,-Bstatic -lzstd -lwebp -llzma -lexpat -lsqlite3 -lgif -ljpeg -lz \
-            -Wl,-Bdynamic -ldl -lpthread
+            -Wl,-Bdynamic -ldl -lpthread -lclang_rt.builtins
 
   echo "Building gdal_fuzzer_seed_corpus.zip"
   cd $(dirname $0)/../autotest/gcore/data
@@ -139,8 +139,18 @@ curl -L https://github.com/Unidata/netcdf-c/archive/refs/tags/v4.7.4.tar.gz > v4
     patch -p0 < $SRC/gdal/fuzzers/fix_stack_read_overflow_ncindexlookup.patch && \
     cd ..
 
+rm -rf freetype-2.13.2
+curl -L https://download.savannah.gnu.org/releases/freetype/freetype-2.13.2.tar.xz > freetype-2.13.2.tar.xz && \
+    tar xJf freetype-2.13.2.tar.xz && \
+    rm freetype-2.13.2.tar.xz
+
 rm -rf poppler
-git clone --depth 1 https://anongit.freedesktop.org/git/poppler/poppler.git poppler
+# Poppler git server is too unreliable. Use a snapshot of a given version
+#git clone --depth 1 https://anongit.freedesktop.org/git/poppler/poppler.git poppler
+curl -L https://poppler.freedesktop.org/poppler-24.10.0.tar.xz > poppler-24.10.0.tar.xz && \
+    tar xJf poppler-24.10.0.tar.xz && \
+    mv poppler-24.10.0 poppler && \
+    rm poppler-24.10.0.tar.xz
 
 # Build xerces-c from source to avoid upstream bugs
 rm -rf xerces-c
@@ -148,7 +158,16 @@ git clone --depth 1 https://gitbox.apache.org/repos/asf/xerces-c.git
 
 # Build sqlite from source to avoid upstream bugs
 rm -rf sqlite
-git clone --depth 1 https://github.com/sqlite/sqlite sqlite
+curl -L https://sqlite.org/2024/sqlite-autoconf-3470000.tar.gz > sqlite-autoconf-3470000.tar.gz && \
+    tar xzf sqlite-autoconf-3470000.tar.gz && \
+    mv sqlite-autoconf-3470000 sqlite && \
+    rm sqlite-autoconf-3470000.tar.gz
+
+rm -rf muparser
+curl -L https://github.com/beltoforion/muparser/archive/refs/tags/v2.3.5.tar.gz > v2.3.5.tar.gz && \
+  tar xzf v2.3.5.tar.gz && \
+  mv muparser-2.3.5 muparser && \
+  rm v2.3.5.tar.gz
 
 # libxerces-c-dev${ARCH_SUFFIX}
 # libsqlite3-dev${ARCH_SUFFIX}
@@ -174,9 +193,30 @@ if [ "$ARCHITECTURE" = "i386" ]; then
 fi
 NON_FUZZING_CXXFLAGS="$NON_FUZZING_CFLAGS -stdlib=libc++"
 
+# build muparser
+cd muparser
+mkdir build
+cd build
+cmake .. -DBUILD_SHARED_LIBS:BOOL=OFF \
+        -DCMAKE_INSTALL_PREFIX=$SRC/install \
+        -DCMAKE_BUILD_TYPE=debug \
+        -DENABLE_OPENMP=OFF \
+        -DENABLE_SAMPLES=OFF
+make -j$(nproc) -s
+make install
+cd ../..
+
 # build sqlite
 cd sqlite
-CFLAGS="$NON_FUZZING_CFLAGS -DSQLITE_ENABLE_COLUMN_METADATA" ./configure --prefix=$SRC/install --enable-rtree --disable-tcl
+CFLAGS="$NON_FUZZING_CFLAGS -DSQLITE_ENABLE_COLUMN_METADATA" ./configure --prefix=$SRC/install --enable-rtree
+make clean -s
+make -j$(nproc) -s
+make install
+cd ..
+
+# build freetype
+cd freetype-2.13.2
+CFLAGS="$NON_FUZZING_CFLAGS" ./configure --prefix=$SRC/install
 make clean -s
 make -j$(nproc) -s
 make install
@@ -201,8 +241,10 @@ fi
 cd poppler
 mkdir -p build
 cd build
+# -DENABLE_BOOST=OFF because Boost 1.74 is now required. Ubuntu 20.04 only provides 1.71
 cmake .. \
   -DCMAKE_INSTALL_PREFIX=$SRC/install \
+  -DCMAKE_PREFIX_PATH=$SRC/install \
   -DCMAKE_BUILD_TYPE=debug \
   -DCMAKE_C_FLAGS="$POPPLER_C_FLAGS" \
   -DCMAKE_CXX_FLAGS="$POPPLER_CXX_FLAGS" \
@@ -222,6 +264,7 @@ cmake .. \
   -DENABLE_GPGME=OFF \
   -DENABLE_LCMS=OFF \
   -DENABLE_UTILS=OFF \
+  -DENABLE_BOOST=OFF \
   -DWITH_Cairo=OFF \
   -DWITH_NSS3=OFF \
   -DBUILD_CPP_TESTS=OFF \
@@ -311,6 +354,8 @@ cd ..
 export EXTRA_LIBS="-Wl,-Bstatic "
 # curl related
 export EXTRA_LIBS="$EXTRA_LIBS -L$SRC/install/lib -lcurl -lssl -lcrypto -lz"
+# muparser
+export EXTRA_LIBS="$EXTRA_LIBS -lmuparser "
 # PROJ
 export EXTRA_LIBS="$EXTRA_LIBS -lproj -ltiff "
 export EXTRA_LIBS="$EXTRA_LIBS -ljbig -lzstd -lwebp -llzma -lexpat -L$SRC/install/lib -lsqlite3 -lgif -ljpeg -lpng -lz"
@@ -322,7 +367,7 @@ if [ "$ARCHITECTURE" = "x86_64" ]; then
 fi
 # poppler related
 export EXTRA_LIBS="$EXTRA_LIBS -L$SRC/install/lib -lpoppler -ljpeg -lfreetype -lfontconfig -lpng"
-export EXTRA_LIBS="$EXTRA_LIBS -Wl,-Bdynamic -ldl -lpthread"
+export EXTRA_LIBS="$EXTRA_LIBS -Wl,-Bdynamic -ldl -lpthread -lclang_rt.builtins"
 
 # to find sqlite3.h
 export CXXFLAGS="$CXXFLAGS -I$SRC/install/include"

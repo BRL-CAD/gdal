@@ -153,6 +153,9 @@ COPY-based approach can be chosen by setting the config option
 Dataset open options
 ~~~~~~~~~~~~~~~~~~~~
 
+|about-open-options|
+The following open options are supported:
+
 -  .. oo:: DBNAME
       :choices: <string>
 
@@ -196,6 +199,15 @@ Dataset open options
 -  .. oo:: TABLES
 
       Restricted set of tables to list (comma separated).
+      Each table name can be qualified by its schema, like ``schema_name.table_name``.
+      For tables with multiple geometry columns, the ``table_name(geometry_column)``
+      syntax can be used.
+
+      Starting with GDAL 3.11, if the table name itself contains an open parenthesis ``(``,
+      or a backslash character ``\``, they must be escaped with a preceding backslash
+      character. e.g. ``table_name \(with parenthesis)``.
+      If that table name contains a comma, the table name must be quoted with
+      double quotes. e.g. ``first_table,"second table, with comma"``.
 
 -  .. oo:: LIST_ALL_TABLES
       :choices: YES, NO
@@ -238,6 +250,9 @@ None
 
 Layer Creation Options
 ~~~~~~~~~~~~~~~~~~~~~~
+
+|about-layer-creation-options|
+The following layer creation options are supported:
 
 -  .. lco:: GEOM_TYPE
       :choices: geometry, geography, BYTEA, OID
@@ -389,8 +404,8 @@ Layer Creation Options
 Configuration Options
 ~~~~~~~~~~~~~~~~~~~~~
 
-The following :ref:`configuration options <configoptions>` are
-available:
+|about-config-options|
+The following configuration options are available:
 
 -  .. config:: PG_USE_COPY
 
@@ -401,6 +416,12 @@ available:
       .. warning:: At time of writing, PgPoolII is not compatible with COPY
                    mode as used by the OGR PostgreSQL driver. Thus you should
                    force PG_USE_COPY=NO when using PgPoolII.
+
+      .. warning:: It is not always possible to use COPY. In particular if
+                   the input layer has columns with a DEFAULT value specified
+                   and that the feature has no value set for that given field,
+                   the driver will default to INSERT even if instructed to use
+                   COPY via this option.
 
 -  .. config:: PGSQL_OGR_FID
 
@@ -454,9 +475,24 @@ available:
       :default: YES
       :since: 3.9
 
-      If set to "YES" (the default), the driver will try to use (and potentially
-      create) the ``ogr_system_tables.metadata`` table to retrieve and store
-      layer metadata.
+      If set to "YES" (the default), the driver will try to use the
+      ``ogr_system_tables.metadata`` table to retrieve and store
+      layer metadata. To be able to store metadata, the schema ``ogr_system_tables``
+      and the event trigger ``ogr_system_tables_event_trigger_for_metadata`` must
+      already exist in the database, or the current user must have sufficient rights
+      (super-user rights for the event trigger) to be able to create them. If not,
+      a warning will be raised.
+
+-  .. config:: OGR_PG_SKIP_CONFLICTS
+      :choices: YES, NO
+      :default: NO
+      :since: 3.10
+
+      If set to "YES" (not the default),
+      conflicts when inserting features will be skipped
+      (requires OGR_PG_RETRIEVE_FID to be off and only applies when PG_USE_COPY
+      is off).
+
 
 Examples
 ~~~~~~~~
@@ -469,17 +505,6 @@ Examples
    ::
 
       ogr2ogr -f PostgreSQL PG:dbname=warmerda abc.shp
-
--  This second example loads a political boundaries layer from VPF (via
-   the :ref:`OGDI driver <vector.ogdi>`), and renames the layer from the
-   cryptic OGDI layer name to something more sensible. If an existing
-   table of the desired name exists it is overwritten.
-
-   ::
-
-      ogr2ogr -f PostgreSQL PG:dbname=warmerda \
-              gltp:/vrf/usr4/mpp1/v0eur/vmaplv0/eurnasia \
-              -lco OVERWRITE=yes -nln polbndl_bnd 'polbndl@bnd(*)_line'
 
 - Export a single Postgres table to GeoPackage:
 

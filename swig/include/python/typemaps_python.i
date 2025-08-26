@@ -1,5 +1,4 @@
 /******************************************************************************
- * $Id$
  *
  * Name:     typemaps_python.i
  * Project:  GDAL Python Interface
@@ -225,6 +224,15 @@ TYPEMAP_ARGOUT_ARGOUT_ARRAY_IS_VALID(6)
   /* %typemap(out) IF_ERROR_RETURN_NONE */
 }
 
+%typemap(ret) IF_ERROR_RETURN_NONE
+{
+  /* %typemap(ret) IF_ERROR_RETURN_NONE */
+  if ($1 != CE_None ) {
+    Py_XDECREF( $result );
+    $result = Py_None;
+    Py_INCREF($result);
+  }
+}
 
 %import "ogr_error_map.i"
 
@@ -248,6 +256,32 @@ TYPEMAP_ARGOUT_ARGOUT_ARRAY_IS_VALID(6)
     resultobj = PyInt_FromLong( $1 );
   }
 }
+
+%fragment("CreateTupleFromIntArray","header") %{
+static PyObject *
+CreateTupleFromIntArray( const int *first, size_t size ) {
+  PyObject *out = PyTuple_New( size );
+  for( unsigned int i=0; i<size; i++ ) {
+    PyObject *val = PyInt_FromLong( *first );
+    ++first;
+    PyTuple_SetItem( out, i, val );
+  }
+  return out;
+}
+%}
+
+%fragment("CreateTupleFromInt64Array","header") %{
+static PyObject *
+CreateTupleFromInt64Array( const long long *first, size_t size ) {
+  PyObject *out = PyTuple_New( size );
+  for( unsigned int i=0; i<size; i++ ) {
+    PyObject *val = PyLong_FromLongLong( *first );
+    ++first;
+    PyTuple_SetItem( out, i, val );
+  }
+  return out;
+}
+%}
 
 %fragment("CreateTupleFromDoubleArray","header") %{
 static PyObject *
@@ -383,6 +417,66 @@ CreateCIntListFromSequence( PyObject* pySeq, int* pnSize ) {
 %typemap(freearg) (int nList, int* pList)
 {
   /* %typemap(freearg) (int nList, int* pList) */
+  free($2);
+}
+
+%fragment("CreateCInt64ListFromSequence","header") %{
+static long long*
+CreateCInt64ListFromSequence( PyObject* pySeq, int* pnSize ) {
+  /* check if is List */
+  if ( !PySequence_Check(pySeq) ) {
+    PyErr_SetString(PyExc_TypeError, "not a sequence");
+    *pnSize = -1;
+    return NULL;
+  }
+  Py_ssize_t size = PySequence_Size(pySeq);
+  if( size > (Py_ssize_t)INT_MAX ) {
+    PyErr_SetString(PyExc_RuntimeError, "too big sequence");
+    *pnSize = -1;
+    return NULL;
+  }
+  if( (size_t)size > SIZE_MAX / sizeof(long long) ) {
+    PyErr_SetString(PyExc_RuntimeError, "too big sequence");
+    *pnSize = -1;
+    return NULL;
+  }
+  *pnSize = (int)size;
+  long long* ret = (long long*) malloc((*pnSize)*sizeof(long long));
+  if( !ret ) {
+    PyErr_SetString(PyExc_MemoryError, "cannot allocate temporary buffer");
+    *pnSize = -1;
+    return NULL;
+  }
+  for( int i = 0; i<*pnSize; i++ ) {
+    PyObject *o = PySequence_GetItem(pySeq,i);
+    if ( !PyArg_Parse(o,"L",&ret[i]) ) {
+        PyErr_SetString(PyExc_TypeError, "not an integer");
+        Py_DECREF(o);
+        free(ret);
+        *pnSize = -1;
+        return NULL;
+    }
+    Py_DECREF(o);
+  }
+  return ret;
+}
+%}
+
+/*
+ *  Typemap for counted arrays of int64s <- PySequence
+ */
+%typemap(in,numinputs=1,fragment="CreateCInt64ListFromSequence") (int nList, long long* pList)
+{
+  /* %typemap(in,numinputs=1) (int nList, long long* pList)*/
+  $2 = CreateCInt64ListFromSequence($input, &$1);
+  if( $1 < 0 ) {
+    SWIG_fail;
+  }
+}
+
+%typemap(freearg) (int nList, long long* pList)
+{
+  /* %typemap(freearg) (int nList, long long* pList) */
   free($2);
 }
 
@@ -565,19 +659,6 @@ CreateCDoubleListFromSequence( PyObject* pySeq, int* pnSize ) {
   /* %typemap(freearg) (int nList, double* pList) */
   free($2);
 }
-
-%fragment("CreateTupleFromIntegerArray","header") %{
-static PyObject *
-CreateTupleFromDoubleArray( int *first, unsigned int size ) {
-  PyObject *out = PyTuple_New( size );
-  for( unsigned int i=0; i<size; i++ ) {
-    PyObject *val = PyInt_FromInt( *first );
-    ++first;
-    PyTuple_SetItem( out, i, val );
-  }
-  return out;
-}
-%}
 
 /*
  * Typemap Band::ReadRaster()
@@ -928,7 +1009,7 @@ GetBufferAsCharPtrGIntBigSize( PyObject* input, GIntBig *nLen, char **pBuf, int 
   }
   for( int i=0; i<*$1; i++ ) {
     char szTmp[32];
-    sprintf(szTmp, CPL_FRMT_GIB, (*$2)[i]);
+    snprintf(szTmp, sizeof(szTmp), CPL_FRMT_GIB, (*$2)[i]);
     PyObject* val;
     val = PyLong_FromString(szTmp, NULL, 10);
     PyList_SetItem( out, i, val );
@@ -1462,6 +1543,7 @@ static PyObject* CSLToList( char** stringarray, bool *pbErr )
 
 OPTIONAL_POD(int,i);
 OPTIONAL_POD(GIntBig,L);
+OPTIONAL_POD(double, d);
 
 /*
  * Typedef const char * <- Any object.
@@ -1739,6 +1821,8 @@ static PyObject *XMLTreeToPyList( CPLXMLNode *psTree )
     {
         if( pszCallbackName == NULL || EQUAL(pszCallbackName,"CPLQuietErrorHandler") )
             $1 = CPLQuietErrorHandler;
+        else if( EQUAL(pszCallbackName,"CPLQuietWarningsErrorHandler") )
+            $1 = CPLQuietWarningsErrorHandler;
         else if( EQUAL(pszCallbackName,"CPLDefaultErrorHandler") )
             $1 = CPLDefaultErrorHandler;
         else if( EQUAL(pszCallbackName,"CPLLoggingErrorHandler") )
@@ -1907,7 +1991,7 @@ OBJECT_LIST_INPUT(GDALDatasetShadow);
     }
     for ( int i = 0; i < $1; ++i ) {
       char szTmp[32];
-      sprintf(szTmp, CPL_FRMT_GUIB, integerarray[i]);
+      snprintf(szTmp, sizeof(szTmp), CPL_FRMT_GUIB, integerarray[i]);
       PyObject *o = PyLong_FromString(szTmp, NULL, 10);
       PyList_SetItem($result, i, o );
     }
@@ -2385,6 +2469,41 @@ DecomposeSequenceOf4DCoordinates( PyObject *seq, int nCount, double *x, double *
     VSIFree(*$3);
 }
 
+%typemap(in) (GDALDataType eType)
+{
+    if (PyInt_Check($input))
+    {
+        $1 = static_cast<GDALDataType>(PyInt_AsLong($input));
+    }
+    else
+    {
+        PyObject* gdal_array = PyImport_ImportModule("osgeo.gdal_array");
+        if (gdal_array) 
+        {
+            PyObject* dict = PyModule_GetDict(gdal_array);
+            PyObject* fn = PyDict_GetItemString(dict, "NumericTypeCodeToGDALTypeCode");
+            PyObject* type_code = PyObject_CallFunctionObjArgs(fn, $input, NULL);
+
+            Py_DECREF(gdal_array);
+            if (type_code && PyInt_Check(type_code))
+            {
+                $1 = static_cast<GDALDataType>(PyInt_AsLong(type_code));
+                Py_DECREF(type_code);
+            }
+            else
+            {
+                Py_XDECREF(type_code);
+                PyErr_SetString(PyExc_RuntimeError, "type must be a GDAL data type code or NumPy type");
+                SWIG_fail;
+            }
+        }
+        else
+        {
+            PyErr_SetString(PyExc_RuntimeError, "gdal_array module is not available; type must be a specified as a GDAL data type code");
+            SWIG_fail;
+        }
+    }
+}
 
 %typemap(in) (const char *utf8_path) (int bToFree = 0)
 {
@@ -2497,6 +2616,11 @@ DecomposeSequenceOf4DCoordinates( PyObject *seq, int nCount, double *x, double *
   {
     buf->format = (char*) "I";
     buf->itemsize = 4;
+  }
+  else if( *($3) == GDT_Float16 )
+  {
+    buf->format = (char*) "f";
+    buf->itemsize = 2;
   }
   else if( *($3) == GDT_Float32 )
   {
@@ -2852,7 +2976,7 @@ OBJECT_LIST_INPUT_ITEM_MAY_BE_NULL(GDALDimensionHS);
   }
   for( size_t i = 0; i < *$2; i++ ) {
       char szTmp[32];
-      sprintf(szTmp, CPL_FRMT_GUIB, (*$1)[i]);
+      snprintf(szTmp, sizeof(szTmp), CPL_FRMT_GUIB, (*$1)[i]);
       PyObject *o = PyLong_FromString(szTmp, NULL, 10);
       PyList_SetItem($result, i, o );
   }
@@ -2873,23 +2997,40 @@ OBJECT_LIST_INPUT_ITEM_MAY_BE_NULL(GDALDimensionHS);
   $1 = &vals;
   $2 = &nCount;
 }
-%typemap(argout) (int** pvals, size_t* pnCount)
+%typemap(argout, fragment="CreateTupleFromIntArray") (int** pvals, size_t* pnCount)
 {
   /* %typemap(argout) (int** pvals, size_t* pnCount) */
+  PyObject *list = CreateTupleFromIntArray(*$1, *$2);
   Py_DECREF($result);
-  $result = PyTuple_New( *$2 );
-  if( !$result ) {
-    SWIG_fail;
-  }
-  for( unsigned int i=0; i<*$2; i++ ) {
-    PyObject *val = PyInt_FromLong( (*$1)[i] );
-    PyTuple_SetItem( $result, i, val );
-  }
+  $result = list;
 }
 
 %typemap(freearg) (int** pvals, size_t* pnCount)
 {
   /* %typemap(freearg) (int** pvals, size_t* pnCount) */
+  CPLFree(*$1);
+}
+
+/*
+ * Typemap argout for GDALAttributeReadAsInt64Array()
+ */
+%typemap(in,numinputs=0) (long long** pvals, size_t* pnCount) ( long long* vals=0, size_t nCount = 0 )
+{
+  /* %typemap(in,numinputs=0) (long long** pvals, size_t* pnCount) */
+  $1 = &vals;
+  $2 = &nCount;
+}
+%typemap(argout, fragment="CreateTupleFromInt64Array") (long long** pvals, size_t* pnCount)
+{
+  /* %typemap(argout) (int** pvals, size_t* pnCount) */
+  PyObject *list = CreateTupleFromInt64Array(*$1, *$2);
+  Py_DECREF($result);
+  $result = list;
+}
+
+%typemap(freearg) (long long** pvals, size_t* pnCount)
+{
+  /* %typemap(freearg) (long long** pvals, size_t* pnCount) */
   CPLFree(*$1);
 }
 
@@ -2975,6 +3116,20 @@ OBJECT_LIST_INPUT(GDALEDTComponentHS)
 %#endif
 }
 
+%typemap(in) GDALAccess
+{
+    // %typemap(in) GDALAccess
+    int val = 0;
+    int ecode = SWIG_AsVal_int($input, &val);
+    if (!SWIG_IsOK(ecode)) {
+        SWIG_exception_fail(SWIG_ArgError(ecode), "invalid value for GDALAccess");
+    }
+    if( val != GA_ReadOnly && val != GA_Update )
+    {
+        SWIG_exception_fail(SWIG_ValueError, "invalid value for GDALAccess");
+    }
+    $1 = static_cast<GDALAccess>(val);
+}
 
 %typemap(in) GDALRIOResampleAlg
 {
@@ -3514,4 +3669,91 @@ OBJECT_LIST_INPUT(GDALMDArrayHS);
 %#else
   $result = SWIG_Python_AppendOutput($result,r);
 %#endif
+}
+
+
+
+%typemap(in,numinputs=0) (int* pnRetCode, char** ppszOutputPayload) ( int nRetCode = 0, char* pszOutputPayload = 0 )
+{
+  /* %typemap(in) (int* pnRetCode, char** ppszOutputPayload) */
+  $1 = &nRetCode;
+  $2 = &pszOutputPayload;
+}
+
+%typemap(argout) (int* pnRetCode, char** ppszOutputPayload)
+{
+   /* %typemap(argout) (int* pnRetCode, char** ppszOutputPayload)  */
+  PyObject *r = PyTuple_New( 2 );
+  PyTuple_SetItem( r, 0, PyLong_FromLong(*$1) );
+  if( *$2 )
+  {
+      PyTuple_SetItem( r, 1, GDALPythonObjectFromCStr(*$2) );
+      VSIFree(*$2);
+  }
+  else
+  {
+      Py_INCREF(Py_None);
+      PyTuple_SetItem( r, 1, Py_None );
+  }
+%#if SWIG_VERSION >= 0x040300
+  $result = SWIG_Python_AppendOutput($result,r,$isvoid);
+%#else
+  $result = SWIG_Python_AppendOutput($result,r);
+%#endif
+}
+
+
+%typemap(in,numinputs=0) (int* pnRetCode,
+                          int *pbNonSequentialUploadSupported,
+                          int *pbParallelUploadSupported,
+                          int *pbSupportsAbort,
+                          size_t *pnMinPartSize,
+                          size_t *pnMaxPartSize,
+                          int *pnMaxPartCount) (
+                              int nRetCode = 0,
+                              int bNonSequentialUploadSupported = 0,
+                              int bParallelUploadSupported = 0,
+                              int bSupportsAbort = 0,
+                              size_t nMinPartSize = 0,
+                              size_t nMaxPartSize = 0,
+                              int nMaxPartCount = 0 )
+{
+  $1 = &nRetCode;
+  $2 = &bNonSequentialUploadSupported;
+  $3 = &bParallelUploadSupported;
+  $4 = &bSupportsAbort;
+  $5 = &nMinPartSize;
+  $6 = &nMaxPartSize;
+  $7 = &nMaxPartCount;
+}
+
+%typemap(argout) (int* pnRetCode,
+                  int *pbNonSequentialUploadSupported,
+                  int *pbParallelUploadSupported,
+                  int *pbSupportsAbort,
+                  size_t *pnMinPartSize,
+                  size_t *pnMaxPartSize,
+                  int *pnMaxPartCount)
+{
+  if( *$1 == 0 )
+  {
+      Py_DECREF($result);
+      $result = Py_None;
+      Py_INCREF(Py_None);
+  }
+  else
+  {
+      PyObject *r = PyTuple_New( 6 );
+      PyTuple_SetItem( r, 0, PyBool_FromLong(*$2) );
+      PyTuple_SetItem( r, 1, PyBool_FromLong(*$3) );
+      PyTuple_SetItem( r, 2, PyBool_FromLong(*$4) );
+      PyTuple_SetItem( r, 3, PyLong_FromUnsignedLongLong(*$5) );
+      PyTuple_SetItem( r, 4, PyLong_FromUnsignedLongLong(*$6) );
+      PyTuple_SetItem( r, 5, PyLong_FromUnsignedLongLong(*$7) );
+%#if SWIG_VERSION >= 0x040300
+      $result = SWIG_Python_AppendOutput($result,r,$isvoid);
+%#else
+      $result = SWIG_Python_AppendOutput($result,r);
+%#endif
+  }
 }
