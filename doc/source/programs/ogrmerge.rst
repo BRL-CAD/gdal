@@ -35,8 +35,6 @@ Options specific to the :ref:`-single <ogrmerge_single_option>` option:
 Description
 -----------
 
-.. versionadded:: 2.2
-
 :program:`ogrmerge` takes as input several vector datasets,
 each of them having one or several vector layers, and copies them into
 a target dataset.
@@ -60,6 +58,10 @@ potential manual editing of it and :program:`ogr2ogr` can be done.
 
     ogrmerge is a Python utility, and is only available if GDAL Python bindings are available.
 
+.. note::
+
+    Starting with GDAL 3.11, a newer :ref:`gdal_vector_concat` program is available.
+
 .. program:: ogrmerge
 
 .. include:: options/help_and_help_general.rst
@@ -74,7 +76,7 @@ potential manual editing of it and :program:`ogr2ogr` can be done.
 
 .. option:: -f <format>
 
-    Select the output format. Starting with GDAL 2.3, if not specified,
+    Select the output format. If not specified,
     the format is guessed from the extension (previously was ESRI
     Shapefile). Use the short format name
 

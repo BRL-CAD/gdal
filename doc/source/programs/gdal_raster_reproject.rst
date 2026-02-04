@@ -81,52 +81,13 @@ Standard options
 
     .. include:: options/srs_def_gdalwarp.rst
 
-.. option:: -r, --resampling <RESAMPLING>
-
-    Resampling method to use. Available methods are:
-
-    ``near``: nearest neighbour resampling (default, fastest algorithm, worst interpolation quality).
-
-    ``bilinear``: bilinear resampling.
-
-    ``cubic``: cubic resampling.
-
-    ``cubicspline``: cubic spline resampling.
-
-    ``lanczos``: Lanczos windowed sinc resampling.
-
-    ``average``: average resampling, computes the weighted average of all non-NODATA contributing pixels.
-
-    ``rms`` root mean square / quadratic mean of all non-NODATA contributing pixels
-
-    ``mode``: mode resampling, selects the value which appears most often of all the sampled points. In the case of ties, the first value identified as the mode will be selected.
-
-    ``max``: maximum resampling, selects the maximum value from all non-NODATA contributing pixels.
-
-    ``min``: minimum resampling, selects the minimum value from all non-NODATA contributing pixels.
-
-    ``med``: median resampling, selects the median value of all non-NODATA contributing pixels.
-
-    ``q1``: first quartile resampling, selects the first quartile value of all non-NODATA contributing pixels.
-
-    ``q3``: third quartile resampling, selects the third quartile value of all non-NODATA contributing pixels.
-
-    ``sum``: compute the weighted sum of all non-NODATA contributing pixels
-
-    .. note::
-
-        When downsampling is performed (use of :option:`--resolution` or :option:`--size`), existing
-        overviews (either internal/implicit or external ones) on the source image
-        will be used by default by selecting the closest overview to the desired output
-        resolution.
-        The resampling method used to create those overviews is generally not the one you
-        specify through the :option:`-r` option.
+.. include:: gdal_options/warp_resampling.rst
 
 .. option:: --resolution <xres>,<yres>
 
     Set output file resolution (in target georeferenced units).
 
-    If not specified (or not deduced from -te and -ts), gdalwarp will, in the
+    If not specified (or not deduced from :option:`--size`), the program will, in the
     general case, generate an output raster with xres=yres.
 
     If neither :option:`--resolution` nor :option:`--size` are specified,
@@ -134,11 +95,14 @@ Standard options
     or RPC), the resolution of the source file(s) will be preserved (in previous
     version, an output raster with xres=yres was always generated).
 
+    Mutually exclusive with :option:`--size`.
+
 .. option:: --size <width>,<height>
 
     Set output file size in pixels and lines. If width or height is set to 0,
-    the other dimension will be guessed from the computed resolution. Note that
-    :option:`--size` cannot be used with :option:`--resolution`
+    the other dimension will be guessed from the computed resolution.
+
+    Mutually exclusive with :option:`--resolution`.
 
 .. option:: --bbox <xmin>,<ymin>,<xmax>,<ymax>
 
@@ -163,6 +127,13 @@ Standard options
     blank, before actual warping, will be removed).
     Alignment means that xmin / resx, ymin / resy,
     xmax / resx and ymax / resy are integer values.
+
+.. option:: -j, --num-threads <value>
+
+    .. versionadded:: 3.12
+
+    Number of jobs to run at once.
+    Default: number of CPUs detected.
 
 Advanced options
 ++++++++++++++++
@@ -195,7 +166,7 @@ Advanced options
     Note that a number of output formats, including GeoTIFF, do not support
     different per-band nodata values, but a single one for all bands.
 
-.. option:: --addalpha
+.. option:: --add-alpha
 
     Create an output alpha band to identify nodata (unset/transparent) pixels.
     Value 0 is used for fully transparent pixels. The maximum value for the alpha
@@ -214,6 +185,8 @@ Advanced options
 
     Set a transformer option suitable to pass to :cpp:func:`GDALCreateGenImgProjTransformer2`.
     See :cpp:func:`GDALCreateRPCTransformerV2()` for RPC specific options.
+
+    To match the gdalwarp -rpc option, use --to METHOD=RPC
 
 .. option:: --et, --error-threshold <ERROR-THRESHOLD>
 

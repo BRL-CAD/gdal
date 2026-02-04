@@ -22,6 +22,8 @@ Description
 
 :program:`gdal raster contour` creates a vector contour from a raster elevation model (DEM).
 
+Since GDAL 3.12, this algorithm can be part of a :ref:`gdal_pipeline`.
+
 The following options are available:
 
 Standard options
@@ -40,7 +42,7 @@ Standard options
 
     Picks a particular band to get the DEM from. Defaults to band 1.
 
-.. option:: -l, --nln, --layer <LAYER>
+.. option:: --nln, --output-layer <OUTPUT-LAYER>
 
     Provides a name for the output vector layer. Defaults to "contour".
 
@@ -67,6 +69,8 @@ Standard options
 .. option:: --interval <INTERVAL>
 
     Elevation interval between contours. Mutually exclusive with :option:`--levels`, :option:`--exp-base`.
+    The first contour will be generated at the first multiple of ``INTERVAL`` which is greater than the raster minimum value.
+
 
 .. option:: --levels <LEVELS>
 
@@ -98,6 +102,12 @@ Advanced options
 .. include:: gdal_options/if.rst
 
 
+.. GDALG output (on-the-fly / streamed dataset)
+.. --------------------------------------------
+
+.. versionadded:: 3.12
+
+.. include:: gdal_cli_include/gdalg_vector_compatible_non_natively_streamable.rst
 
 Examples
 --------

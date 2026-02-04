@@ -39,7 +39,7 @@ Driver location
 ---------------
 
 Driver filenames must start with `gdal_` or `ogr_` and have the `.py` extension.
-They will be searched in the following directies:
+They will be searched in the following directories:
 
 * the directory pointed by the ``GDAL_PYTHON_DRIVER_PATH`` configuration option
   (there may be several paths separated by `:` on Unix or `;` on Windows)
@@ -124,7 +124,7 @@ That class must define the following methods:
     :noindex:
 
     :param str filename: File name, or more generally, connection string.
-    :param binary first_bytes: First bytes of the file (if it is a file).
+    :param bytes first_bytes: First bytes of the file (if it is a file).
         At least 1024 (if the file has at least 1024 bytes), or more if a native driver in the driver probe sequence has requested more previously.
     :param int open_flags: Open flags. To be ignored for now.
     :param dict open_options: Open options.
@@ -135,7 +135,7 @@ That class must define the following methods:
     :noindex:
 
     :param str filename: File name, or more generally, connection string.
-    :param binary first_bytes: First bytes of the file (if it is a file).
+    :param bytes first_bytes: First bytes of the file (if it is a file).
         At least 1024 (if the file has at least 1024 bytes), or more if a native driver in the driver probe sequence has requested more previously.
     :param int open_flags: Open flags. To be ignored for now.
     :param dict open_options: Open options.
@@ -453,7 +453,7 @@ The following methods may be optionally implemented:
 .. py:function:: test_capability(self, cap)
     :noindex:
 
-    :param cap string: potential values are BaseLayer.FastGetExtent,
+    :param string cap: potential values are BaseLayer.FastGetExtent,
                        BaseLayer.FastSpatialFilter, BaseLayer.FastFeatureCount,
                        BaseLayer.RandomRead, BaseLayer.StringsAsUTF8 or
                        other strings supported by :cpp:func:`OGRLayer::TestCapability`

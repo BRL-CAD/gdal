@@ -45,8 +45,8 @@ capability):
     OGRFieldDefn oRenamedField("new_name", poLayer->GetLayerDefn()->GetFieldDefn(iFieldIdx)->GetType());
     poLayer->AlterFieldDefn(iFieldIdx, &oRenamedField, ALTER_NAME_FLAG);
 
-For other operations, such as calling :cpp:func:`OGRFieldDefn::AddFieldDefn()`
-or :cpp:func:`OGRFieldDefn::DeleteFieldDefn()` on an instance of OGRLayer::GetLayerDefn(),
+For other operations, such as calling :cpp:func:`OGRLayerDefn::AddFieldDefn()`
+or :cpp:func:`OGRLayerDefn::DeleteFieldDefn()` on an instance of OGRLayer::GetLayerDefn(),
 crashes could potentially occur in drivers that are not ready to see the number
 of fields to change behind their back. The correct way of adding or deleting
 fields to a layer is to use :cpp:func:`OGRLayer::CreateField()` or
@@ -101,7 +101,7 @@ no way to advertise the error through an error code. However, when using the
 Python bindings with exceptions enabled, a Python exception will be thrown.
 
 A convenience method is also offered to use the Resource Acquisition Is Initialization (RAII)
-paradygm to temporary unseal an instance, which is an operation that drivers
+paradigm to temporary unseal an instance, which is an operation that drivers
 implementing AlterFieldDefn() / AlterGeomFieldDefn() will need to do on fields
 they have priorly sealed.
 
@@ -164,7 +164,7 @@ fields owned by the OGRFeatureDefn to be sealed/unsealed at the same time.
      * This method should only be called by driver implementations.
      *
      * @param bSealFields Whether fields and geometry fields should be sealed.
-     *                    This is generally desirabled, but in case of deferred
+     *                    This is generally desirable, but in case of deferred
      *                    resolution of them, this parameter should be set to false.
      * @since GDAL 3.9
      */
@@ -183,7 +183,7 @@ fields owned by the OGRFeatureDefn to be sealed/unsealed at the same time.
      * This method should only be called by driver implementations.
      *
      * @param bUnsealFields Whether fields and geometry fields should be unsealed.
-     *                      This is generally desirabled, but in case of deferred
+     *                      This is generally desirable, but in case of deferred
      *                      resolution of them, this parameter should be set to
      * false.
      * @since GDAL 3.9
@@ -204,7 +204,7 @@ fields owned by the OGRFeatureDefn to be sealed/unsealed at the same time.
      *
      * @param bSealFields Whether fields and geometry fields should be unsealed and
      *                    resealed.
-     *                    This is generally desirabled, but in case of deferred
+     *                    This is generally desirable, but in case of deferred
      *                    resolution of them, this parameter should be set to false.
      * @since GDAL 3.9
      */

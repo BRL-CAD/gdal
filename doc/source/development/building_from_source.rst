@@ -144,6 +144,19 @@ Similarly, recent versions of Homebrew no longer bundle `Boost <https://www.boos
 
     cmake -DGDAL_USE_LIBKML=OFF ..
 
+The following commands have been used to successfully build GDAL using dependencies fetched
+from Conda that supports unit tests.  They assume that you have git, cmake and ninja installed
+and that you're building from a `build` directory that you've created in the main directory
+of the cloned GDAL repository.
+
+.. code-block:: bash
+
+    conda create -c conda-forge --only-deps -n gdal libgdal-core
+    conda activate gdal
+    conda install -c conda-forge setuptools swig pytest filelock numpy
+    cmake -G Ninja -DCMAKE_PREFIX_PATH=$CONDA_PREFIX -DGDAL_USE_LIBKML=OFF ..
+    . ../scripts/setdevenv.sh
+    ninja
 
 CMake general configure options
 +++++++++++++++++++++++++++++++
@@ -242,6 +255,13 @@ All cached entries can be viewed using ``cmake -LAH`` from a build directory.
     Whether builds with precompiled headers should be enabled. This may speed
     up the build process. This is still a bit experimental, so it is disabled by
     default. It also cannot be enabled when using the Visual Studio C++ compiler.
+
+.. option:: GDAL_ENABLE_ALGORITHMS=ON
+
+    Whether algorithms available under the :ref:`gdal <gdal_program>` entry point
+    are compiled in. Default is ON. Note that setting it to OFF will disable will
+    disable building the ogrtindex utility.
+
 
 Resource files embedding
 ++++++++++++++++++++++++
@@ -1379,11 +1399,11 @@ MSSQL_ODBC
 The Microsoft SQL Native ODBC driver Library (closed source/proprietary) is required
 to enable bulk copy in the :ref:`vector.mssqlspatial` driver.
 If both MSSQL_NCLI and MSSQL_ODBC are found and enabled, MSSQL_ODBC will be used.
-The library is normally found if installed in standard location, and at version 17.
+The library is normally found if installed in standard location, and at version 17+.
 
 .. option:: MSSQL_ODBC_VERSION
 
-  Major version of the Native Client, typically 17
+  Major version of the Native Client, typically 17 or 18
 
 .. option:: MSSQL_ODBC_INCLUDE_DIR
 
@@ -2181,6 +2201,19 @@ Example of minimal build with the JP2OpenJPEG and SVG drivers enabled::
              -DGDAL_BUILD_OPTIONAL_DRIVERS:BOOL=OFF -DOGR_BUILD_OPTIONAL_DRIVERS:BOOL=OFF \
              -DGDAL_ENABLE_DRIVER_JP2OPENJPEG:BOOL=ON \
              -DOGR_ENABLE_DRIVER_SVG:BOOL=ON
+
+Driver specific options
++++++++++++++++++++++++
+
+For the VRT driver
+------------------
+
+.. option:: GDAL_VRT_ENABLE_RAWRASTERBAND:BOOL=ON/OFF
+
+   Defaults to ON. Can be set to OFF to disable the Raw Files (VRTRawRasterBand)
+   capability of the :ref:`raster.vrt` driver. Consult
+   :ref:`vrtrawrasterband_restricted_access` for more details.
+
 
 Build drivers as plugins
 ++++++++++++++++++++++++

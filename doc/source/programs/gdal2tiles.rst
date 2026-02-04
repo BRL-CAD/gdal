@@ -119,13 +119,9 @@ can publish a picture without proper georeferencing too.
 
   Disable messages and status to stdout
 
-  .. versionadded:: 2.1
-
 .. option:: --processes=<NB_PROCESSES>
 
   Number of parallel processes to use for tiling, to speed-up the computation.
-
-  .. versionadded:: 2.3
 
 .. option:: --mpi
 
@@ -245,7 +241,7 @@ The following profiles are supported:
 - geodetic: mapped to WGS84 MapML tiling scheme
 - APSTILE: from the tms_MapML_APSTILE.json data file
 
-The generated MapML file in the output directory is ``mapml.mapl``
+The generated MapML file in the output directory is ``mapml.mapml``
 
 Available options are:
 

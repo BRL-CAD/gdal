@@ -5,6 +5,14 @@ if (CMAKE_CXX_FLAGS)
   string(REPLACE "/WX " " " CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ")
 endif ()
 
+# Do not remove -fno-strict-aliasing while SWIG generates weird code in upcast methods
+# http://trac.osgeo.org/gdal/changeset/16006
+#
+# https://swig.org//Doc4.3/Java.html#Java_compiling_dynamic
+if (NOT MSVC)
+  add_compile_options("-fno-strict-aliasing")
+endif()
+
 list(APPEND GDAL_SWIG_COMMON_INTERFACE_FILES
    ${PROJECT_SOURCE_DIR}/swig/include/java/callback.i
    ${PROJECT_SOURCE_DIR}/swig/include/java/gdalconst_java.i
@@ -123,12 +131,13 @@ endif ()
 file(GLOB SOURCE_APPS "${CMAKE_CURRENT_SOURCE_DIR}/apps/*.java")
 set(JAR_OUTPUT gdal.jar)
 
-set(GDAL_VERSION_JAR ${CMAKE_CURRENT_BINARY_DIR}/build/maven/gdal-${GDAL_VERSION}.jar)
-set(GDAL_VERSION_SOURCES_JAR ${CMAKE_CURRENT_BINARY_DIR}/build/maven/gdal-${GDAL_VERSION}-sources.jar)
-set(GDAL_VERSION_POM ${CMAKE_CURRENT_BINARY_DIR}/build/maven/gdal-${GDAL_VERSION}.pom)
+set(MAVEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/build/maven/org/gdal/gdal/${GDAL_VERSION})
+set(GDAL_VERSION_JAR ${MAVEN_DIR}/gdal-${GDAL_VERSION}.jar)
+set(GDAL_VERSION_SOURCES_JAR ${MAVEN_DIR}/gdal-${GDAL_VERSION}-sources.jar)
+set(GDAL_VERSION_POM ${MAVEN_DIR}/gdal-${GDAL_VERSION}.pom)
 set(MAVEN_ARTIFACTS ${GDAL_VERSION_JAR} ${GDAL_VERSION_SOURCES_JAR} ${GDAL_VERSION_POM})
 if (GDAL_JAVA_GENERATE_JAVADOC)
-  set(GDAL_VERSION_JAVADOC_JAR ${CMAKE_CURRENT_BINARY_DIR}/build/maven/gdal-${GDAL_VERSION}-javadoc.jar)
+  set(GDAL_VERSION_JAVADOC_JAR ${MAVEN_DIR}/gdal-${GDAL_VERSION}-javadoc.jar)
   list(APPEND MAVEN_ARTIFACTS ${GDAL_VERSION_JAVADOC_JAR})
 endif ()
 
@@ -229,6 +238,7 @@ if (Java_Runtime_FOUND AND BUILD_TESTING)
   set_tests_properties(java_ogrtindex PROPERTIES DEPENDS java_GDALContour)
   add_test(NAME java_OSRTest COMMAND ${JAVA_RUN} OSRTest)
   add_test(NAME java_test_ogrfielddomains COMMAND ${JAVA_RUN} test_ogrfielddomains)
+  add_test(NAME java_GDALClose COMMAND ${JAVA_RUN} GDALClose)
 
   set(JAVA_TEST_LIST
           java_GDALOverviews
@@ -248,6 +258,7 @@ if (Java_Runtime_FOUND AND BUILD_TESTING)
           java_ogrtindex
           java_OSRTest
           java_test_ogrfielddomains
+          java_GDALClose
   )
   if (OGR_ENABLE_DRIVER_CSV)
       add_test(NAME java_OGRTest COMMAND ${JAVA_RUN} OGRTest)

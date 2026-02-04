@@ -72,7 +72,7 @@ other content before the ``<GDAL_WMS>`` element.
 <Type>file</Type>                                                          Cache type. Now supported only 'file' type. In 'file' cache type files are stored in file system folders. (optional, defaults to 'file')
 <Expires>604800</Expires>                                                  Time in seconds cached files will stay valid. If cached file expires it is deleted when maximum size of cache is reached. Also expired file can be overwritten by the new one from web. Default value is 7 days (604800s).
 <MaxSize>67108864</MaxSize>                                                The cache maximum size in bytes. If cache reached maximum size, expired cached files will be deleted. Default value is 64 Mb (67108864 bytes).
-<CleanTimeout>120</CleanTimeout>                                           Clean Thread Run Timeout in seconds. How often to run the clean thread, which finds and deletes expired cached files. Default value is 120s. Use value of 0 to disable the Clean Thread (effectively unlimited cache size). If you intend to use very large cache size you might want to disable the cache clean or to use a much longer timeout as the time that takes to scan the cache files for expired cache files might be long. ("disabled" was the only option for GDAL <= 2.2; "120s" was the only option for 2.3 <= GDAL <= 3.1).
+<CleanTimeout>120</CleanTimeout>                                           Clean Thread Run Timeout in seconds. How often to run the clean thread, which finds and deletes expired cached files. Default value is 120s. Use value of 0 to disable the Clean Thread (effectively unlimited cache size). If you intend to use very large cache size you might want to disable the cache clean or to use a much longer timeout as the time that takes to scan the cache files for expired cache files might be long.
 <Unique>True</Unique>                                                      If set to true the path will appended with md5 hash of ServerURL. Default value is true.
 </Cache>
 <MaxConnections>2</MaxConnections>                                         Maximum number of simultaneous connections. (optional, defaults to 2). Can also be set with the :config:`GDAL_MAX_CONNECTIONS` configuration option (GDAL >= 3.2)
@@ -81,7 +81,7 @@ other content before the ``<GDAL_WMS>`` element.
 <AdviseRead>true</AdviseRead>                                              Enable AdviseRead API call - download images into cache. (optional, defaults to false)
 <VerifyAdviseRead>true</VerifyAdviseRead>                                  Open each downloaded image and do some basic checks before writing into cache. Disabling can save some CPU cycles if server is trusted to always return correct images. (optional, defaults to true)
 <ClampRequests>false</ClampRequests>                                       Should requests, that otherwise would be partially outside of defined data window, be clipped resulting in smaller than block size request. (optional, defaults to true)
-<UserAgent>GDAL WMS driver (http://www.gdal.org/frmt_wms.html)</UserAgent> HTTP User-agent string. Some servers might require a well-known user-agent such as "Mozilla/5.0" (optional, defaults to "GDAL WMS driver (http://www.gdal.org/frmt_wms.html)"). When used with some servers, like OpenStreetMap ones, it is highly recommended to put a custom user agent to avoid being blocked if the default user agent had to be blocked.
+<UserAgent>GDAL WMS driver (https://gdal.org/frmt_wms.html)</UserAgent>    HTTP User-agent string. Some servers might require a well-known user-agent such as "Mozilla/5.0" (optional, defaults to "GDAL WMS driver (https://gdal.org/frmt_wms.html)"). When used with some servers, like OpenStreetMap ones, it is highly recommended to put a custom user agent to avoid being blocked if the default user agent had to be blocked.
 <Accept>mimetype>/Accept>                                                  HTTP Accept header to specify the MIME type of the expected output of the server. Empty by default
 <UserPwd>user:password</UserPwd>                                           User and Password for HTTP authentication (optional).
 <UnsafeSSL>true</UnsafeSSL>                                                Skip SSL certificate verification. May be needed if server is using a self signed certificate (optional, defaults to false).
@@ -92,7 +92,7 @@ other content before the ``<GDAL_WMS>`` element.
 \
 ========================================================================== ===============================================================================================================================================================================================================================================================================================================================
 
-Starting with GDAL 2.3, additional HTTP headers can be sent by setting the GDAL_HTTP_HEADER_FILE configuration option to point to a filename of a text file with “key: value” HTTP headers.
+Additional HTTP headers can be sent by setting the GDAL_HTTP_HEADER_FILE configuration option to point to a filename of a text file with “key: value” HTTP headers.
 
 Minidrivers
 -----------
@@ -314,7 +314,7 @@ IIP:http://foo.com/FIF=image_name out.xml -of WMS"
 International Image Interoperability Framework Image API (IIIF)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. versionadded:: 3.11.1
+.. versionadded:: 3.12
 
 Access to images served through `IIIF Image API 3.0 <https://iiif.io/api/image/3.0>`__.
 
@@ -489,7 +489,7 @@ The WMS driver can open :
 
       gdalinfo "http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer?f=json&pretty=true"
 
--  (GDAL >= 2.1.0) the URL of a IIP image:
+-  The URL of a IIP image:
 
    ::
 

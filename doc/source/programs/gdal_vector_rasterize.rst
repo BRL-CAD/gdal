@@ -22,6 +22,31 @@ Description
 
 :program:`gdal vector rasterize` burns vector geometries into a raster.
 
+Since GDAL 3.12, this algorithm can be part of a :ref:`gdal_pipeline`.
+
+.. only:: html
+
+   .. list-table::
+      :widths: 50 50
+      :width: 70%
+      :header-rows: 0
+
+      * - .. figure:: ../../images/programs/gdal_vector_rasterize.png
+             :width: 100%
+
+             Rasterization result using default settings.
+
+        - .. figure:: ../../images/programs/gdal_vector_rasterize_all_touching.png
+             :width: 100%
+
+             Rasterization result using :option:`--all-touched`.
+
+The left figure illustrates the default rasterization behavior, where only pixels on the line render
+path are included.
+
+The right figure shows the effect of :option:`--all-touched`, where every pixel that touches the input polygons is
+included.
+
 The following options are available:
 
 Standard options
@@ -67,7 +92,7 @@ Standard options
 
    Instead of burning a new value, this adds the new value to the existing raster, implies ``--update``. Suitable for heatmaps for instance.
 
-.. option:: -l, --layer, --layer-name <LAYER-NAME>
+.. option:: -l, --input-layer <INPUT-LAYER>
 
     Indicates the layer(s) from the datasource that will be used for input features. May be specified multiple times, but at least one layer name or a -sql option must be specified (not both).
 
@@ -136,6 +161,13 @@ Advanced options
 .. include:: gdal_options/oo.rst
 
 .. include:: gdal_options/if.rst
+
+.. GDALG output (on-the-fly / streamed dataset)
+.. --------------------------------------------
+
+.. versionadded:: 3.12
+
+.. include:: gdal_cli_include/gdalg_raster_compatible_non_natively_streamable.rst
 
 
 Examples

@@ -60,6 +60,17 @@ Standard options
     Instead, the bounds are reprojected from the bbox-crs to the CRS of the
     input dataset.
 
+.. option:: --window <column>,<line>,<width>,<height>
+
+    .. versionadded:: 3.12
+
+    Selects a subwindow from the source image for copying based on pixel/line
+    location. Pixel/line offsets (``column`` and ``line``) are measured from the
+    left and top of the image.
+    If the subwindow extends beyond the bounds of the source dataset,
+    output pixels will be written with a value of zero, unless a NoData value is
+    defined either the source dataset.
+
 .. option:: --geometry <WKT_or_GeoJSON>
 
     Geometry as a WKT or GeoJSON string of a polygon (or multipolygon) to which
@@ -125,7 +136,7 @@ Standard options
     than the input dataset. Output pixels from areas beyond the input extent will be set to
     zero or the NoData value of the input dataset.
 
-.. option:: --addalpha
+.. option:: --add-alpha
 
     Adds an alpha mask band to the destination when the source raster has none.
 
@@ -152,3 +163,10 @@ Examples
    .. code-block:: bash
 
         $ gdal raster clip --like=reference.tif in.tif out.tif --overwrite
+
+.. example::
+   :title: Clip a GeoTIFF file from raster column 1000 and line 2000, for a width of 500 pixels and a height of 600 pixels
+
+   .. code-block:: bash
+
+        $ gdal raster clip --window=1000,2000,500,600 in.tif out.tif --overwrite

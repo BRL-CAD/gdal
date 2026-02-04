@@ -48,6 +48,12 @@ def check_python_bindings():
             os.path.dirname(__file__), os.pardir, os.pardir, "VERSION"
         )
         doc_version = open(version_file).read().strip()
+        doc_version_stripped = doc_version
+        for suffix in ["dev", "beta"]:
+            pos_suffix = doc_version_stripped.find(suffix)
+            if pos_suffix > 0:
+                doc_version_stripped = doc_version_stripped[0:pos_suffix]
+
         gdal_version = gdal.__version__
         gdal_version_stripped = gdal_version
         for suffix in ["dev", "beta"]:
@@ -55,9 +61,9 @@ def check_python_bindings():
             if pos_suffix > 0:
                 gdal_version_stripped = gdal_version_stripped[0:pos_suffix]
 
-        if doc_version.strip() != gdal_version_stripped:
+        if doc_version_stripped != gdal_version_stripped:
             logger.warn(
-                f"Building documentation for GDAL {doc_version} but osgeo.gdal module has version {gdal_version}. Python API documentation may be incorrect."
+                f"Building documentation for GDAL {doc_version_stripped} but osgeo.gdal module has version {gdal_version_stripped}. Python API documentation may be incorrect."
             )
 
 
@@ -77,6 +83,7 @@ extensions = [
     "configoptions",
     "driverproperties",
     "cli_example",
+    "doctestplus_gdal",
     "source_file",
     "sphinx.ext.napoleon",
     "sphinxcontrib.jquery",
@@ -131,6 +138,209 @@ source_suffix = {
     ".myst": "myst-nb",
 }
 
+# -- Options for nitpicking -------------------------------------------------
+
+nitpicky = True
+
+nitpick_ignore = [
+    # Standard C types or constants: no need to document them
+    ("cpp:identifier", "__FILE__"),
+    ("cpp:identifier", "__LINE__"),
+    ("cpp:identifier", "exception"),
+    ("cpp:identifier", "FALSE"),
+    ("cpp:identifier", "FILE"),
+    ("cpp:identifier", "int64_t"),
+    ("cpp:identifier", "INT_MIN"),
+    ("cpp:identifier", "size_t"),
+    ("cpp:identifier", "time_t"),
+    ("cpp:identifier", "tm"),
+    ("cpp:identifier", "TRUE"),
+    ("cpp:identifier", "uint8_t"),
+    ("cpp:identifier", "uint64_t"),
+    ("cpp:identifier", "va_list"),
+    # ODBC specific
+    ("cpp:identifier", "DWORD"),
+    ("cpp:identifier", "HDBC"),
+    ("cpp:identifier", "HENV"),
+    ("cpp:identifier", "HSTMT"),
+    ("cpp:identifier", "ODBC_FILENAME_MAX"),
+    ("cpp:identifier", "ODBC_INSTALL_COMPLETE"),
+    ("cpp:identifier", "SQL_FETCH_NEXT"),
+    ("cpp:identifier", "SQL_MAX_MESSAGE_LENGTH"),
+    ("cpp:identifier", "SQLSMALLINT"),
+    ("cpp:identifier", "WORD"),
+    # GEOS types
+    ("cpp:identifier", "GEOSContextHandle_t"),
+    ("cpp:identifier", "GEOSGeom"),
+    # Arrow types
+    ("cpp:identifier", "ArrowArray"),
+    ("cpp:identifier", "ArrowArrayStream"),
+    ("cpp:identifier", "ArrowSchema"),
+    # Internal GDAL types
+    ("cpp:identifier", "ConstIterator"),
+    ("cpp:identifier", "GeomFields<OGRFeatureDefn*, OGRGeomFieldDefn*>"),
+    ("cpp:identifier", "GeomFields<const OGRFeatureDefn*, const OGRGeomFieldDefn*>"),
+    ("cpp:identifier", "FeatureIterator"),
+    ("cpp:identifier", "Fields<OGRFeatureDefn*, OGRFieldDefn*>"),
+    ("cpp:identifier", "Fields<const OGRFeatureDefn*, const OGRFieldDefn*>"),
+    ("cpp:identifier", "GDALPamDataset"),
+    ("cpp:identifier", "GDALPamRasterBand"),
+    ("cpp:identifier", "GDALPluginDriverProxy"),
+    ("cpp:identifier", "GUInt64VarArg"),
+    ("cpp:identifier", "Iterator"),
+    ("cpp:identifier", "OGRPointIterator"),
+    ("cpp:identifier", "Private"),
+    ("cpp:identifier", "TemporaryUnsealer"),
+    ("cpp:identifier", "WindowIteratorWrapper"),
+    ("cpp:class", "GDALPamDataset"),
+    ("cpp:class", "GDALProxyDataset"),
+    ("cpp:class", "GDALProxyRasterBand"),
+    ("cpp:class", "RawDataset"),
+    ("cpp:class", "RawRasterBand"),
+    ("cpp:class", "VSICachedFile"),
+    # Internal GDAL functions
+    ("cpp:func", "GDALCheckBandCount"),
+    ("cpp:func", "GDALCheckDatasetDimensions"),
+    # Other
+    ("envvar", "CFLAGS"),
+    ("envvar", "CXXFLAGS"),
+    # Python related
+    ("py:class", "optional"),
+    # TODO: To examine (ignoring might be the best option sometimes)
+    ("c:enumerator", "OAMS_TRADITIONAL_GIS_ORDER"),
+    ("c:enumerator", "OAMS_AUTHORITY_COMPLIANT"),
+    ("c:enumerator", "OAMS_CUSTOM"),
+    ("cpp:identifier", "gdal"),  # gdal C++ namespace
+    ("cpp:identifier", "GDALAsyncReader"),
+    ("cpp:identifier", "GDALComputedRasterBand"),
+    ("cpp:identifier", "GDALSubdatasetInfo"),
+    ("cpp:identifier", "GDALSuggestedBlockAccessPattern"),
+    ("cpp:identifier", "GNMGFID"),
+    ("cpp:identifier", "GNM_EDGE_DIR_BOTH"),
+    ("cpp:identifier", "OGRFeatureUniquePtr"),
+    ("cpp:identifier", "OGRSpatialReferenceReleaser"),
+    ("cpp:identifier", "OGRStyleParamId"),
+    ("cpp:identifier", "OGRStyleValue"),
+    ("cpp:identifier", "string"),
+    ("cpp:class", "GNMGdalNetwork"),
+    ("cpp:class", "OGRStyleBrush"),
+    ("cpp:class", "OGRStyleLabel"),
+    ("cpp:class", "OGRStylePen"),
+    ("cpp:class", "OGRStyleSymbol"),
+    ("cpp:class", "VRTDataset"),
+    ("cpp:class", "VSIFilesystemHandler"),
+    ("cpp:func", "CPLFetchNameValue"),
+    ("cpp:func", "GDALDataset::BlockBasedRasterIO"),
+    ("cpp:func", "GDALDataset::GetMetadata"),
+    ("cpp:func", "GDALDataset::GetMetadataItem"),
+    ("cpp:func", "GDALDataset::ICreateLayer"),
+    ("cpp:func", "GDALDataset::TryLoadXML"),
+    ("cpp:func", "GDALDriver::SetDescription"),
+    ("cpp:func", "GDALRasterBand::EnablePixelTypeSignedByteWarning"),
+    ("cpp:func", "GDALRasterBand::GetMetadata"),
+    ("cpp:func", "OGRGetXML_UTF8_EscapedString"),
+    ("cpp:func", "OGR_G_GetBoundary"),
+    ("cpp:func", "OGR_G_SymmetricDifference"),
+    ("cpp:func", "OGR_L_GetFeaturesRead"),
+    ("cpp:func", "OGR_L_GetRefCount"),
+    ("cpp:func", "OGRLayer::ISetFeature"),
+    ("cpp:func", "OGRLayerDefn::AddFieldDefn"),
+    ("cpp:func", "OGRLayerDefn::DeleteFieldDefn"),
+    ("cpp:func", "OGRLineString::transform"),
+    ("cpp:func", "wkbFlatten"),
+    ("cpp:member", "OGRLayer::m_poAttrQuery"),
+    ("cpp:member", "OGRLayer::m_poFilterGeom"),
+    # TODO (low priority): Below could potentially be fixed
+    ("cpp:identifier", "CPLJSONObject"),
+    ("cpp:identifier", "CPLHTTPFetchWriteFunc"),
+    ("cpp:identifier", "CPLLockFileStruct"),
+    ("cpp:identifier", "CPL_MUTEX_RECURSIVE"),
+    ("cpp:identifier", "CPLXMLTreeCloserDeleter"),
+    ("cpp:identifier", "GDALMaskFunc"),
+    ("cpp:identifier", "GDALRawResult"),
+    ("cpp:identifier", "GDALTransformerUniquePtrReleaser"),
+    ("cpp:identifier", "GDALWarpChunk"),
+    ("cpp:func", "OGRGeocode"),
+    ("cpp:func", "OGRGeocodeCreateSession"),
+    ("cpp:func", "OGRGeocodeReverse"),
+    ("cpp:identifier", "OGRGeomTransformer"),
+    ("cpp:identifier", "USGS_ANGLE_PACKEDDMS"),
+    ("cpp:identifier", "VSIStatBuf"),
+    ("cpp:identifier", "VSIStatBufL"),
+]
+
+nitpick_ignore_regex = [
+    (".*", "cpl.*_8h.*"),
+    (".*", "deprecated_.*"),
+    (".*", "gdal.*_8h.*"),
+    (".*", "gnm.*_8h.*"),
+    (".*", "ogr.*_8h.*"),
+    ("cpp:identifier", "_CPL.*"),  # opaque types
+    ("cpp:identifier", "_OGR.*"),  # opaque types
+    ("cpp:identifier", "GDAL.*HS"),  # opaque types
+    ("cpp:identifier", "OGR.*HS"),  # opaque types
+    # Deprecated classes
+    (".*", "classOGRDataSource"),
+    (".*", "classOGRSFDriver"),
+    # Internal GDAL types
+    (".*", "classAxisMappingCoordinateTransformation"),
+    (".*", "classCompositeCT"),
+    (".*", "classCutlineTransformer"),
+    (".*", "classGCPCoordTransformation"),
+    (".*", "classGeoTransformCoordinateTransformation"),
+    (".*", "classGDALApplyVSGDataset"),
+    (".*", "classGDALApplyVSGRasterBand"),
+    (".*", "classGDALAsyncReader_.*"),
+    (".*", "classGDALColorReliefDataset"),
+    (".*", "classGDALColorReliefRasterBand"),
+    (".*", "classGDALComputedDataset"),
+    (".*", "classGDALDatasetAlgorithm"),
+    (".*", "classGDALFootprintCombinedMaskBand"),
+    (".*", "classGDALFootprintMaskBand"),
+    (".*", "classGDALGeneric3x3Dataset"),
+    (".*", "classGDALGeneric3x3RasterBand"),
+    (".*", "classGDALInConstructionAlgorithmArg"),
+    (".*", "classGDALMDArrayFromDataset"),
+    (".*", "classGDALMDArrayFromRasterBand"),
+    (".*", "classGDALMDArrayMeshGrid"),
+    (".*", "classGDALMDArrayResampledDatasetRasterBand"),
+    (".*", "classGDALMdimAlgorithm"),
+    (".*", "classGDALRasterAlgorithm"),
+    (".*", "classGDALVectorAlgorithm"),
+    (".*", "classGDALVSIAlgorithm"),
+    (".*", "classOGRPointIterator_.*"),
+    (".*", "classGDALOverviewDataset"),
+    (".*", "classGDALPamDataset"),
+    (".*", "classGDALPamRasterBand"),
+    (".*", "classGDALPluginDriverProxy"),
+    (".*", "classGDALRasterAttributeTableFromMDArrays"),
+    (".*", "classGDALVectorTranslateWrappedDataset"),
+    (".*", "classOGRDefaultConstGeometryVisitor"),
+    (".*", "classOGRDefaultGeometryVisitor"),
+    (".*", "classOGRIteratedPoint"),
+    (".*", "classOGRSplitListFieldLayer"),
+    (".*", "structOGRSpatialReference_.*"),
+    (".*", "classPythonPluginDataset"),
+    (".*", "classPythonPluginLayer"),
+    (".*", "classPythonPluginDriver"),
+    (".*", "classGDALSubsetGroup"),
+    (".*", "structOGRwkbExportOptions"),  # only emitted by Windows CI
+    # FIXME We ignore everything python related for now...
+    ("py:.*", ".*"),
+    # TODO: To examine
+    (".*", "classGDALDataset_.*"),
+    (".*", "classGDALIHasAttribute_.*"),
+    (".*", "classOGRLayer_.*"),
+    # TODO: Below could potentially be fixed
+    (".*", "classGDALAsyncReader"),
+    (".*", "classGDALComputedRasterBand"),
+    (".*", "classGDALMDArrayFromRasterBand_1_1MDIAsAttribute"),
+    (".*", "classVSISparseFileHandle"),
+    (".*", "classVSISubFileHandle"),
+    (".*", "classVSIUploadOnCloseHandle"),
+    (".*", "structGDALSubdatasetInfo"),
+]
+
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
@@ -173,6 +383,9 @@ html_static_path = ["_static"]
 
 # For generated content and robots.txt
 html_extra_path = [os.path.join(build_dir, "html_extra"), "extra_path"]
+
+html_js_files = ["announcement.js"]
+html_css_files = ["announcement.css"]
 
 # If true, links to the reST sources are added to the pages.
 html_show_sourcelink = False
@@ -219,6 +432,41 @@ man_pages = [
         1,
     ),
     (
+        "programs/gdal_dataset",
+        "gdal-dataset",
+        "Entry point for dataset management commands",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_dataset_identify",
+        "gdal-dataset-identify",
+        "Identify driver opening dataset(s)",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_dataset_copy",
+        "gdal-dataset-copy",
+        "Copy files of a dataset",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_dataset_rename",
+        "gdal-dataset-rename",
+        "Rename files of a dataset",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_dataset_delete",
+        "gdal-dataset-delete",
+        "Delete dataset(s)",
+        [author_evenr],
+        1,
+    ),
+    (
         "programs/gdal_mdim",
         "gdal-mdim",
         "Entry point for multidimensional commands",
@@ -240,6 +488,20 @@ man_pages = [
         1,
     ),
     (
+        "programs/gdal_mdim_mosaic",
+        "gdal-mdim-mosaic",
+        "Build a mosaic, either virtual (VRT) or materialized, from multidimensional datasets",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_pipeline",
+        "gdal-pipeline",
+        "Process a dataset applying several steps",
+        [author_evenr],
+        1,
+    ),
+    (
         "programs/gdal_raster",
         "gdal-raster",
         "Entry point for raster commands",
@@ -257,6 +519,27 @@ man_pages = [
         "programs/gdal_raster_set_type",
         "gdal-raster-set-type",
         "Modify the data type of bands of a raster dataset",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_raster_as_features",
+        "gdal-raster-as-features",
+        "Create features representing the pixels of a raster",
+        [author_dbaston],
+        1,
+    ),
+    (
+        "programs/gdal_raster_aspect",
+        "gdal-raster-aspect",
+        "Generate an aspect map",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_raster_blend",
+        "gdal-raster-color-blend",
+        "Use a grayscale raster to replace the intensity of a RGB/RGBA dataset",
         [author_evenr],
         1,
     ),
@@ -293,6 +576,13 @@ man_pages = [
         "gdal-raster-contour",
         "Creates a vector contour from a raster elevation model (DEM)",
         [author_elpaso],
+        1,
+    ),
+    (
+        "programs/gdal_raster_compare",
+        "gdal-raster-compare",
+        "Compare two raster dataset",
+        [author_evenr],
         1,
     ),
     (
@@ -352,6 +642,20 @@ man_pages = [
         1,
     ),
     (
+        "programs/gdal_raster_neighbors",
+        "gdal-raster-neighbors",
+        "Compute the value of each pixel from its neighbors (focal statistics)",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_raster_nodata_to_alpha",
+        "gdal-raster-nodata-to-alpha",
+        "Replace nodata value(s) with an alpha band",
+        [author_evenr],
+        1,
+    ),
+    (
         "programs/gdal_raster_overview_add",
         "gdal-raster-overview-add",
         "Add overviews to a raster dataset",
@@ -366,9 +670,23 @@ man_pages = [
         1,
     ),
     (
+        "programs/gdal_raster_overview_refresh",
+        "gdal-raster-overview-refresh",
+        "Refresh overviews",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_raster_pansharpen",
+        "gdal-raster-pansharpen",
+        "Perform a pansharpen operation",
+        [author_evenr],
+        1,
+    ),
+    (
         "programs/gdal_raster_pipeline",
         "gdal-raster-pipeline",
-        "Process a raster dataset",
+        "Process a raster dataset applying several steps",
         [author_evenr],
         1,
     ),
@@ -384,6 +702,13 @@ man_pages = [
         "gdal-raster-pixel-info",
         "Return information on a pixel of a raster dataset",
         [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_raster_proximity",
+        "gdal-raster-proximity",
+        "Produces a raster proximity map",
+        [author_elpaso],
         1,
     ),
     (
@@ -404,6 +729,13 @@ man_pages = [
         "programs/gdal_raster_resize",
         "gdal-raster-resize",
         "Resize a raster dataset",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_raster_rgb_to_palette",
+        "gdal-raster-rgb-to-palette",
+        "Convert a RGB image into a pseudo-color / paletted image.",
         [author_evenr],
         1,
     ),
@@ -478,10 +810,24 @@ man_pages = [
         1,
     ),
     (
+        "programs/gdal_raster_update",
+        "gdal-raster-update",
+        "Update the destination raster with the content of the input one.",
+        [author_evenr],
+        1,
+    ),
+    (
         "programs/gdal_raster_viewshed",
         "gdal-raster-viewshed",
         "Compute the viewshed of a raster dataset.",
         [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_raster_zonal_stats",
+        "gdal-raster-zonal-stats",
+        "Compute raster zonal statistics.",
+        [author_dbaston],
         1,
     ),
     (
@@ -499,6 +845,27 @@ man_pages = [
         1,
     ),
     (
+        "programs/gdal_vector_check_coverage",
+        "gdal-vector-check-coverage",
+        "Check polygon coverage for validity",
+        [author_dbaston],
+        1,
+    ),
+    (
+        "programs/gdal_vector_check_geometry",
+        "gdal-vector-check-geometry",
+        "Check a dataset for invalid or non-simple geometries",
+        [author_dbaston],
+        1,
+    ),
+    (
+        "programs/gdal_vector_clean_coverage",
+        "gdal-vector-clean-coverage",
+        "Remove gaps and overlaps from a polygon dataset",
+        [author_dbaston],
+        1,
+    ),
+    (
         "programs/gdal_vector_clip",
         "gdal-vector-clip",
         "Clip a vector dataset",
@@ -507,7 +874,7 @@ man_pages = [
     ),
     (
         "programs/gdal_vector_concat",
-        "gdal-vector_concat",
+        "gdal-vector-concat",
         "Concatenate vector datasets",
         [author_evenr],
         1,
@@ -522,7 +889,7 @@ man_pages = [
     (
         "programs/gdal_vector_edit",
         "gdal-vector-edit",
-        "Edit metadata of a vetor dataset",
+        "Edit metadata of a vector dataset",
         [author_evenr],
         1,
     ),
@@ -534,58 +901,51 @@ man_pages = [
         1,
     ),
     (
-        "programs/gdal_vector_geom",
-        "gdal-vector-geom",
-        "Geometry operations on a vector dataset",
-        [author_evenr],
-        1,
-    ),
-    (
-        "programs/gdal_vector_geom_set_type",
-        "gdal-vector-geom-set-type",
-        "Modify the geometry type of a vector dataset",
-        [author_evenr],
-        1,
-    ),
-    (
-        "programs/gdal_vector_geom_explode_collections",
-        "gdal-vector-geom-explode-collections",
+        "programs/gdal_vector_explode_collections",
+        "gdal-vector-explode-collections",
         "Explode geometries of type collection of a vector dataset",
         [author_evenr],
         1,
     ),
     (
-        "programs/gdal_vector_geom_make_valid",
-        "gdal-vector-geom-make-valid",
+        "programs/gdal_vector_make_point",
+        "gdal-vector-make-point",
+        "Create point features from attribute fields",
+        [author_dbaston],
+        1,
+    ),
+    (
+        "programs/gdal_vector_make_valid",
+        "gdal-vector-make-valid",
         "Fix validity of geometries of a vector dataset",
         [author_evenr],
         1,
     ),
     (
-        "programs/gdal_vector_geom_segmentize",
-        "gdal-vector-geom-segmentize",
+        "programs/gdal_vector_segmentize",
+        "gdal-vector-segmentize",
         "Segmentize geometries of a vector dataset",
         [author_evenr],
         1,
     ),
     (
-        "programs/gdal_vector_geom_simplify",
-        "gdal-vector-geom-simplify",
+        "programs/gdal_vector_simplify",
+        "gdal-vector-simplify",
         "Simplify geometries of a vector dataset",
         [author_evenr],
         1,
     ),
     (
-        "programs/gdal_vector_geom_buffer",
-        "gdal-vector-geom-buffer",
+        "programs/gdal_vector_buffer",
+        "gdal-vector-buffer",
         "Compute a buffer around geometries of a vector dataset",
         [author_evenr],
         1,
     ),
     (
-        "programs/gdal_vector_geom_swap_xy",
-        "gdal-vector-geom-swap-xy",
-        "Swap X and Y coordinates of geometries of a vector datasett",
+        "programs/gdal_vector_swap_xy",
+        "gdal-vector-swap-xy",
+        "Swap X and Y coordinates of geometries of a vector dataset",
         [author_evenr],
         1,
     ),
@@ -597,9 +957,30 @@ man_pages = [
         1,
     ),
     (
+        "programs/gdal_vector_index",
+        "gdal-vector-index",
+        "Create a vector index of vector datasets",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_vector_layer_algebra",
+        "gdal-vector-layer-algebra",
+        "Perform algebraic operation between 2 layers",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_vector_partition",
+        "gdal-vector-partition",
+        "Partition a vector dataset into multiple files",
+        [author_evenr],
+        1,
+    ),
+    (
         "programs/gdal_vector_pipeline",
         "gdal-vector-pipeline",
-        "Process a vector dataset",
+        "Process a vector dataset applying several steps",
         [author_evenr],
         1,
     ),
@@ -614,6 +995,20 @@ man_pages = [
         "programs/gdal_vector_select",
         "gdal-vector-select",
         "Select a subset of fields from a vector dataset",
+        [author_evenr],
+        1,
+    ),
+    (
+        "programs/gdal_vector_set_field_type",
+        "gdal-vector-set-field-type",
+        "Modify the type of a field of a vector dataset",
+        [author_elpaso],
+        1,
+    ),
+    (
+        "programs/gdal_vector_set_geom_type",
+        "gdal-vector-set-geom-type",
+        "Modify the geometry type of a vector dataset",
         [author_evenr],
         1,
     ),
@@ -1050,7 +1445,7 @@ primary_domain = "cpp"
 # -- Source file links ------------------------------------------
 
 source_file_root = os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)
-source_file_url_template = "https://github.com/OSGeo/gdal/blob/release/3.11/{}"
+source_file_url_template = "https://github.com/OSGeo/gdal/blob/release/3.12/{}"
 
 # -- ReadTheDocs configuration ----------------------------------
 
@@ -1102,8 +1497,11 @@ shutil.copy(
 )
 
 
+def builder_inited(app):
+
+    if app.builder.name == "html":
+        check_python_bindings()
+
+
 def setup(app):
-    app.connect(
-        "builder-inited",
-        lambda app: check_python_bindings() if app.builder.name == "html" else None,
-    )
+    app.connect("builder-inited", builder_inited)

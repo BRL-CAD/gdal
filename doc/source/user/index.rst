@@ -8,6 +8,7 @@ User oriented documentation
    :maxdepth: 1
 
    raster_data_model
+   band_algebra
    multidim_raster_data_model
    vector_data_model
    gnm_data_model
@@ -18,4 +19,5 @@ User oriented documentation
    coordinate_epoch
    configoptions
    gdal_python_utilities
+   migration_guide
    security

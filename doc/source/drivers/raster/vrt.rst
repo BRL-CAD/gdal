@@ -527,6 +527,11 @@ normalized (defaults to false=0).  The size must always be an odd number,
 and the Coefs must have Size * Size entries separated by spaces.  For now
 kernel is not applied to sub-sampled or over-sampled data.
 
+At the top edge, the values of the first row are replicated to virtually extend
+the source window by a number of rows equal to the radius of the kernel. And
+similarly for the bottom, left and right edges. This strategy may potentially
+lead to unexpected results depending on the applied kernel.
+
 .. code-block:: xml
 
     <KernelFilteredSource>
@@ -538,7 +543,7 @@ kernel is not applied to sub-sampled or over-sampled data.
       </Kernel>
     </KernelFilteredSource>
 
-Starting with GDAL 2.3, a separable kernel may also be used.  In this case the
+A separable kernel may also be used.  In this case the
 number of Coefs entries should correspond to the Size.  The Coefs specify a
 one-dimensional kernel which is applied along each axis in succession, resulting
 in far quicker execution. Many common image-processing filters are separable.
@@ -553,6 +558,26 @@ For example, a Gaussian blur:
         <Size>13</Size>
         <Coefs>0.01111 0.04394 0.13534 0.32465 0.60653 0.8825 1.0 0.8825 0.60653 0.32465 0.13534 0.04394 0.01111</Coefs>
       </Kernel>
+    </KernelFilteredSource>
+
+
+Starting with GDAL 3.12, a Function element can be set as a child of KernelFilteredSource
+and take values ``min``, ``max``, ``stddev``, ``median`` or ``mode``.
+
+For example to compute the median value in a 3x3 neighborhood around each pixel:
+
+.. code-block:: xml
+
+    <KernelFilteredSource>
+      <SourceFilename>/debian/home/warmerda/openev/utm.tif</SourceFilename>
+      <SourceBand>1</SourceBand>
+      <Kernel>
+        <Size>3</Size>
+        <Coefs>1 1 1
+               1 1 1
+               1 1 1</Coefs>
+      </Kernel>
+      <Function>median</Function>
     </KernelFilteredSource>
 
 NoDataFromMaskSource
@@ -795,12 +820,18 @@ Except if (from top priority to lesser priority) :
 - (starting with GDAL 3.2) explicit virtual overviews, if a **OverviewList** element
   is declared in the VRTDataset element (see above).
   Those virtual overviews will be hidden by external .vrt.ovr overviews that might be built later.
-- (starting with GDAL 2.1) implicit virtual overviews, if the VRTRasterBand are made of
+- Implicit virtual overviews, if the VRTRasterBand are made of
   a single SimpleSource or ComplexSource that has overviews.
   Those virtual overviews will be hidden by external .vrt.ovr overviews that might be built later.
 
+.. _vrtrawrasterband:
+
 .vrt Descriptions for Raw Files
 -------------------------------
+
+.. warning:: Consult the :ref:`vrtrawrasterband_restricted_access` below
+             section for potential security issues related to that functionality
+             and how to restrict it.
 
 So far we have described how to derive new virtual datasets from existing
 files supported by GDAL.  However, it is also common to need to utilize
@@ -852,8 +883,6 @@ A few other notes:
 
 - The VRTRawRasterBand supports in place update of the raster, whereas the source based VRTRasterBand is always read-only.
 
-- The OpenEV tool includes a File menu option to input parameters describing a raw raster file in a GUI and create the corresponding .vrt file.
-
 - Multiple bands in the one .vrt file can come from the same raw file. Just ensure that the ImageOffset, PixelOffset, and LineOffset definition for each band is appropriate for the pixels of that particular band.
 
 Another example, in this case a 400x300 RGB pixel interleaved image.
@@ -883,6 +912,59 @@ Another example, in this case a 400x300 RGB pixel interleaved image.
         <LineOffset>1200</LineOffset>
     </VRTRasterBand>
     </VRTDataset>
+
+.. _vrtrawrasterband_restricted_access:
+
+Restricting access to Raw Files
+-------------------------------
+
+Some usages of GDAL, for example its use on a server that allows users to upload
+a (VRT) file, convert it to another format, and get the result back,
+could be abused to read the content of local files. Starting with GDAL 3.12, it
+is possible to restrict the use of the VRTRawRasterBand capability in several
+ways:
+
+- at build time, the CMake ``GDAL_VRT_ENABLE_RAWRASTERBAND`` variable can be set
+  to ``OFF``, to complete disable VRTRawRasterBand.
+
+- at runtime, with the following configuration options:
+
+  * .. config:: GDAL_VRT_ENABLE_RAWRASTERBAND
+       :choices: YES, NO
+       :default: YES
+       :since: 3.12
+
+       Whether the VRTRawRasterBand capability is allowed at runtime.
+
+  * .. config:: GDAL_VRT_RAWRASTERBAND_ALLOWED_SOURCE
+       :choices: SIBLING_OR_CHILD_OF_VRT_PATH, ONLY_REMOTE, ALL, <path>
+       :default: SIBLING_OR_CHILD_OF_VRT_PATH
+       :since: 3.12
+
+       Restricts which SourceFilename values are allowed:
+
+       - if set to ``SIBLING_OR_CHILD_OF_VRT_PATH`` (which is the default value of
+         that configuration option starting with GDAL 3.12), the ``relativeToVRT``
+         attribute of ``SourceFilename`` will need to set to ``1``, and the path
+         expressed by ``SourceFilename`` must not contain any `../` or `..\\` substring.
+         Note that GDAL does not try to detect if one of the files, in the file
+         hierarchy below the directory of the VRT, is a symbolic link pointing to
+         elsewhere in the file system.
+
+       - if set to ``ONLY_REMOTE``, only ``SourceFilename`` pointing to one of the
+         :ref:`VSI network based file systems <network_based_file_systems>` will be
+         allowed. Be careful though that this could still be used to access files
+         accessible on a local network, depending on the network configuration of the
+         machine on which GDAL is run.
+
+       - if set to ``ALL`` there is no restriction on the value of  ``SourceFilename``.
+
+       - if set to one absolute path (or several ones, separated by the ``;`` (semi-colon) character
+         on Windows, or ``:`` (colon) on other operating systems), only ``SourceFilename`` that
+         start with those allowed absolute paths will be accepted.
+
+In versions before GDAL 3.12, disabling entirely the VRT driver by setting the
+:config:`GDAL_SKIP` configuration option to ``VRT`` may be a workaround.
 
 Creation of VRT Datasets
 ------------------------
@@ -1068,7 +1150,7 @@ A VRTRasterBand can be made a VRTDerivedRasterBand by setting attribute subClass
 Some of the common subelements for VRTRasterBand (whose subClass="VRTDerivedRasterBand") are listed here. They can be used with built-in, C++, or Python pixel functions.
 
 - **PixelFunctionType**: (required): A pixel function with this name must be defined.
-- **SkipNonContributingSources**: (optional, added in GDAL 3.7, defaults to false) = true/false: Whether sources that do not intersect the VRTRasterBand RasterIO() requested region should be omitted. By default, data for all sources, including ones that do not intersect it, are passed to the pixel function. By setting this parameter to false, only sources that intersect the requested region will be passed.
+- **SkipNonContributingSources**: (optional, added in GDAL 3.7, defaults to false) = true/false: Whether sources that do not intersect the VRTRasterBand RasterIO() requested region should be omitted. By default, data for all sources, including ones that do not intersect it, are passed to the pixel function. By setting this parameter to true, only sources that intersect the requested region will be passed.
 
 .. example::
    :title: Calculating a derived band
@@ -1131,6 +1213,14 @@ GDAL provides a set of default pixel functions that can be used without writing 
      - Number of input sources
      - PixelFunctionArguments
      - Description
+   * - **argmax**
+     - >= 1
+     - ``propagateNoData`` (optional, default=false)
+     - (GDAL >= 3.12) Index (1-based, contrary to ``numpy.argmax``) of band with the maximum value
+   * - **argmin**
+     - >= 1
+     - ``propagateNoData`` (optional, default=false)
+     - (GDAL >= 3.12) Index (1-based, contrary to ``numpy.argmin``) of band with the minimum value
    * - **cmul**
      - 2
      - -
@@ -1174,11 +1264,23 @@ GDAL provides a set of default pixel functions that can be used without writing 
    * - **diff**
      - 2
      - -
-     - Computes the difference between 2 raster bands (``b1 - b2``)
+     - Computes the difference between 2 raster bands (``b1 - b2``).
+
+       Starting with GDAL 3.12, if either ``b1`` or ``b2`` is equal to the
+
+       derived band's NoData value (set with ``<NoDataValue>``), the result
+
+       will be the NoData value.
    * - **div**
      - 2
      - -
-     - Divide one raster band by another (``b1 / b2``)
+     - Divide one raster band by another (``b1 / b2``).
+
+       Starting with GDAL 3.12, if either ``b1`` or ``b2`` is equal to the
+
+       derived band's NoData value (set with ``<NoDataValue>``), the result
+
+       will be the NoData value.
    * - **exp**
      - 1
      - ``base`` (optional)
@@ -1195,14 +1297,35 @@ GDAL provides a set of default pixel functions that can be used without writing 
        logarithmic scale (dB): `` 10. ^ (x / 20.)``, in this case
 
        ``base = 10.`` and ``fact = 0.05`` i.e. ``1. / 20``
+
+       Starting with GDAL 3.12, if ``x`` is equal to the derived band's NoData value
+
+       (set with ``<NoDataValue>``), the result will be the NoData value.
+
    * - **expression**
      - 1
      - ``expression``
+
+       ``dialect`` (optional)
+
+       ``propagateNoData`` (GDAL >= 3.12, optional, default=false)
+
      - Evaluate a specified expression using `muparser <https://beltoforion.de/en/muparser/>`__ (default)
        or `ExprTk <https://www.partow.net/programming/exprtk/index.html>`__.
 
        The expression is specified using the "expression" argument.
        The dialect may be specified using the "dialect" argument.
+
+       If the optional ``propagateNoData`` parameter is set to ``true``, then
+
+       if a NoData pixel is found in one of the bands, if will be propagated to
+
+       the output value. Otherwise, NoData pixels will be passed to the expression
+
+       as-is. The expression can then use the ``NODATA`` variable (or ``isnodata``
+
+       muparser function) to test for these pixels and handle them accordingly.
+
        Within the expression, band values can be accessed:
 
        - through the variables ``B1``, ``B2``, etc.
@@ -1211,11 +1334,47 @@ GDAL provides a set of default pixel functions that can be used without writing 
 
        - or through the ``BANDS`` vector.
          With ExprTk, ``BANDS`` is exposed as a standard (0-indexed) vector.
+
          With muparser, it is expanded into a list of all input bands.
+
+       Starting with GDAL 3.12, the variables ``_CENTER_X_`` and ``_CENTER_Y_`` can be
+
+       included in the expression to access cell center coordinates. The variable ``NODATA``
+
+       can be included in the expression if the derived band has a NoData value.
 
        ExprTk and muparser support a number of built-in functions and control structures.
 
+       Since GDAL 3.12, the function standard C++ function ``fmod`` is added to muparser.
+
        Refer to the documentation of those libraries for details.
+   * - **geometric_mean**
+     - >= 1
+     - ``propagateNoData`` (optional, default=false)
+     - (GDAL >= 3.12) Geometric mean of input raster bands.
+
+       If the optional ``propagateNoData`` parameter is set to ``true``, then
+
+       if a NoData pixel is found in one of the bands, if will be propagated to
+
+       the output value. Otherwise, NoData pixels will be ignored.
+   * - **harmonic_mean**
+     - >= 1
+     - ``propagateNoData`` (optional, default=false)
+
+       ``propagateZero`` (optional, default=false)
+     - (GDAL >= 3.12) Harmonic mean of input raster bands.
+
+       If the optional ``propagateNoData`` parameter is set to ``true``, then
+
+       if a NoData pixel is found in one of the bands, if will be propagated to
+
+       the output value. Otherwise, NoData pixels will be ignored.
+
+       If zero values are encountered in one of the bands, the output will
+
+       be set to NoData unless ``propagateZero`` is set to ``true``.
+
    * - **imag**
      - 1
      - -
@@ -1228,58 +1387,132 @@ GDAL provides a set of default pixel functions that can be used without writing 
      - >= 2
      - ``t0``, ``dt``, ``t``
      - Interpolate a value at time (or position) ``t`` given input sources
-       beginning at position ``t0`` with spacing ``dt`` using exponential interpolation
+
+       beginning at position ``t0`` with spacing ``dt`` using exponential interpolation.
+
+       Starting with GDAL 3.12, if either input source bounding ``t`` is equal to the NoData
+
+       value of the derived band (set with ``<NoDataValue>``), the result will be the
+
+       NoData value.
    * - **interpolate_linear**
      - >= 2
      - ``t0``, ``dt``, ``t``
      - Interpolate a value at time (or position) ``t`` given input sources
-       beginning at ``t0`` with spacing ``dt`` using linear interpolation
+
+       beginning at ``t0`` with spacing ``dt`` using linear interpolation.
+
+       Starting with GDAL 3.12, if either input source bounding ``t`` is equal to the NoData
+
+       value of the derived band (set with ``<NoDataValue>``), the result will be the
+
+       NoData value.
    * - **inv**
      - 1
      - ``k`` (optional)
      - Inverse (``1./x``). If the optional ``k`` parameter is set,
 
-       then the result is multiplied by ``k`` (``k / x``)
+       then the result is multiplied by ``k`` (``k / x``).
+
+       Starting with GDAL 3.12, if ``x`` is equal to the derived band's NoData value
+
+       (set with ``<NoDataValue>``), the result will be the NoData value.
    * - **log10**
      - 1
      - -
      - Compute the logarithm (base 10) of the abs of a single raster band
 
        (real or complex): ``log10( abs( x ) )``
+
+       Starting with GDAL 3.12, if ``x`` is equal to the derived band's NoData value
+
+       (set with ``<NoDataValue>``), the result will be the NoData value.
    * - **max**
-     - >= 2
-     - ``propagateNoData`` (optional)
-     - (GDAL >= 3.8) Maximum of 2 or more raster bands, ignoring by default pixels at nodata.
+     - >= 1
+     - ``propagateNoData`` (optional, default=false)
+
+       ``k``: constant (optional)
+     - (GDAL >= 3.8) Maximum of raster band(s) and an optional constant
 
        If the optional ``propagateNoData`` parameter is set to ``true``, then
 
-       if a nodata pixel is found in one of the bands,
+       if a NoData pixel is found in one of the bands, if will be propagated to
 
-       if will be propagated to the output value.
+       the output value. Otherwise, NoData pixels will be ignored.
+   * - **mean**
+     - >= 1
+     - ``propagateNoData`` (optional, default=false)
+     - (GDAL >= 3.12) Arithmetic mean of input raster bands.
+
+       If the optional ``propagateNoData`` parameter is set to ``true``, then
+
+       if a NoData pixel is found in one of the bands, if will be propagated to
+
+       the output value. Otherwise, NoData pixels will be ignored.
+   * - **median**
+     - >= 1
+     - ``propagateNoData`` (optional, default=false)
+     - (GDAL >= 3.12) Median of input raster bands.
+
+       If the optional ``propagateNoData`` parameter is set to ``true``, then
+
+       if a NoData pixel is found in one of the bands, if will be propagated to
+
+       the output value. Otherwise, NoData pixels will be ignored.
    * - **min**
-     - >= 2
-     - ``propagateNoData`` (optional)
-     - (GDAL >= 3.8) Minimum of 2 or more raster bands, ignoring by default pixels at nodata.
+     - >= 1
+     - ``propagateNoData`` (optional, default=false)
+
+       ``k``: constant (optional)
+     - (GDAL >= 3.8) Minimum of raster band(s) and an optional constant
 
        If the optional ``propagateNoData`` parameter is set to ``true``, then
 
-       if a nodata pixel is found in one of the bands,
+       if a NoData pixel is found in one of the bands, if will be propagated to
 
-       if will be propagated to the output value.
+       the output value. Otherwise, NoData pixels will be ignored.
    * - **mod**
      - 1
      - -
      - Extract module from a single raster band (real or complex)
+   * - **mode**
+     - >= 1
+     - ``propagateNoData`` (optional, default=false)
+     - (GDAL >= 3.12) Mode (most common value) of input raster bands.
+
+       If the optional ``propagateNoData`` parameter is set to ``true``, then
+
+       if a NoData pixel is found in one of the bands, if will be propagated to
+
+       the output value. Otherwise, NoData pixels will be ignored.
    * - **mul**
      - >= 1
      - ``k`` (optional)
+
+       ``propagateNoData`` (optional, default=false)
      - Multiply 1 or more raster bands.
 
-       If the optional ``k`` parameter is provided then the result is multiplied by the scalar ``k``.
+       If the optional ``k`` parameter is provided then the result is
+
+       multiplied by the scalar ``k``.
+
+       Starting with GDAL 3.12, if ``propagateNoData`` is true, any input pixel
+
+       equal to the derived band's NoData value (set with ``<NoDataValue>``)
+
+       will cause the result to be the NoData value. If ``propagateNoData`` is
+
+       false, input NoData values will be ignored.
    * - **norm_diff**
      - 2
      - -
      - Computes the normalized difference between two raster bands: ``(b1 - b2)/(b1 + b2)``
+
+       Starting with GDAL 3.12, if either ``b1`` or ``b2`` is equal to the
+
+       derived band's NoData value (set with ``<NoDataValue>``), the result
+
+       will be the NoData value.
    * - **phase**
      - 1
      - -
@@ -1302,6 +1535,10 @@ GDAL provides a set of default pixel functions that can be used without writing 
      - 1
      - ``power``
      - Raise a single raster band to a constant power, specified with argument ``power`` (real only)
+
+       Starting with GDAL 3.12, if the input is equal to the derived band's NoData value
+
+       (set with ``<NoDataValue>``), the result will be the NoData value.
    * - **real**
      - 1
      - -
@@ -1339,15 +1576,34 @@ GDAL provides a set of default pixel functions that can be used without writing 
      - = 1
      - -
      - Perform scaling according to the ``offset`` and ``scale`` values of the raster band
+
+       Starting with GDAL 3.12, if the input is equal to the derived band's NoData value
+
+       (set with ``<NoDataValue>``), the result will be the NoData value.
    * - **sqrt**
      - 1
      - -
-     - Perform the square root of a single raster band (real only)
+     - Perform the square root of a single raster band (real only).
+
+       Starting with GDAL 3.12, if the input is equal to the derived band's NoData value
+
+       (set with ``<NoDataValue>``), the result will be the NoData value.
    * - **sum**
      - >= 1
      - ``k`` (optional)
+
+       ``propagateNoData`` (optional, default=``false``)
      - Sum 1 or more raster bands. If the optional ``k`` parameter is provided
-       then it is added to each element of the result
+
+       then it is added to each element of the result.
+
+       Starting with GDAL 3.12, if ``propagateNoData`` is true, any input pixel
+
+       equal to the derived band's NoData value (set with ``<NoDataValue>``)
+
+       will cause the result to be the NoData value. If ``propagateNoData`` is
+
+       false, input NoData values will be ignored.
 
 .. example::
    :title: VRT expression with a simple condition
@@ -1778,9 +2034,9 @@ configuration option is not defined, it will look for a "python" binary in the
 directories of the PATH and will try to determine the related shared object
 (it will retry with "python3" if no "python" has been found). If the above
 was not successful, then a predefined list of shared objects names
-will be tried. At the time of writing, the order of versions searched is
-3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 3.7, 3.6, 3.5, 3.4, 3.3, 3.2. Enabling debug information (:config:`CPL_DEBUG=ON`) will
-show which Python version is used.
+will be tried. As of GDAL 3.12, the order of versions searched is
+3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 3.14, 3.7, 3.6, 3.5.
+Enabling debug information (:config:`CPL_DEBUG=ON`) will show which Python version is used.
 
 Just-in-time compilation
 ++++++++++++++++++++++++
@@ -1926,8 +2182,6 @@ GDALWarpOptions element which describe the warping options.
 
 Pansharpened VRT
 ----------------
-
-.. versionadded:: 2.1
 
 A VRT can describe a dataset resulting from a
 `pansharpening operation <https://en.wikipedia.org/wiki/Pansharpened_image>`_
@@ -2268,7 +2522,7 @@ The effect of the ``eco`` option (added in GDAL 3.8) is that ``srcwin`` or ``pro
 The effect of the ``sd_name`` option (added in GDAL 3.9) is to choose an individual subdataset by
 name for sources that have multiple subdatasets. This means that rather than a fully-qualified description
 such as "NETCDF:myfile.nc:somearray" we may use "vrt://myfile.nc?sd_name=somearray". This option
-is mutually exclusive with ``sd``.
+is mutually exclusive with ``sd``, and with ``transpose``.
 
 The effect of the ``sd`` option (added in GDAL 3.9) is to choose an individual subdataset by
 number for sources that have multiple subdatasets. This means that rather than a fully-qualified
@@ -2276,8 +2530,18 @@ description such as "NETCDF:myfile.nc:somearray" we may use "vrt://myfile.nc?sd=
 is between 1 and the number of subdatasets. Note that there is no guarantee of the order of the
 subdatasets within a source between GDAL versions (or in some cases between file series in datasets). This
 mode is for convenience only, please use ``sd_name`` to choose a subdataset by name explicitly.
-This option is mutually exclusive with ``sd_name``.
+This option is mutually exclusive with ``sd_name``, and with ``transpose``.
 
+The effect of the ``transpose`` option (added in GDAL 3.12) is to specify just one array by name from a
+multidimensional dataset and nominate the indexes for the two axes that define the 2D dataset. This is
+an interface to the function :cpp:func:`GDALMDArray::AsClassicDataset` in the multidimensional raster model.
+This can be valuable for reorienting an array that presents X and Y in YX or some other order. (There's a
+possible added advantage that a valid geotransform may be provided that the classic 2D model doesn't yet infer,
+because the multidimensional model can derive one from coordinates referenced in that form).
+The usage syntax is ``vrt://somefile.extension?transpose=varname:iXDim,iYDim`` with a no-op case
+``vrt://somefile.extension?transpose=varname:0,1`` and ``vrt://somefile.extension?transpose=varname:1,0`` would be a
+transpose on the first two axes. There must be two unique axis indexes with values between 0 and the maximum available.
+This option is mutually exclusive with ``sd_name`` and ``sd``.
 
 The options may be chained together separated by '&'. (Beware the need for quoting to protect
 the ampersand).
@@ -2327,39 +2591,6 @@ configuration option.
 
 Note that the number of threads actually used is also limited by the
 :config:`GDAL_MAX_DATASET_POOL_SIZE` configuration option.
-
-Multi-threading issues
-----------------------
-
-.. warning::
-
-    The below section applies to GDAL <= 2.2. Starting with GDAL 2.3, the use
-    of VRT datasets is subject to the standard GDAL dataset multi-threaded rules
-    (that is a VRT dataset handle may only be used by a same thread at a time,
-    but you may open several dataset handles on the same VRT file and use them
-    in different threads)
-
-When using VRT datasets in a multi-threading environment, you should be
-careful to open the VRT dataset by the thread that will use it afterwards. The
-reason for that is that the VRT dataset uses :cpp:func:`GDALOpenShared` when opening the
-underlying datasets. So, if you open twice the same VRT dataset by the same
-thread, both VRT datasets will share the same handles to the underlying
-datasets.
-
-The shared attribute, on the SourceFilename indicates whether the
-dataset should be shared (value is 1) or not (value is 0). The default is 1.
-If several VRT datasets referring to the same underlying sources are used in a multithreaded context,
-shared should be set to 0. Alternatively, the :config:`VRT_SHARED_SOURCE` configuration
-option can be set to ``NO`` to force non-shared mode:
-
--  .. config:: VRT_SHARED_SOURCE
-      :choices: YES, NO
-      :default: YES
-
-      Determines whether a VRT dataset should open its underlying sources in
-      shared mode, for ``SourceFilename`` elements that do not specify a
-      ``shared`` attribute. When the ``shared`` attribute is present this
-      configuration option is ignored.
 
 Performance considerations
 --------------------------

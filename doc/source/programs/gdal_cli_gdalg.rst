@@ -23,7 +23,7 @@ For algorithms that support GDALG output, it is also possible to use the
 ``stream`` output format to indicate that a raster or vector streamed dataset
 must be returned.
 
-For example the following snippet, runs that "gdal vector geom set-type"
+For example the following snippet, runs that "gdal vector set-type"
 algorithm on a source dataset and iterates over features from the returned
 streamed dataset.
 
@@ -54,7 +54,7 @@ Examples
 
    .. code-block:: bash
 
-        $ gdal vector pipeline --progress ! read in.gpkg ! reproject --dst-crs=EPSG:32632 ! write in_epsg_32632.gdalg.json --overwrite
+        $ gdal vector pipeline ! read in.gpkg ! reproject --dst-crs=EPSG:32632 ! write in_epsg_32632.gdalg.json --overwrite
         $ gdal vector info in_epsg_32632.gdalg.json
 
     The content of :file:`in_epsg_32632.gdalg.json` is:

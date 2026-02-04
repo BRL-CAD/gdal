@@ -36,6 +36,9 @@ It can also use a tiling scheme fully adapted to the input raster, in terms of
 origin and resolution, when using the ``raster`` tiling scheme. In that scheme,
 tiles at the maximum zoom level will have the same resolution as the raster.
 
+Starting with GDAL 3.12, :program:`gdal raster tile` can be used as the last
+step of a pipeline.
+
 Standard options
 ++++++++++++++++
 
@@ -155,7 +158,7 @@ Standard options
 
     Disable the creation of an alpha channel.
 
-.. option:: --dstnodata <DSTNODATA>
+.. option:: --dst-nodata <DSTNODATA>
 
     Destination nodata value.
 
@@ -189,6 +192,67 @@ Standard options
 
    Number of jobs to run at once.
    Default: number of CPUs detected.
+
+.. option:: --parallel-method thread|spawn|fork
+
+   .. versionadded:: GDAL 3.12
+
+   Parallelization method:
+
+   - ``thread`` uses multi-threading, i.e. parallelized tasks are run within
+     the same process.
+
+   - ``spawn`` launches child :program:`gdal` sub-processes.
+     ``spawn`` can achieve better "scaling", but requires the :program:`gdal` binary to be
+     available. GDAL will try to locate it, but you can also set the ``GDAL_PATH``
+     configuration option to point to the directory where the :program:`gdal` binary is
+     located.
+
+   - ``fork`` is a variant of ``spawn``, using the system call ``fork``, without
+     executing the the :program:`gdal` binary. Such method is not available on
+     Windows. On Unix systems where it is available, this method is not recommended
+     to be used on multithreaded processes, especially the ones where other threads
+     are doing GDAL operation, since it can potentially cause deadlocks.
+
+   If :option:`--parallel-method` is not specified, GDAL will automatically
+   decide which of the method is the most appropriate, opting for ``spawn`` if
+   the :program:`gdal` binary can be located and a sufficient number of tiles per job
+   are generated, and otherwise falling back to ``fork`` on Linux, MacOSX or FreeBSD
+   (if no other thread is running), and otherwise to ``thread``.
+
+
+Advanced Resampling Options
++++++++++++++++++++++++++++
+
+.. option:: --excluded-values=<EXCLUDED-VALUES>
+
+  Comma-separated tuple of values (thus typically "R,G,B"), that are ignored
+  as contributing source pixels during resampling. The number of values in
+  the tuple must be the same as the number of bands, excluding the alpha band.
+  Several tuples of excluded values may be specified using the "(R1,G1,B2),(R2,G2,B2)" syntax.
+  Only taken into account for average resampling.
+  This concept is a bit similar to nodata/alpha, but the main difference is
+  that pixels matching one of the excluded value tuples are still considered
+  as valid, when determining the target pixel validity/density.
+
+.. versionadded:: 3.11.1
+
+.. option:: --excluded-values-pct-threshold=<EXCLUDED-VALUES-PCT-THRESHOLD>
+
+  Minimum percentage of source pixels that must be set at one of the --excluded-values to cause the excluded
+  value, that is in majority among source pixels, to be used as the target pixel value. Default value is 50(%)
+
+.. versionadded:: 3.11.1
+
+.. option:: --nodata-values-pct-threshold=<NODATA-VALUES-PCT-THRESHOLD>
+
+  Minimum percentage of source pixels that must be at nodata (or alpha=0 or any
+  other way to express transparent pixel) to cause the target pixel value to
+  be transparent. Default value is 100 (%), which means that a target pixel is
+  transparent only if all contributing source pixels are transparent.
+  Only taken into account for average resampling.
+
+.. versionadded:: 3.11.1
 
 
 Advanced Resampling Options
@@ -228,9 +292,14 @@ Advanced Resampling Options
 Publication Options
 +++++++++++++++++++
 
-.. option:: --webviewer none|all|leaflet|openlayers|mapml
+.. option:: --webviewer none|all|leaflet|openlayers|mapml|stac
 
-    Web viewer to generate. Defaults to ``all``.
+    Web viewer to generate. Defaults to ``all``. Those web viewers are created
+    at the root of the output directory.
+
+    ``stac`` generates a :file:`stacta.json` file, following the
+    Spatio-Temporal Asset Catalog Tiled Assets specification, and that can
+    be opened by the :ref:`STACTA driver <raster.stacta>`.
 
 .. option:: --url
 
@@ -287,3 +356,17 @@ Examples
    .. code-block:: bash
 
       gdal raster tile --tiling-scheme raster input.tif output_folder
+
+.. example::
+   :title: Creating a tiled dataset, compatible of the Spatio-Temporal Asset Catalog Tiled Assets specification, using Cloud-Optimized GeoTIFF metatiles of dimension 4096x4096.
+
+   .. code-block:: bash
+
+      gdal raster tile --format COG --tile-size 4096 input.tif output_folder
+
+.. example::
+   :title: Mosaic on-the-fly several input files and tile that mosaic.
+
+   .. code-block:: bash
+
+      gdal raster pipeline ! mosaic input*.tif ! tile output_folder

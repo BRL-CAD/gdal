@@ -14,15 +14,13 @@
 
 #include "cpl_port.h"
 #include "envidataset.h"
+#include "gdal_priv.h"
 #include "rawdataset.h"
 
 #include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#if HAVE_FCNTL_H
-#include <fcntl.h>
-#endif
 
 #include <algorithm>
 #include <limits>
@@ -87,12 +85,6 @@ ENVIDataset::ENVIDataset()
     : fpImage(nullptr), fp(nullptr), pszHDRFilename(nullptr),
       bFoundMapinfo(false), bHeaderDirty(false), bFillFile(false)
 {
-    adfGeoTransform[0] = 0.0;
-    adfGeoTransform[1] = 1.0;
-    adfGeoTransform[2] = 0.0;
-    adfGeoTransform[3] = 0.0;
-    adfGeoTransform[4] = 0.0;
-    adfGeoTransform[5] = 1.0;
 }
 
 /************************************************************************/
@@ -579,25 +571,19 @@ void ENVIDataset::WriteProjectionInfo()
     CPLString osLocation;
     CPLString osRotation;
 
-    const double dfPixelXSize = sqrt(adfGeoTransform[1] * adfGeoTransform[1] +
-                                     adfGeoTransform[2] * adfGeoTransform[2]);
-    const double dfPixelYSize = sqrt(adfGeoTransform[4] * adfGeoTransform[4] +
-                                     adfGeoTransform[5] * adfGeoTransform[5]);
-    const bool bHasNonDefaultGT =
-        adfGeoTransform[0] != 0.0 || adfGeoTransform[1] != 1.0 ||
-        adfGeoTransform[2] != 0.0 || adfGeoTransform[3] != 0.0 ||
-        adfGeoTransform[4] != 0.0 || adfGeoTransform[5] != 1.0;
-    if (adfGeoTransform[1] > 0.0 && adfGeoTransform[2] == 0.0 &&
-        adfGeoTransform[4] == 0.0 && adfGeoTransform[5] > 0.0)
+    const double dfPixelXSize = sqrt(m_gt[1] * m_gt[1] + m_gt[2] * m_gt[2]);
+    const double dfPixelYSize = sqrt(m_gt[4] * m_gt[4] + m_gt[5] * m_gt[5]);
+    const bool bHasNonDefaultGT = m_gt[0] != 0.0 || m_gt[1] != 1.0 ||
+                                  m_gt[2] != 0.0 || m_gt[3] != 0.0 ||
+                                  m_gt[4] != 0.0 || m_gt[5] != 1.0;
+    if (m_gt[1] > 0.0 && m_gt[2] == 0.0 && m_gt[4] == 0.0 && m_gt[5] > 0.0)
     {
         osRotation = ", rotation=180";
     }
     else if (bHasNonDefaultGT)
     {
-        const double dfRotation1 =
-            -atan2(-adfGeoTransform[2], adfGeoTransform[1]) * kdfRadToDeg;
-        const double dfRotation2 =
-            -atan2(-adfGeoTransform[4], -adfGeoTransform[5]) * kdfRadToDeg;
+        const double dfRotation1 = -atan2(-m_gt[2], m_gt[1]) * kdfRadToDeg;
+        const double dfRotation2 = -atan2(-m_gt[4], -m_gt[5]) * kdfRadToDeg;
         const double dfRotation = (dfRotation1 + dfRotation2) / 2.0;
 
         if (fabs(dfRotation1 - dfRotation2) > 1e-5)
@@ -613,8 +599,8 @@ void ENVIDataset::WriteProjectionInfo()
         }
     }
 
-    osLocation.Printf("1, 1, %.15g, %.15g, %.15g, %.15g", adfGeoTransform[0],
-                      adfGeoTransform[3], dfPixelXSize, dfPixelYSize);
+    osLocation.Printf("1, 1, %.15g, %.15g, %.15g, %.15g", m_gt[0], m_gt[3],
+                      dfPixelXSize, dfPixelYSize);
 
     // Minimal case - write out simple geotransform if we have a
     // non-default geotransform.
@@ -1117,10 +1103,10 @@ CPLErr ENVIDataset::SetSpatialRef(const OGRSpatialReference *poSRS)
 /*                          GetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr ENVIDataset::GetGeoTransform(double *padfTransform)
+CPLErr ENVIDataset::GetGeoTransform(GDALGeoTransform &gt) const
 
 {
-    memcpy(padfTransform, adfGeoTransform, sizeof(double) * 6);
+    gt = m_gt;
 
     if (bFoundMapinfo)
         return CE_None;
@@ -1132,9 +1118,9 @@ CPLErr ENVIDataset::GetGeoTransform(double *padfTransform)
 /*                          SetGeoTransform()                           */
 /************************************************************************/
 
-CPLErr ENVIDataset::SetGeoTransform(double *padfTransform)
+CPLErr ENVIDataset::SetGeoTransform(const GDALGeoTransform &gt)
 {
-    memcpy(adfGeoTransform, padfTransform, sizeof(double) * 6);
+    m_gt = gt;
 
     bHeaderDirty = true;
     bFoundMapinfo = true;
@@ -1373,18 +1359,18 @@ bool ENVIDataset::ProcessMapinfo(const char *pszMapinfo)
     const double xPixelSize = CPLAtof(papszFields[5]);
     const double yPixelSize = CPLAtof(papszFields[6]);
 
-    adfGeoTransform[0] = pixelEasting - (xReference - 1) * xPixelSize;
-    adfGeoTransform[1] = cos(dfRotation) * xPixelSize;
-    adfGeoTransform[2] = -sin(dfRotation) * xPixelSize;
-    adfGeoTransform[3] = pixelNorthing + (yReference - 1) * yPixelSize;
-    adfGeoTransform[4] = -sin(dfRotation) * yPixelSize;
-    adfGeoTransform[5] = -cos(dfRotation) * yPixelSize;
+    m_gt[0] = pixelEasting - (xReference - 1) * xPixelSize;
+    m_gt[1] = cos(dfRotation) * xPixelSize;
+    m_gt[2] = -sin(dfRotation) * xPixelSize;
+    m_gt[3] = pixelNorthing + (yReference - 1) * yPixelSize;
+    m_gt[4] = -sin(dfRotation) * yPixelSize;
+    m_gt[5] = -cos(dfRotation) * yPixelSize;
     if (bUpsideDown)  // to avoid numeric approximations
     {
-        adfGeoTransform[1] = xPixelSize;
-        adfGeoTransform[2] = 0;
-        adfGeoTransform[4] = 0;
-        adfGeoTransform[5] = yPixelSize;
+        m_gt[1] = xPixelSize;
+        m_gt[2] = 0;
+        m_gt[4] = 0;
+        m_gt[5] = yPixelSize;
     }
 
     // TODO(schwehr): Symbolic constants for the fields.
@@ -1562,12 +1548,12 @@ bool ENVIDataset::ProcessMapinfo(const char *pszMapinfo)
                     conversionFactor = 60.0;
                 else if (EQUAL(pszUnits, "Seconds"))
                     conversionFactor = 3600.0;
-                adfGeoTransform[0] /= conversionFactor;
-                adfGeoTransform[1] /= conversionFactor;
-                adfGeoTransform[2] /= conversionFactor;
-                adfGeoTransform[3] /= conversionFactor;
-                adfGeoTransform[4] /= conversionFactor;
-                adfGeoTransform[5] /= conversionFactor;
+                m_gt[0] /= conversionFactor;
+                m_gt[1] /= conversionFactor;
+                m_gt[2] /= conversionFactor;
+                m_gt[3] /= conversionFactor;
+                m_gt[4] /= conversionFactor;
+                m_gt[5] /= conversionFactor;
             }
         }
     }
@@ -1987,8 +1973,12 @@ ENVIDataset *ENVIDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
 
 {
     // Assume the caller is pointing to the binary (i.e. .bil) file.
-    if (poOpenInfo->nHeaderBytes < 2)
+    if (poOpenInfo->nHeaderBytes < 2 ||
+        (!poOpenInfo->IsSingleAllowedDriver("ENVI") &&
+         poOpenInfo->IsExtensionEqualToCI("zarr")))
+    {
         return nullptr;
+    }
 
     // Do we have a .hdr file?  Try upper and lower case, and
     // replacing the extension as well as appending the extension
@@ -2002,7 +1992,7 @@ ENVIDataset *ENVIDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
 
     CPLString osHdrFilename;
     VSILFILE *fpHeader = nullptr;
-    char **papszSiblingFiles = poOpenInfo->GetSiblingFiles();
+    CSLConstList papszSiblingFiles = poOpenInfo->GetSiblingFiles();
     if (papszSiblingFiles == nullptr)
     {
         // First try hdr as an extra extension
@@ -2112,11 +2102,42 @@ ENVIDataset *ENVIDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
     }
 
     // Extract required values from the .hdr.
-    int nLines = atoi(poDS->m_aosHeader.FetchNameValueDef("lines", "0"));
+    const char *pszLines = poDS->m_aosHeader.FetchNameValueDef("lines", "0");
+    const auto nLines64 = std::strtoll(pszLines, nullptr, 10);
+    const int nLines = static_cast<int>(std::min<int64_t>(nLines64, INT_MAX));
+    if (nLines < nLines64)
+    {
+        CPLError(CE_Warning, CPLE_AppDefined,
+                 "Limiting number of lines from %s to %d due to GDAL raster "
+                 "data model limitation",
+                 pszLines, nLines);
+    }
 
-    int nSamples = atoi(poDS->m_aosHeader.FetchNameValueDef("samples", "0"));
+    const char *pszSamples =
+        poDS->m_aosHeader.FetchNameValueDef("samples", "0");
+    const auto nSamples64 = std::strtoll(pszSamples, nullptr, 10);
+    const int nSamples =
+        static_cast<int>(std::min<int64_t>(nSamples64, INT_MAX));
+    if (nSamples < nSamples64)
+    {
+        CPLError(
+            CE_Failure, CPLE_AppDefined,
+            "Cannot handle samples=%s due to GDAL raster data model limitation",
+            pszSamples);
+        return nullptr;
+    }
 
-    int nBands = atoi(poDS->m_aosHeader.FetchNameValueDef("bands", "0"));
+    const char *pszBands = poDS->m_aosHeader.FetchNameValueDef("bands", "0");
+    const auto nBands64 = std::strtoll(pszBands, nullptr, 10);
+    const int nBands = static_cast<int>(std::min<int64_t>(nBands64, INT_MAX));
+    if (nBands < nBands64)
+    {
+        CPLError(
+            CE_Failure, CPLE_AppDefined,
+            "Cannot handle bands=%s due to GDAL raster data model limitation",
+            pszBands);
+        return nullptr;
+    }
 
     // In case, there is no interleave keyword, we try to derive it from the
     // file extension.
@@ -2328,7 +2349,7 @@ ENVIDataset *ENVIDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
         }
         nLineOffset = nDataSize * nSamples;
         nPixelOffset = nDataSize;
-        nBandOffset = static_cast<vsi_l_offset>(nLineOffset) * nLines;
+        nBandOffset = static_cast<vsi_l_offset>(nLineOffset) * nLines64;
     }
 
     const char *pszMajorFrameOffset = poDS->m_aosHeader["major_frame_offsets"];
@@ -2586,12 +2607,14 @@ ENVIDataset *ENVIDataset::Open(GDALOpenInfo *poOpenInfo, bool bFileSizeCheck)
 
         for (int i = 0; i * 3 + 2 < nColorValueCount; i++)
         {
-            GDALColorEntry sEntry;
-
-            sEntry.c1 = static_cast<short>(atoi(papszClassColors[i * 3 + 0]));
-            sEntry.c2 = static_cast<short>(atoi(papszClassColors[i * 3 + 1]));
-            sEntry.c3 = static_cast<short>(atoi(papszClassColors[i * 3 + 2]));
-            sEntry.c4 = 255;
+            const GDALColorEntry sEntry = {
+                static_cast<short>(std::clamp(atoi(papszClassColors[i * 3 + 0]),
+                                              0, 255)),  // Red
+                static_cast<short>(std::clamp(atoi(papszClassColors[i * 3 + 1]),
+                                              0, 255)),  // Green
+                static_cast<short>(std::clamp(atoi(papszClassColors[i * 3 + 2]),
+                                              0, 255)),  // Blue
+                255};
             oCT.SetColorEntry(i, &sEntry);
         }
 

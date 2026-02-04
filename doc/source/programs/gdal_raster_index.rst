@@ -56,7 +56,7 @@ Standard options
 
     Whether appending features to the existing output vector layer is allowed.
 
-.. option:: -l, --nln, --layer <LAYER>
+.. option:: --nln, --output-layer <LAYER>
 
     Provides a name for the output vector layer.
 
@@ -122,6 +122,12 @@ Standard options
     Write an arbitrary layer metadata item, for formats that support layer
     metadata.
     This option may be repeated.
+
+.. option:: --skip-errors
+
+    .. versionadded:: 3.12
+
+    Skip errors related to input datasets.
 
 Examples
 --------

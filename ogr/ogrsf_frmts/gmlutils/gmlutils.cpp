@@ -82,12 +82,6 @@ bool GML_IsSRSLatLongOrder(const char *pszSRSName)
         // Shortcut.
         return true;
     }
-    /* fguuid:jgd20??.bl (Japanese FGD GML v4) */
-    else if (EQUALN(pszSRSName, "fguuid:jgd2011.bl", 17) ||
-             EQUALN(pszSRSName, "fguuid:jgd2001.bl", 17))
-    {
-        return true;
-    }
     else if (!EQUALN(pszSRSName, "EPSG:", 5))
     {
         OGRSpatialReference oSRS;
@@ -149,6 +143,11 @@ class SRSCache
   public:
     SRSCache() = default;
 
+    // Not super elegant, but GML2OGRGeometry_XMLNode() uses its own SRS cache,
+    // so hide within ourselves.
+    lru11::Cache<std::string, std::shared_ptr<OGRSpatialReference>>
+        oSRSCacheForGML2OGRGeom{};
+
     const SRSDesc &Get(const std::string &osSRSName)
     {
         if (poLastDesc && osSRSName == poLastDesc->osSRSName)
@@ -207,6 +206,7 @@ OGRGeometry *GML_BuildOGRGeometryFromList(
     int nPseudoBoolGetSecondaryGeometryOption, void *hCacheSRS,
     bool bFaceHoleNegative)
 {
+    SRSCache *poSRSCache = static_cast<SRSCache *>(hCacheSRS);
     OGRGeometry *poGeom = nullptr;
     OGRGeometryCollection *poCollection = nullptr;
 #ifndef WITHOUT_CPLDEBUG
@@ -224,8 +224,9 @@ OGRGeometry *GML_BuildOGRGeometryFromList(
         }
 #endif
         OGRGeometry *poSubGeom = GML2OGRGeometry_XMLNode(
-            papsGeometry[i], nPseudoBoolGetSecondaryGeometryOption, 0, 0, false,
-            true, bFaceHoleNegative);
+            papsGeometry[i], nPseudoBoolGetSecondaryGeometryOption,
+            poSRSCache->oSRSCacheForGML2OGRGeom, 0, 0, false, true,
+            bFaceHoleNegative);
         if (poSubGeom)
         {
             if (poGeom == nullptr)
@@ -307,7 +308,6 @@ OGRGeometry *GML_BuildOGRGeometryFromList(
 
     if (pszNameLookup != nullptr)
     {
-        SRSCache *poSRSCache = static_cast<SRSCache *>(hCacheSRS);
         const SRSDesc &oSRSDesc = poSRSCache->Get(pszNameLookup);
         poGeom->assignSpatialReference(oSRSDesc.poSRS);
         if ((eSwapCoordinates == GML_SWAP_AUTO && oSRSDesc.bAxisInvert &&

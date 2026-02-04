@@ -35,18 +35,16 @@ class GDALInfoAlgorithm final
     GDALInfoAlgorithm() : GDALDispatcherAlgorithm(NAME, DESCRIPTION, HELP_URL)
     {
         // only for the help message
-        AddOutputFormatArg(&m_format).SetDefault("json").SetChoices("json",
-                                                                    "text");
+        AddOutputFormatArg(&m_format).SetChoices("json", "text");
         AddInputDatasetArg(&m_dataset);
 
         m_longDescription = "For all options, run 'gdal raster info --help' or "
                             "'gdal vector info --help'";
     }
 
-  private:
-    std::unique_ptr<GDALRasterInfoAlgorithm> m_rasterInfo{};
-    std::unique_ptr<GDALVectorInfoAlgorithm> m_vectorInfo{};
+    ~GDALInfoAlgorithm() override;
 
+  private:
     std::string m_format{};
     GDALArgDatasetValue m_dataset{};
 
@@ -58,5 +56,7 @@ class GDALInfoAlgorithm final
         return false;
     }
 };
+
+GDALInfoAlgorithm::~GDALInfoAlgorithm() = default;
 
 GDAL_STATIC_REGISTER_ALG(GDALInfoAlgorithm);

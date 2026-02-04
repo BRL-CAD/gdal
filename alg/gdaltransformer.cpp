@@ -1096,14 +1096,27 @@ retry:
     /* -------------------------------------------------------------------- */
     /*      Compute a pixel size from this.                                 */
     /* -------------------------------------------------------------------- */
-    const double dfPixelSize =
+    double dfPixelSize =
         dfDiagonalDist / sqrt(static_cast<double>(nInXSize) * nInXSize +
                               static_cast<double>(nInYSize) * nInYSize);
 
-    const double dfPixels = (dfMaxXOut - dfMinXOut) / dfPixelSize;
-    const double dfLines = (dfMaxYOut - dfMinYOut) / dfPixelSize;
+    double dfPixels = (dfMaxXOut - dfMinXOut) / dfPixelSize;
+    double dfLines = (dfMaxYOut - dfMinYOut) / dfPixelSize;
 
     const int knIntMaxMinusOne = std::numeric_limits<int>::max() - 1;
+    if (dfPixels > knIntMaxMinusOne && dfLines <= dfPixels)
+    {
+        dfPixels = knIntMaxMinusOne;
+        dfPixelSize = (dfMaxXOut - dfMinXOut) / dfPixels;
+        dfLines = (dfMaxYOut - dfMinYOut) / dfPixelSize;
+    }
+    else if (dfLines > knIntMaxMinusOne)
+    {
+        dfLines = knIntMaxMinusOne;
+        dfPixelSize = (dfMaxYOut - dfMinYOut) / dfLines;
+        dfPixels = (dfMaxXOut - dfMinXOut) / dfPixelSize;
+    }
+
     if (dfPixels > knIntMaxMinusOne || dfLines > knIntMaxMinusOne)
     {
         CPLError(CE_Failure, CPLE_AppDefined,
@@ -1408,7 +1421,9 @@ void *GDALCreateGenImgProjTransformer(GDALDatasetH hSrcDS,
 /*      the center longitude of the dataset for wrapping purposes.      */
 /************************************************************************/
 
-static void InsertCenterLong(GDALDatasetH hDS, OGRSpatialReference *poSRS,
+static void InsertCenterLong(GDALDatasetH hDS, const OGRSpatialReference *poSRS,
+                             const OGRSpatialReference *poDstSRS,
+                             const char *pszTargetExtent,
                              CPLStringList &aosOptions)
 
 {
@@ -1455,13 +1470,26 @@ static void InsertCenterLong(GDALDatasetH hDS, OGRSpatialReference *poSRS,
                           adfGeoTransform[0] + nXSize * adfGeoTransform[1] +
                               nYSize * adfGeoTransform[2]));
 
-    const double dfEpsilon =
-        std::max(std::fabs(adfGeoTransform[1]), std::fabs(adfGeoTransform[2]));
-    // If the raster covers more than 360 degree (allow an extra pixel),
-    // give up
-    constexpr double RELATIVE_EPSILON = 0.05;  // for numeric precision issues
-    if (dfMaxLong - dfMinLong > 360.0 + dfEpsilon * (1 + RELATIVE_EPSILON))
-        return;
+    // If the raster covers more than 360 degree, give up,
+    // except is the target SRS is geographic and crossing the antimeridian
+    if (dfMaxLong - dfMinLong > 360.0)
+    {
+        const CPLStringList aosTE(CSLTokenizeString2(pszTargetExtent, ",", 0));
+        if (aosTE.size() == 4 && poDstSRS->IsGeographic() &&
+            std::fabs(poDstSRS->GetAngularUnits() -
+                      CPLAtof(SRS_UA_DEGREE_CONV)) <= 1e-9 &&
+            ((CPLAtof(aosTE[0]) >= -179 && CPLAtof(aosTE[0]) < 180 &&
+              CPLAtof(aosTE[2]) > 180) ||
+             (CPLAtof(aosTE[0]) < -180 && CPLAtof(aosTE[2]) > -180 &&
+              CPLAtof(aosTE[2]) <= 179)))
+        {
+            // insert CENTER_LONG
+        }
+        else
+        {
+            return;
+        }
+    }
 
     /* -------------------------------------------------------------------- */
     /*      Insert center long.                                             */
@@ -1474,8 +1502,8 @@ static void InsertCenterLong(GDALDatasetH hDS, OGRSpatialReference *poSRS,
 /*                      GDALComputeAreaOfInterest()                     */
 /************************************************************************/
 
-bool GDALComputeAreaOfInterest(OGRSpatialReference *poSRS, double adfGT[6],
-                               int nXSize, int nYSize,
+bool GDALComputeAreaOfInterest(const OGRSpatialReference *poSRS,
+                               double adfGT[6], int nXSize, int nYSize,
                                double &dfWestLongitudeDeg,
                                double &dfSouthLatitudeDeg,
                                double &dfEastLongitudeDeg,
@@ -1560,7 +1588,7 @@ bool GDALComputeAreaOfInterest(OGRSpatialReference *poSRS, double adfGT[6],
     return ret;
 }
 
-bool GDALComputeAreaOfInterest(OGRSpatialReference *poSRS, double dfX1,
+bool GDALComputeAreaOfInterest(const OGRSpatialReference *poSRS, double dfX1,
                                double dfY1, double dfX2, double dfY2,
                                double &dfWestLongitudeDeg,
                                double &dfSouthLatitudeDeg,
@@ -1915,6 +1943,9 @@ const char *GDALGetGenImgProjTranformerOptionList(void)
            "compute the best coordinate operation between the source and "
            "target SRS. If not specified, the bounding box of the source "
            "raster will be used.'/>"
+           "<Option name='TARGET_EXTENT' type='string' "
+           "description='Target extent as minx,miny,maxx,maxy expressed in "
+           "target SRS.'/>"
            "<Option name='GEOLOC_BACKMAP_OVERSAMPLE_FACTOR' type='float' "
            "min='0.1' max='2' description='"
            "Oversample factor used to derive the size of the \"backmap\" used "
@@ -1952,6 +1983,14 @@ const char *GDALGetGenImgProjTranformerOptionList(void)
            "description for details, assumptions, and defaults. If this "
            "option is set, DST_METHOD=GEOLOC_ARRAY will be assumed if not "
            "set.'/>"
+           "<Option name='GEOLOC_NORMALIZE_LONGITUDE_MINUS_180_PLUS_180' "
+           "type='boolean' "
+           "description='"
+           "Force geolocation longitudes into -180,180 when longitude/latitude "
+           "is the coordinate system of the geolocation arrays' default='NO'>"
+           "  <Value>YES</Value>"
+           "  <Value>NO</Value>"
+           "</Option>"
            "<Option name='NUM_THREADS' type='string' "
            "description='Number of threads to use'/>"
            "</OptionList>";
@@ -2013,7 +2052,7 @@ const char *GDALGetGenImgProjTranformerOptionList(void)
  * operations that are not the "best" if resources (typically grids) needed
  * to use them are missing. It will then fallback to other coordinate operations
  * that have a lesser accuracy, for example using Helmert transformations,
- * or in the absence of such operations, to ones with potential very rought
+ * or in the absence of such operations, to ones with potential very rough
  * accuracy, using "ballpark" transformations
  * (see https://proj.org/glossary.html).
  * When calling this method with YES, PROJ will only consider the
@@ -2156,6 +2195,11 @@ const char *GDALGetGenImgProjTranformerOptionList(void)
  * the GEOLOCATION metadata domain of the destination dataset. See
  * SRC_GEOLOC_ARRAY description for details, assumptions, and defaults. If this
  * option is set, DST_METHOD=GEOLOC_ARRAY will be assumed if not set.
+ * </li>
+ * <li>GEOLOC_NORMALIZE_LONGITUDE_MINUS_180_PLUS_180=YES/NO. (GDAL &gt;= 3.12.0)
+ * Whether to force geolocation longitudes into -180,180 when longitude/latitude is
+ * the coordinate system of the geolocation arrays. The default is to enable this mode
+ * when the values in the geolocation array are in the -180,180, otherwise NO.
  * </li>
  * </ul>
  *
@@ -2614,7 +2658,7 @@ void *GDALCreateGenImgProjTransformer2(GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
     /*      Setup reprojection.                                             */
     /* -------------------------------------------------------------------- */
 
-    if (CPLFetchBool(papszOptions, "STRIP_VERT_CS", false))
+    if (CPLFetchBool(papszOptions, "@STRIP_VERT_CS", false))
     {
         if (oSrcSRS.IsCompound())
         {
@@ -2642,7 +2686,9 @@ void *GDALCreateGenImgProjTransformer2(GDALDatasetH hSrcDS, GDALDatasetH hDstDS,
 
         if (bMayInsertCenterLong)
         {
-            InsertCenterLong(hSrcDS, &oSrcSRS, aosOptions);
+            InsertCenterLong(hSrcDS, &oSrcSRS, &oDstSRS,
+                             CSLFetchNameValue(papszOptions, "TARGET_EXTENT"),
+                             aosOptions);
         }
 
         if (CPLFetchBool(papszOptions, "PROMOTE_TO_3D", false))
@@ -3032,6 +3078,10 @@ int GDALGenImgProjTransform(void *pTransformArgIn, int bDstToSrc,
                             int nPointCount, double *padfX, double *padfY,
                             double *padfZ, int *panSuccess)
 {
+    // Sanity check (see issue GH #13498)
+    if (nullptr == pTransformArgIn)
+        return FALSE;
+
     GDALGenImgProjTransformInfo *psInfo =
         static_cast<GDALGenImgProjTransformInfo *>(pTransformArgIn);
 
@@ -3487,7 +3537,7 @@ void *GDALCreateReprojectionTransformer(const char *pszSrcWKT,
  * operations that are not the "best" if resources (typically grids) needed
  * to use them are missing. It will then fallback to other coordinate operations
  * that have a lesser accuracy, for example using Helmert transformations,
- * or in the absence of such operations, to ones with potential very rought
+ * or in the absence of such operations, to ones with potential very rough
  * accuracy, using "ballpark" transformations
  * (see https://proj.org/glossary.html).
  * When calling this method with YES, PROJ will only consider the

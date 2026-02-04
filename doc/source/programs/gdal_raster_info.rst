@@ -45,6 +45,9 @@ The following items will be reported (when known):
 -  Band unit type (i.e.. "meters" or "feet" for elevation bands).
 -  Band pseudo-color tables.
 
+Starting with GDAL 3.12, :program:`gdal raster info` can be used as the last
+step of a pipeline.
+
 The following options are available:
 
 Standard options
@@ -52,7 +55,8 @@ Standard options
 
 .. option:: -f, --of, --format, --output-format json|text
 
-    Which output format to use. Default is JSON.
+    Which output format to use. Default is JSON, and starting with GDAL 3.12,
+    text when invoked from command line.
 
 .. option:: --mm, --min-max
 
@@ -96,10 +100,6 @@ Advanced options
 .. option:: --no-ct
 
     Suppress printing of color table.
-
-.. option:: --no-rat
-
-    Suppress printing of raster attribute table.
 
 .. option:: --no-fl
 
@@ -145,13 +145,13 @@ Examples
 --------
 
 .. example::
-   :title: Getting information on the file :file:`utmsmall.tif` as JSON output
+   :title: Getting information on the file :file:`utmsmall.tif` as text output
 
    .. command-output:: gdal raster info utmsmall.tif
       :cwd: ../../data
 
 .. example::
-   :title: Getting information on the file :file:`utmsmall.tif` as text output, including statistics
+   :title: Getting information on the file :file:`utmsmall.tif` as JSON output, including statistics
 
-   .. command-output:: gdal raster info --format=text --stats utmsmall.tif
+   .. command-output:: gdal raster info --format=JSON --stats utmsmall.tif
       :cwd: ../../data/with_stats
